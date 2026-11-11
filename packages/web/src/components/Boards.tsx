@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type Company, type DetectResult } from "../api.ts";
+import { api, type Company, type DetectResult, type Evaluation } from "../api.ts";
 
 /**
  * The companies whose boards the app polls.
@@ -8,62 +8,152 @@ import { api, type Company, type DetectResult } from "../api.ts";
  * token, neither of which is on a careers page. Here you type the name and the
  * app works both out, so the thing you have to know is the thing you actually
  * know.
+ *
+ * It also reads a board before you commit to it. No ATS offers a search across
+ * every company, so a name has to come from somewhere — you, or the assistant
+ * suggesting one. Either way it is a guess until the board is read. Checking
+ * first turns that guess into a count of postings that match, and a company
+ * hiring for nothing you want is then a cheap answer rather than a sync, a
+ * thousand stored postings and a list to clean up later.
  */
-export function Boards({ onChanged }: { onChanged: () => void }) {
+export function Boards({
+  place,
+  includeRemote,
+  onChanged,
+}: {
+  /** The city filter from the Jobs tab, so a check counts the same postings. */
+  place: string | undefined;
+  includeRemote: boolean;
+  onChanged: () => void;
+}) {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"check" | "add" | null>(null);
   const [result, setResult] = useState<DetectResult | null>(null);
+  const [checked, setChecked] = useState<Evaluation[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = () => void api.companies().then(setCompanies);
   useEffect(load, []);
 
-  async function add(event: React.FormEvent) {
-    event.preventDefault();
-    const names = draft
+  const names = () =>
+    draft
       .split(",")
       .map((name) => name.trim())
       .filter(Boolean);
-    if (names.length === 0) return;
 
-    setBusy(true);
+  async function run(what: "check" | "add", list?: string[]) {
+    const wanted = list ?? names();
+    if (wanted.length === 0) return;
+
+    setBusy(what);
     setError(null);
-    setResult(null);
     try {
-      const found = await api.detectCompanies(names, true);
-      setResult(found);
-      setDraft("");
-      load();
-      onChanged();
-    } catch (addError) {
-      setError((addError as Error).message);
+      if (what === "check") {
+        setResult(null);
+        setChecked(await api.evaluateCompanies(wanted, place, includeRemote));
+      } else {
+        setResult(await api.detectCompanies(wanted, true));
+        setChecked(null);
+        setDraft("");
+        load();
+        onChanged();
+      }
+    } catch (runError) {
+      setError((runError as Error).message);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   const added = result?.results.filter((row) => row.found) ?? [];
+  const worthwhile = (checked ?? []).filter((row) => row.matching > 0 && !row.already_followed);
 
   return (
     <div className="profile">
       <h3>Add companies</h3>
-      <form onSubmit={(event) => void add(event)}>
+      <form onSubmit={(event) => void (event.preventDefault(), run("check"))}>
         <input
           value={draft}
-          disabled={busy}
+          disabled={busy !== null}
           placeholder="Figma, Notion, Datadog…"
           title="Company names, separated by commas. The board is worked out for you."
           onChange={(event) => setDraft(event.target.value)}
         />
+        <div className="row-actions">
+          <button type="submit" disabled={busy !== null}>
+            Check their boards
+          </button>
+          <button
+            type="button"
+            className="ghost"
+            disabled={busy !== null}
+            onClick={() => void run("add")}
+          >
+            Follow without checking
+          </button>
+        </div>
         <p className="fine">
-          Type the names. The app tries Greenhouse, Lever and Ashby and keeps whichever has
-          postings.
+          A check reads each board and counts the postings that match what you are looking for.
+          Nothing is stored until you follow them.{" "}
+          {place ? `Counting ${place}${includeRemote ? " and remote" : ""}.` : "Counting everywhere."}
         </p>
       </form>
 
-      {busy && <div className="hint">Looking for their boards…</div>}
+      {busy === "check" && <div className="hint">Reading their boards…</div>}
+      {busy === "add" && <div className="hint">Looking for their boards…</div>}
       {error && <p className="error">{error}</p>}
+
+      {checked && (
+        <div>
+          <h3>
+            What they are hiring for
+            {worthwhile.length > 0 && (
+              <button
+                className="ghost tiny"
+                disabled={busy !== null}
+                onClick={() => void run("add", worthwhile.map((row) => row.name))}
+              >
+                Follow the {worthwhile.length} with matches
+              </button>
+            )}
+          </h3>
+          {checked.map((row) => (
+            <div className="row board-row" key={row.name}>
+              <div className="row-main">
+                <div className="row-title">
+                  {row.name}
+                  {row.already_followed && <span className="fine"> · already following</span>}
+                </div>
+                <div className="row-sub">
+                  {row.error
+                    ? row.error
+                    : `${row.matching} of ${row.in_scope} matching · ${row.total} on the board · best ${row.best_score}`}
+                </div>
+                {row.top.slice(0, 3).map((hit) => (
+                  <div className="row-sub" key={hit.url}>
+                    <a href={hit.url} target="_blank" rel="noreferrer">
+                      {hit.title}
+                    </a>{" "}
+                    · {hit.score}
+                    {hit.location ? ` · ${hit.location}` : ""}
+                  </div>
+                ))}
+              </div>
+              {!row.already_followed && row.ats && (
+                <button
+                  className="ghost tiny"
+                  disabled={busy !== null}
+                  title={`Follow ${row.name}`}
+                  onClick={() => void run("add", [row.name])}
+                >
+                  Follow
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {result && (
         <div className="hint">

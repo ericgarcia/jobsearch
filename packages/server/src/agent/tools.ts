@@ -6,6 +6,8 @@ import { syncBoards } from "../sync.js";
 import { rankAllJobs } from "../matching.js";
 import { expandPlace } from "../location.js";
 import { detectMany } from "../sources/detect.js";
+import { evaluateCompanies } from "../discover.js";
+import { getInterests, setInterests } from "../interests.js";
 import { homeLocation } from "../settings.js";
 import { assessTopJobs, ASSESS_MODEL } from "../assess.js";
 import { SOURCES } from "../sources/index.js";
@@ -64,6 +66,51 @@ function resolvePlaces(places?: string[]): string[] | undefined {
   if (wanted.length === 0) return undefined;
   return wanted.flatMap(expandPlace);
 }
+
+const getInterestsTool = tool(
+  "get_interests",
+  "Read what the person says they are looking for: the role titles they want, subjects to seek out, and subjects to avoid. This is what they want next, as opposed to the profile, which is what they have done. Matching weights these above anything read from their history.",
+  {},
+  async () => guard(() => getInterests()),
+  { annotations: { readOnlyHint: true } },
+);
+
+const setInterestsTool = tool(
+  "set_interests",
+  "Record what the person is looking for. Use their own words. Only send the fields that change; sending a list replaces it.",
+  {
+    titles: z.array(z.string()).optional().describe('Role titles wanted, e.g. ["Staff Machine Learning Engineer"]'),
+    include: z.array(z.string()).optional().describe("Subjects or technologies to seek out"),
+    exclude: z.array(z.string()).optional().describe("Subjects to avoid. A posting whose title matches one is pushed right down."),
+    note: z.string().optional().describe("Anything else about what they want, in their words"),
+  },
+  async (args) =>
+    guard(() => ({
+      interests: setInterests(args),
+      note: "Run rank_jobs so the change takes effect on the stored postings.",
+    })),
+);
+
+const evaluateCompaniesTool = tool(
+  "evaluate_companies",
+  "Look at companies' job boards WITHOUT following them, and report how many of their postings match what the person wants. Use this to decide which companies are worth following, then add_companies for the ones that are. Propose candidate names yourself from what you know of the person's field — there is no way to search every board, so the names have to come from somewhere, and saying where you got them is part of the answer.",
+  {
+    names: z.array(z.string()).min(1).max(20).describe("Companies to look at"),
+    location_any: z.array(z.string()).optional().describe('Cities to count. Omit for where they live; ["anywhere"] for no limit.'),
+    include_remote: z.boolean().optional().describe("Also count remote postings based elsewhere"),
+    threshold: z.number().int().min(0).max(100).optional().describe("Score a posting must reach to count as a match. Default 40."),
+  },
+  async (args) =>
+    guard(async () => {
+      const places = resolvePlaces(args.location_any);
+      return evaluateCompanies(args.names, {
+        location: places === undefined ? "" : places.join(","),
+        includeRemote: args.include_remote ?? false,
+        threshold: args.threshold,
+      });
+    }),
+  { annotations: { readOnlyHint: true } },
+);
 
 const listCompanies = tool(
   "list_companies",
@@ -298,6 +345,9 @@ export const jobsearchServer = createSdkMcpServer({
   version: "0.1.0",
   tools: [
     listCompanies,
+    getInterestsTool,
+    setInterestsTool,
+    evaluateCompaniesTool,
     addCompany,
     addCompaniesByName,
     syncBoardsTool,
@@ -319,6 +369,7 @@ export const jobsearchServer = createSdkMcpServer({
 export const MUTATING_TOOLS = new Set([
   "mcp__jobsearch__add_company",
   "mcp__jobsearch__add_companies",
+  "mcp__jobsearch__set_interests",
   "mcp__jobsearch__sync_boards",
   "mcp__jobsearch__rank_jobs",
   "mcp__jobsearch__assess_top_jobs",

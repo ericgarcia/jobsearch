@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Interests } from "./Interests.tsx";
 import { api, type Bullet, type Profile as ProfileData, type Role } from "../api.ts";
 
 /** One editable fact. The text is the claim a resume may later restate. */
@@ -131,6 +132,9 @@ export function Profile() {
 
   return (
     <div className="profile">
+      <Interests />
+
+      <h3>About you</h3>
       <div className="field-grid">
         {(["name", "headline", "email", "location"] as const).map((field) => (
           <label key={field}>

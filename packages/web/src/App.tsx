@@ -226,7 +226,7 @@ export function App() {
       <div className="body-wrap">
         <div className="scroll">
           {tab === "boards" ? (
-            <Boards onChanged={loadData} />
+            <Boards place={place} includeRemote={includeRemote} onChanged={loadData} />
           ) : tab === "profile" ? (
             <Profile />
           ) : tab === "drafts" ? (

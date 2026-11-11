@@ -22,6 +22,9 @@ db.pragma("foreign_keys = ON");
 export function migrate(): void {
   db.exec(fs.readFileSync(path.join(here, "schema.sql"), "utf8"));
   addMissingColumns();
+  // search_criteria was created in the first version and never used; interests
+  // replaces it. Nothing ever wrote to it, so there is nothing to carry over.
+  db.exec("DROP TABLE IF EXISTS search_criteria");
 }
 
 /**

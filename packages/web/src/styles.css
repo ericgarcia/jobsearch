@@ -340,3 +340,35 @@ button.tiny { padding: 1px 6px; font-size: 11px; }
 
 .board-row { grid-template-columns: 1fr auto; cursor: default; }
 .board-row:hover { background: none; }
+
+/* Two buttons under one form field. */
+.row-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* A list of chosen terms: the interests editor. */
+.interest-group {
+  margin-top: 14px;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  font-size: 12px;
+}
+.chip button {
+  padding: 0 4px;
+  line-height: 1;
+}

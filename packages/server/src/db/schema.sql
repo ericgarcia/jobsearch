@@ -65,16 +65,21 @@ CREATE TABLE IF NOT EXISTS application_events (
   at             TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
--- A named set of search criteria the user can re-run.
-CREATE TABLE IF NOT EXISTS search_criteria (
-  id          INTEGER PRIMARY KEY,
-  name        TEXT    NOT NULL UNIQUE,
-  titles      TEXT    NOT NULL DEFAULT '[]',
-  locations   TEXT    NOT NULL DEFAULT '[]',
-  include     TEXT    NOT NULL DEFAULT '[]',
-  exclude     TEXT    NOT NULL DEFAULT '[]',
-  remote_only INTEGER NOT NULL DEFAULT 0,
-  created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+/*
+  What the person wants next, as opposed to what they have done.
+
+  Matching read only the profile, which is a record of the past. Someone moving
+  towards a different kind of work got ranked against the work they are leaving.
+  These are the terms they choose, and they outweigh the ones inferred from
+  their history.
+*/
+CREATE TABLE IF NOT EXISTS interests (
+  id         INTEGER PRIMARY KEY CHECK (id = 1),
+  titles     TEXT NOT NULL DEFAULT '[]',
+  include    TEXT NOT NULL DEFAULT '[]',
+  exclude    TEXT NOT NULL DEFAULT '[]',
+  note       TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- One chat thread in the UI, mapped to an Agent SDK session.

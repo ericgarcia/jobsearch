@@ -153,10 +153,21 @@ it.
 
 Three things decide what you see first, and they are deliberately kept apart.
 
-**Keyword match**, in `matching.ts`. Arithmetic over the terms in your profile:
-skills you listed, skills tagged on your achievements, words from your job
-titles. A term in the posting's title counts for three times a term in its body.
-It scores all two thousand postings in well under a second and costs nothing.
+**Keyword match**, in `matching.ts`. Arithmetic over two sets of terms. The
+first is what you say you want, under **What you are looking for** on the
+Profile tab: the titles you want, the subjects to seek out, the subjects to
+avoid. The second is what your profile shows you have done: skills you listed,
+skills tagged on your achievements, words from your job titles. A term in the
+posting's title counts for three times a term in its body.
+
+The two are not weighted equally. A chosen term outweighs an inferred one,
+because a profile is a record of the past and ranking against it alone measures
+anyone changing direction against the work they are leaving. With the interests
+left empty the profile is all there is, and a former employer rises to the top
+of the list on history alone. A posting whose title is about something you
+asked to avoid is pushed to the bottom; in the body the mention may be
+incidental, so the penalty is lighter. Scoring all seven thousand postings
+takes well under a second and costs nothing.
 
 It also corrects for level. Keywords cannot tell seniority, so a PhD ML engineer
 matches "PhD Machine Learning Engineer, Intern" almost perfectly. If your
@@ -234,6 +245,30 @@ with your own targets. A board token is the company's identifier in its ATS URL:
 | Greenhouse | `boards.greenhouse.io/anthropic` | `anthropic` |
 | Lever | `jobs.lever.co/spotify` | `spotify` |
 | Ashby | `jobs.ashbyhq.com/ramp` | `ramp` |
+
+### Read a board before you follow it
+
+No applicant tracking system offers a search across every company, so a name
+has to come from somewhere — you, or the assistant proposing one from what it
+knows of your field. Either way it is a guess until the board is read.
+
+Type the names on the **Boards** tab and press **Check their boards**. The app
+finds each board, scores every posting against the same terms the ranked list
+uses, and reports how many match, what the best one is, and its top few titles
+with links. Nothing is stored. Follow the ones worth following; a company
+hiring for nothing you want is then a cheap answer rather than a sync, a
+thousand stored postings and a list to clean up later.
+
+Scores are scaled against the best match in the postings you already have, not
+against the batch being checked, so a company read here is measured by the same
+bar as every company you follow. Normalising each batch against itself would
+make every company look like a perfect match.
+
+The assistant has the same tool. Ask it which companies are worth following and
+it will propose names, read the boards and report what they are actually
+hiring for.
+
+### By hand
 
 Ask the assistant to add one, or post to the API:
 

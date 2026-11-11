@@ -105,6 +105,39 @@ export interface JobQuery {
   untracked?: boolean;
 }
 
+export interface Interests {
+  /** Role titles wanted, for example "Staff Machine Learning Engineer". */
+  titles: string[];
+  /** Subjects and technologies to seek out. */
+  include: string[];
+  /** Subjects to avoid. A posting whose title matches one is pushed down. */
+  exclude: string[];
+  note: string | null;
+}
+
+/** One posting found on a board that is not followed yet. */
+export interface Hit {
+  title: string;
+  location: string | null;
+  remote: boolean;
+  url: string;
+  score: number;
+}
+
+/** What a company's board looks like, read before deciding to follow it. */
+export interface Evaluation {
+  name: string;
+  ats: string | null;
+  board_token: string | null;
+  total: number;
+  in_scope: number;
+  matching: number;
+  best_score: number;
+  top: Hit[];
+  already_followed: boolean;
+  error?: string;
+}
+
 export const api = {
   health: () => json<Health>("/api/health"),
 
@@ -175,6 +208,22 @@ export const api = {
     json<DetectResult>("/api/companies/detect", {
       method: "POST",
       body: JSON.stringify({ names, add }),
+    }),
+
+  interests: () => json<Interests>("/api/interests"),
+
+  saveInterests: (patch: Partial<Interests>) =>
+    json<Interests>("/api/interests", { method: "PUT", body: JSON.stringify(patch) }),
+
+  /**
+   * Read companies' boards without following them, and report how many of
+   * their postings match. Nothing is stored, so a company can be looked at
+   * and then left alone.
+   */
+  evaluateCompanies: (names: string[], location: string | undefined, includeRemote: boolean) =>
+    json<Evaluation[]>("/api/companies/evaluate", {
+      method: "POST",
+      body: JSON.stringify({ names, location, include_remote: includeRemote }),
     }),
 
   deleteCompany: (id: number) => json<unknown>(`/api/companies/${id}`, { method: "DELETE" }),

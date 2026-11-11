@@ -1,5 +1,6 @@
 import { db } from "./db/client.js";
 import * as profile from "./profile.js";
+import { getInterests } from "./interests.js";
 
 /**
  * Rank every posting against the stored profile.
@@ -12,6 +13,9 @@ import * as profile from "./profile.js";
  * It was written because the job list had no ranking at all: postings came back
  * in the order they were fetched, which looked like relevance and was not.
  */
+
+/** The score the best match in the corpus receives. See rankAllJobs. */
+const BEST_MATCH = 65;
 
 /** Terms too short or too common to mean anything on their own. */
 const STOPWORDS = new Set([
@@ -63,7 +67,18 @@ export function profileKeywords(): Keyword[] {
     weights.set(term, Math.max(weights.get(term) ?? 0, weight));
   };
 
-  // Skills the person listed by hand are the strongest signal.
+  /*
+    Chosen terms outweigh inferred ones. What the person says they want is
+    better evidence than what their last job happened to involve, and without
+    this a career move is ranked against the career being left.
+  */
+  const interests = getInterests();
+  for (const title of interests.titles) {
+    for (const word of title.split(/[^A-Za-z0-9+#.]+/)) add(word, 5);
+  }
+  for (const topic of interests.include) add(topic, 4);
+
+  // Skills the person listed by hand.
   for (const skill of profile.listSkills()) add(skill.name, 3);
 
   // Skills tagged on individual achievements.
@@ -95,8 +110,8 @@ export interface MatchResult {
  * A term found in the title counts for three times a term found in the body.
  */
 export function rankAllJobs(): MatchResult {
-  const keywords = profileKeywords();
-  if (keywords.length === 0) {
+  const scorer = buildScorer();
+  if (scorer.keywords.length === 0) {
     throw new Error("The profile is empty, so there is nothing to match against.");
   }
 
@@ -104,39 +119,30 @@ export function rankAllJobs(): MatchResult {
     .prepare(`SELECT id, company, title, COALESCE(description, '') AS description FROM jobs`)
     .all() as { id: number; company: string; title: string; description: string }[];
 
-  const senior = profileIsSenior();
-
   /*
     Scores are normalised against the best match in this corpus, not against a
-    theoretical maximum of every profile term appearing in one title. That
-    maximum is unreachable, so normalising against it squashed every posting
-    into 0-42 while an assessed score runs 0-100 — and any posting the
-    assistant had read and scored above 42 then outranked every unread posting
-    forever, however well it matched. The list drifted towards what had already
-    been read instead of what was worth reading.
+    theoretical maximum of every term appearing in one title. That maximum is
+    unreachable, so normalising against it squashed every posting into the
+    bottom of the range while an assessed score runs 0-100 — and any posting
+    already read and scored above that ceiling outranked every unread posting
+    forever, however well it matched.
 
-    The best match in the corpus scores BEST_MATCH, deliberately below the top
-    of the assessed range. Keyword overlap is evidence that a posting deserves
+    The best match scores BEST_MATCH, deliberately below the top of the
+    assessed range: keyword overlap is evidence that a posting deserves
     reading, never evidence that it is a strong fit.
   */
-  const BEST_MATCH = 65;
-
-  // Pass one: raw weighted overlap, so the best score is known before scaling.
   const raw = new Map<number, { total: number; matched: string[] }>();
   for (const job of jobs) {
-    let total = 0;
-    const matched: string[] = [];
-    for (const { term, weight } of keywords) {
-      const inTitle = mentions(job.title, term);
-      const inBody = !inTitle && mentions(job.description, term);
-      if (!inTitle && !inBody) continue;
-      total += weight * (inTitle ? 3 : 1);
-      matched.push(term);
-    }
-    raw.set(job.id, { total, matched });
+    raw.set(job.id, rawScore(scorer, job.title, job.description));
   }
 
   const best = Math.max(1, ...[...raw.values()].map((entry) => entry.total));
+
+  // Remembered so a company being evaluated is scaled against the same bar.
+  db.prepare(
+    `INSERT INTO settings (key, value, updated_at) VALUES ('match_best_raw', ?, datetime('now'))
+     ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+  ).run(String(best));
 
   const upsert = db.prepare(
     `INSERT INTO job_match (job_id, score, matched, scored_at)
@@ -145,19 +151,10 @@ export function rankAllJobs(): MatchResult {
        score = excluded.score, matched = excluded.matched, scored_at = excluded.scored_at`,
   );
 
-  // Pass two: scale, correct for level, store.
   const write = db.transaction(() => {
     for (const job of jobs) {
       const entry = raw.get(job.id)!;
-
-      // Square-root curve: a posting matching 20 terms is better than one
-      // matching 10, but not twice as good.
-      let score = Math.round(BEST_MATCH * Math.sqrt(entry.total / best));
-
-      // Level, which keywords cannot see. Pushed down rather than hidden, so
-      // the posting is still there if the person goes looking for it.
-      if (senior && JUNIOR_TITLE.test(job.title)) score = Math.round(score * 0.2);
-      else if (senior && SENIOR_TITLE.test(job.title)) score = Math.min(BEST_MATCH, score + 5);
+      const score = finalScore(scorer, entry.total, best, job.title, job.description);
       upsert.run(job.id, score, JSON.stringify(entry.matched.slice(0, 20)));
     }
   });
@@ -179,4 +176,73 @@ export function matchFor(jobId: number) {
     | { score: number; matched: string; scored_at: string }
     | undefined;
   return row ? { ...row, matched: JSON.parse(row.matched) as string[] } : null;
+}
+
+/** Everything scoring needs, built once per run. */
+export interface Scorer {
+  keywords: Keyword[];
+  senior: boolean;
+  avoid: string[];
+}
+
+export function buildScorer(): Scorer {
+  return {
+    keywords: profileKeywords(),
+    senior: profileIsSenior(),
+    avoid: getInterests()
+      .exclude.map((term) => term.trim().toLowerCase())
+      .filter(Boolean),
+  };
+}
+
+/** The raw weighted overlap for one posting, before scaling. */
+export function rawScore(
+  scorer: Scorer,
+  title: string,
+  description: string,
+): { total: number; matched: string[] } {
+  let total = 0;
+  const matched: string[] = [];
+  for (const { term, weight } of scorer.keywords) {
+    const inTitle = mentions(title, term);
+    const inBody = !inTitle && mentions(description, term);
+    if (!inTitle && !inBody) continue;
+    total += weight * (inTitle ? 3 : 1);
+    matched.push(term);
+  }
+  return { total, matched };
+}
+
+/** Scale a raw score onto the shared 0-65 range and apply the corrections. */
+export function finalScore(
+  scorer: Scorer,
+  raw: number,
+  best: number,
+  title: string,
+  description: string,
+): number {
+  let score = Math.round(BEST_MATCH * Math.sqrt(raw / Math.max(1, best)));
+
+  if (scorer.senior && JUNIOR_TITLE.test(title)) score = Math.round(score * 0.2);
+  else if (scorer.senior && SENIOR_TITLE.test(title)) score = Math.min(BEST_MATCH, score + 5);
+
+  const lowerTitle = title.toLowerCase();
+  const lowerBody = description.toLowerCase();
+  if (scorer.avoid.some((term) => lowerTitle.includes(term))) score = Math.round(score * 0.15);
+  else if (scorer.avoid.some((term) => lowerBody.includes(term))) score = Math.round(score * 0.7);
+
+  return score;
+}
+
+/**
+ * The best raw score in the stored corpus, remembered so a company being
+ * evaluated is scaled the same way as everything already followed. Without it
+ * each batch would be normalised against itself and always look like a
+ * perfect match.
+ */
+export function corpusBest(): number {
+  const row = db.prepare(`SELECT value FROM settings WHERE key = 'match_best_raw'`).get() as
+    | { value: string }
+    | undefined;
+  return row ? Number(row.value) : 0;
 }

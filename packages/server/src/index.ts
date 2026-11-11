@@ -11,6 +11,8 @@ import * as resume from "./resume.js";
 import { rankAllJobs } from "./matching.js";
 import { expandPlace } from "./location.js";
 import { detectBoard, detectMany } from "./sources/detect.js";
+import { evaluateCompanies } from "./discover.js";
+import { getInterests, setInterests } from "./interests.js";
 import { assessTopJobs, ASSESS_MODEL } from "./assess.js";
 import { browserEnabled, runAgent, verifyCredential } from "./agent/session.js";
 import {
@@ -117,6 +119,41 @@ app.post("/api/companies/detect", async (request, reply) => {
     results: found,
     missing: found.filter((row) => !row.found).map((row) => row.name),
   };
+});
+
+/* --------------------------------------------------------------- interests */
+
+/** What the person wants next, which matching weights above their history. */
+app.get("/api/interests", async () => getInterests());
+
+app.put("/api/interests", async (request) => {
+  const body = (request.body ?? {}) as Record<string, unknown>;
+  return setInterests(body as never);
+});
+
+/**
+ * Look at companies' boards without following them. Reports how many of their
+ * postings match, so the decision to follow is made on evidence.
+ */
+app.post("/api/companies/evaluate", async (request, reply) => {
+  const body = (request.body ?? {}) as {
+    names?: string[];
+    location?: string;
+    include_remote?: boolean;
+    threshold?: number;
+  };
+  if (!body.names || body.names.length === 0) {
+    return reply.code(400).send({ error: "names is required" });
+  }
+  try {
+    return await evaluateCompanies(body.names, {
+      location: body.location,
+      includeRemote: body.include_remote ?? false,
+      threshold: body.threshold,
+    });
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
 });
 
 app.delete("/api/companies/:id", async (request) => ({
