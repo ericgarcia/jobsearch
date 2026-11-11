@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Split Pilot",
+  "version": "0.1.0",
+  "description": "Pair two tabs in a split view and send every link from the left tab into the right one, so the right stays a single stable page an agent can drive.",
+  "minimum_chrome_version": "155",
+  "permissions": ["tabs", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Split Pilot",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["page.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
+    }
+  ]
+}

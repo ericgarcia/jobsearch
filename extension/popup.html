@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Split Pilot</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --line: #d7dae0;
+        --dim: #5d646e;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --line: #2b313a;
+          --dim: #9aa3ad;
+        }
+      }
+      body {
+        width: 280px;
+        margin: 0;
+        padding: 14px;
+        font: 13px/1.5 system-ui, sans-serif;
+      }
+      h1 {
+        margin: 0 0 10px;
+        font-size: 13px;
+      }
+      p {
+        margin: 0 0 10px;
+        color: var(--dim);
+      }
+      button {
+        width: 100%;
+        padding: 7px;
+        margin-bottom: 6px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        cursor: pointer;
+      }
+      button:hover {
+        border-color: currentColor;
+      }
+      .state {
+        padding: 8px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        margin-bottom: 10px;
+      }
+      .warn {
+        color: #b4541a;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Split Pilot</h1>
+    <div class="state" id="state">…</div>
+    <button id="pair">Split this tab</button>
+    <button id="unpair">Unpair</button>
+    <p id="note"></p>
+    <script src="popup.js"></script>
+  </body>
+</html>
