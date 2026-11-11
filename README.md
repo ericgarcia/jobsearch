@@ -21,6 +21,9 @@ this repository, because this repository is public and your job search is not.
   read-and-score pass on the best of it.
 - Resumes and cover letters tailored to one posting, assembled only from facts
   you have recorded.
+- A Chrome split view, held by an extension of its own, where the app sits on
+  the left and every link you click opens on the right instead of in a new
+  tab. The assistant can arrange it and drive either side.
 
 ## How a resume stays true
 
@@ -112,14 +115,48 @@ window.
    of its own. That tab is easy to miss, and the request times out while it
    waits.
 
-3. Start the app. It opens one browser tab and keeps it.
+3. Install **Split Pilot**, the extension in [`extension/`](extension/). It is
+   not in the Web Store, so load it unpacked: open `chrome://extensions`, turn
+   on **Developer mode**, choose **Load unpacked**, and select that folder.
 
-4. Ask the assistant to open a posting. Then put the app in the left half of a
-   Chrome split view and that tab in the right half: right-click a tab and
-   choose **Split view**, or drag one tab onto the other.
+   Chrome gives an unpacked extension an id derived from the path it was
+   loaded from, so yours will differ from the default. Copy it from the
+   extension's card and put it in `.env`:
 
-From then on the agent drives that same tab, so the right half follows what you
-ask for in the left half.
+   ```
+   JOBSEARCH_SPLIT_EXTENSION_ID=<the id on the card>
+   ```
+
+4. Start the app, and press **Split view** in the header. The button appears
+   only if Split Pilot answers.
+
+A second pane opens beside the app. From then on every link you click in the
+app opens in that pane instead of a new tab, and the pane never moves: it is
+one tab, navigating in place.
+
+The assistant can set the same thing up for itself, with `open_split_view`, and
+can put a page on the right with `open_on_stage` without disturbing whatever
+you are reading on the left.
+
+### Why the extension, rather than arranging the tabs yourself
+
+You can pair two tabs by hand — right-click a tab, choose **Split view** — and
+that is how this worked at first. It comes apart. A link opens a tab, the new
+tab takes focus, the agent's next instruction lands on it, and the arrangement
+you made is gone. Nothing in Playwright can prevent that, because the thing
+moving is the browser.
+
+Split Pilot fixes it where it happens. Links are caught in the page before the
+browser acts on them and sent to the right-hand pane, so no tab is ever
+created. [`extension/README.md`](extension/README.md) has the detail, including
+what it catches and what it costs you in permissions.
+
+One wrinkle worth knowing. The split is held by the extension, so it survives
+restarting the server. The Playwright connection does not — and because that
+connection only knows the tabs it opened itself, after a restart the agent can
+still route links to the pane but can no longer address it directly. Press
+**Split view** again, or ask the assistant to, and note that doing so leaves
+the old pane open as an ordinary tab.
 
 ### Why one connection matters
 
@@ -134,9 +171,10 @@ talks to Playwright over a connection that outlives any single turn.
 
 Two consequences worth knowing:
 
-- **Restarting the server breaks the pairing.** The connection lives as long as
-  the server process, and `npm run dev` restarts it whenever you edit server
-  code. Pair again after a restart.
+- **Restarting the server drops the connection**, and `npm run dev` restarts it
+  whenever you edit server code. The split view itself survives, because the
+  extension holds it; what is lost is the agent's ability to address the pane,
+  as described above.
 - **The token rotates** if you press refresh on the extension's status page.
   Update `.env` when you do.
 
@@ -144,6 +182,11 @@ The agent gets nine browser tools, not Playwright's full set: navigate, read the
 page, click, type, press a key, list tabs, wait, and read the console. There is
 no file upload and no arbitrary JavaScript, because this is your own signed-in
 browser.
+
+It also gets three for the split view — `open_split_view`, `split_view_state`
+and `open_on_stage`. Those do run JavaScript in the app's own tab, since the
+extension answers pages rather than processes, but the script is fixed in
+`agent/split.ts` and never written by the model.
 
 If a split view is more trouble than it is worth, drop `JOBSEARCH_BROWSER` and
 run the app in one window beside an ordinary browser. Nothing else depends on
