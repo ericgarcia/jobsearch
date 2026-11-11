@@ -110,7 +110,8 @@ the driver, never some other tab.
 ```js
 const EXT = "nckkffcpdbfdbpjnkkkdbjagdmoepdee"; // your unpacked id differs
 
-chrome.runtime.sendMessage(EXT, { type: "split-pilot:pair" });
+chrome.runtime.sendMessage(EXT, { type: "split-pilot:pair" });   // make a stage
+chrome.runtime.sendMessage(EXT, { type: "split-pilot:adopt" });  // take an open tab as the stage
 chrome.runtime.sendMessage(EXT, { type: "split-pilot:open", url });
 chrome.runtime.sendMessage(EXT, { type: "split-pilot:unpair" });
 chrome.runtime.sendMessage(EXT, { type: "split-pilot:state" }, console.log);
@@ -131,15 +132,31 @@ on those origins can rearrange your tabs, so narrow the list in
 
 ## Driving both sides with Playwright
 
-Both halves of a split are ordinary tabs, so the Playwright MCP extension
-bridge drives either one. Tabs are addressed by index:
+Both halves of a split are ordinary tabs, so the bridge can drive either —
+**but only once it knows about them.** The Playwright extension lists the tabs
+it opened itself, not the tabs in your window. A stage this extension creates
+is one it never opened, so it does not appear in `browser_tabs list` and cannot
+be selected, however plainly it is sitting there on screen.
+
+Its indices are its own, too. A measured run: the bridge listed one tab, index
+0, while Chrome reported the pair at indices 13 and 14. The two numberings have
+nothing to do with each other, so a Chrome index from `state` must never be
+handed to `browser_tabs select`.
+
+So let the bridge open the stage, then adopt it:
 
 ```
-browser_tabs { action: "list" }            # left is N, right is N+1
-browser_tabs { action: "select", index: N } # then drive the left
-browser_snapshot
+browser_tabs { action: "new", url: "about:blank" }   # the bridge now knows it
+```
+```js
+chrome.runtime.sendMessage(EXT, { type: "split-pilot:adopt" });
 ```
 
-Indices are positional and shift when other tabs open or close. The split keeps
-the pair adjacent, so the right tab stays directly after the left, but neither
-index is stable against the rest of the window.
+`adopt` moves that tab alongside the driver and splits with it. It stays a tab
+the bridge opened, so it stays addressable, and it gains the split and the link
+routing. Adopt a particular tab with `{ tabId }` or `{ url }`; with neither, the
+most recently opened tab in the window is taken, which is what "the tab I just
+opened" means.
+
+Pairing through `split-pilot:pair` is still the right thing for a person at the
+keyboard, where nothing needs to address the stage programmatically.

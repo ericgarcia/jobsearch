@@ -107,6 +107,61 @@ async function startPair(leftTab, url = "about:blank") {
   return pair;
 }
 
+/**
+ * Which tab to adopt: one named outright, else the last one opened in this
+ * window that is not the caller. A tool that has just opened a tab wants that
+ * tab, and it rarely knows its id.
+ */
+async function findCandidate(leftTab, message) {
+  const tabs = (await chrome.tabs.query({ windowId: leftTab.windowId })).filter(
+    (t) => t.id !== leftTab.id,
+  );
+  if (message.tabId) return tabs.find((t) => t.id === message.tabId) ?? null;
+  if (message.url) return tabs.filter((t) => t.url === message.url).pop() ?? null;
+  // Highest id is the most recently created, which is what "the tab I just
+  // opened" means. Index would give whichever sits rightmost, a different tab.
+  return tabs.sort((a, b) => a.id - b.id).pop() ?? null;
+}
+
+/** Move a tab next to the driver and split with it. */
+async function adopt(leftTab, stage) {
+  await dissolve(leftTab.windowId);
+
+  // createSplit refuses tabs that are already split, or not neighbours.
+  if (stage.splitViewId !== undefined && stage.splitViewId >= 0 && chrome.tabs.unsplit) {
+    try {
+      await chrome.tabs.unsplit(stage.splitViewId);
+    } catch {
+      // Already apart.
+    }
+  }
+
+  const me = await chrome.tabs.get(leftTab.id);
+  if (stage.index !== me.index + 1) {
+    await chrome.tabs.move(stage.id, { index: me.index + 1 });
+  }
+
+  let split = false;
+  if (canSplit()) {
+    try {
+      await chrome.tabs.createSplit([leftTab.id, stage.id]);
+      split = true;
+    } catch {
+      // No split view; the pair is two neighbours, and routing still works.
+    }
+  }
+
+  const after = await chrome.tabs.get(stage.id);
+  const pair = {
+    left: leftTab.id,
+    right: stage.id,
+    splitViewId: after.splitViewId ?? -1,
+    split,
+  };
+  await putPair(leftTab.windowId, pair);
+  return pair;
+}
+
 /** Take the pair apart, leaving both tabs open. */
 async function dissolve(windowId) {
   const pair = await pairForWindow(windowId);
@@ -198,6 +253,23 @@ chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
   switch (message?.type) {
     case "split-pilot:pair":
       void startPair(tab, message.url ?? "about:blank").then(respond);
+      return true;
+
+    /*
+      Take an existing tab as the stage, instead of making one.
+
+      A driving tool only knows the tabs it opened itself. A stage this
+      extension creates is invisible to it, so it can watch the stage navigate
+      and never address it — which is half a tool. The way round is for the
+      tool to open the tab, and for us to adopt it: move it alongside and
+      split with it. It stays a tab the tool knows.
+    */
+    case "split-pilot:adopt":
+      void (async () => {
+        const candidate = await findCandidate(tab, message);
+        if (!candidate) return respond({ error: "no tab to adopt" });
+        respond(await adopt(tab, candidate));
+      })();
       return true;
 
     case "split-pilot:unpair":
