@@ -163,14 +163,45 @@ export async function openSplit(appUrl: string, stageUrl = "about:blank"): Promi
  * So this does the one part the page cannot: have Playwright open the tab, so
  * the stage is one the bridge knows and the assistant can address.
  */
+let opening: Promise<{ needed: boolean }> | null = null;
+let openedAt = 0;
+
+/** A stage opened this recently is the one everybody should be adopting. */
+const STAGE_IS_FRESH_MS = 5000;
+
 export async function openStageFor(role: string | null): Promise<{ needed: boolean }> {
   // Already the left pane, and the bridge can still reach the other one.
   if (role === "left" && (await bridgeKnowsBothPanes())) return { needed: false };
 
-  await closeOrphanedStages();
-  const opened = await callBrowser("browser_tabs", { action: "new", url: "about:blank" });
-  if (opened.isError === true) throw new Error(text(opened));
-  return { needed: true };
+  /*
+    One stage at a time, however many tabs ask.
+
+    Every open app tab asks for itself, and each throttles only its own
+    asking, because a page cannot see what another tab is doing. Four requests
+    arrived in five seconds during testing and each opened a tab — which is
+    where the stray about:blank tabs came from. The server is the only place
+    that can see all of them, so the limit belongs here.
+
+    A request that arrives while one is in flight gets the same answer, and
+    one that arrives just after is told a stage is ready: the tab just opened
+    is the one its adopt will pick up anyway.
+  */
+  if (opening) return opening;
+  if (Date.now() - openedAt < STAGE_IS_FRESH_MS) return { needed: true };
+
+  opening = (async () => {
+    await closeOrphanedStages();
+    const opened = await callBrowser("browser_tabs", { action: "new", url: "about:blank" });
+    if (opened.isError === true) throw new Error(text(opened));
+    return { needed: true };
+  })();
+
+  try {
+    return await opening;
+  } finally {
+    opening = null;
+    openedAt = Date.now();
+  }
 }
 
 /** Where the two tabs are, as the extension sees them. */
