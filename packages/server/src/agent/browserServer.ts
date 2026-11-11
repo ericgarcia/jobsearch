@@ -1,4 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import path from "node:path";
+import { DATA_DIR } from "../config.js";
 
 /**
  * One long-lived Playwright MCP server, shared by every chat turn.
@@ -26,6 +28,11 @@ function args(): string[] {
     "--extension",
     "--port",
     String(PORT),
+    // Page snapshots and console dumps land here. Without this they go to
+    // .playwright-mcp/ in whatever directory the server was started from,
+    // which is inside the repository.
+    "--output-dir",
+    path.join(DATA_DIR, "playwright"),
     // Every MCP client session otherwise gets its own browser context, and so
     // its own tab. Sharing the context is what keeps one tab across turns.
     "--shared-browser-context",

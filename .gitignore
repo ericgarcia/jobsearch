@@ -4,6 +4,10 @@ dist/
 .env.local
 *.log
 
+# Playwright MCP writes page snapshots and console logs next to wherever the
+# server was started. They are test debris, not source.
+.playwright-mcp/
+
 # Personal data must never land in a public repo.
 data/
 *.db
