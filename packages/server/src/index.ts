@@ -16,7 +16,7 @@ import { getInterests, setInterests } from "./interests.js";
 import { assessTopJobs, ASSESS_MODEL } from "./assess.js";
 import { browserEnabled, runAgent, verifyCredential } from "./agent/session.js";
 import { APP_URL, SPLIT_EXTENSION_ID } from "./config.js";
-import { openSplitIfNeeded } from "./agent/split.js";
+import { openStageFor } from "./agent/split.js";
 import {
   clearCredential,
   credentialStatus,
@@ -227,22 +227,22 @@ app.post("/api/sync", async (request) => {
 
 /** Where the person works, and so what the job list shows by default. */
 /**
- * Arrange the split view, unless it is arranged already.
+ * Open the stage pane for the tab that is asking, when it needs one.
  *
- * There is no switch for this. The two panes are how the app is meant to be
- * used, and a setting whose only job is to turn off the arrangement is a
+ * The app calls this as it loads and then adopts the tab itself, through the
+ * extension, which is the only party that knows which tab asked. Doing the
+ * whole arrangement here meant guessing at that, and the guess was wrong the
+ * moment a second app tab existed.
+ *
+ * There is no switch for it. The two panes are how the app is meant to be
+ * used, and a setting whose only job is to turn the arrangement off is a
  * setting that leaves the assistant unable to reach half of it.
- *
- * The app asks for this as it loads, which is the only moment the whole chain
- * is known to be ready: the extension is answering, and the page making the
- * request is itself the left pane. Doing it from the server rather than the
- * page is what makes both panes drivable — the stage has to be a tab
- * Playwright opened, and only the server can ask it to open one.
  */
-app.post("/api/split/open", async (_request, reply) => {
+app.post("/api/split/stage", async (request, reply) => {
   if (!browserEnabled) return reply.code(409).send({ error: "The browser is switched off." });
+  const body = (request.body ?? {}) as { role?: string | null };
   try {
-    return await openSplitIfNeeded(APP_URL);
+    return await openStageFor(body.role ?? null);
   } catch (error) {
     // Never let this stop the app loading: it is an arrangement, not the work.
     return reply.code(503).send({ error: (error as Error).message });

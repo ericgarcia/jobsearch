@@ -379,6 +379,20 @@ chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
       return true;
     }
 
+    /*
+      Which pane the asking tab is, if any.
+
+      A page cannot know its own tab id, and nothing else can tell it apart
+      from another tab showing the same URL. Only this listener knows, because
+      Chrome supplies the sender. Without it, "is the app already the left
+      pane?" gets answered for whichever tab happened to be found first, which
+      is how opening the app in a second tab left that tab unsplit while
+      everything reported itself arranged.
+    */
+    case "split-pilot:my-role":
+      void sideOf(tab.id).then((found) => respond({ role: found?.side ?? null }));
+      return true;
+
     case "split-pilot:unpair":
       void dissolve(tab.windowId).then(() => respond({ ok: true }));
       return true;

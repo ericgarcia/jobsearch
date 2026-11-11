@@ -14,7 +14,7 @@ import { JobDetail } from "./components/JobDetail.tsx";
 import { Chat } from "./components/Chat.tsx";
 import { Profile } from "./components/Profile.tsx";
 import { Boards } from "./components/Boards.tsx";
-import { splitInstalled, syncToken } from "./split.ts";
+import { adoptStage, myRole, splitInstalled, syncToken } from "./split.ts";
 import { ResumeView } from "./components/ResumeView.tsx";
 import { CoverLetter } from "./components/CoverLetter.tsx";
 
@@ -68,13 +68,20 @@ export function App() {
   */
   const arrangedAt = useRef(0);
 
-  const arrange = async () => {
+  const arrange = async (id: string) => {
     // Several things can ask at once — a load, a return to the tab, the
     // extension reporting the pair gone. They all want the same one call.
     if (Date.now() - arrangedAt.current < 3000) return;
     arrangedAt.current = Date.now();
     try {
-      await api.openSplitView();
+      /*
+        Two steps, and the order is forced. Only the server can have
+        Playwright open the stage, so the assistant can address it. Only this
+        page can adopt it, because the extension makes the asking tab the
+        driver and nothing else can identify which tab that is.
+      */
+      const { needed } = await api.openStage(await myRole(id));
+      if (needed) await adoptStage(id);
     } catch {
       // An arrangement failing is not a reason for the app to fail.
     }
@@ -96,7 +103,7 @@ export function App() {
       if (event.source !== window) return;
       const data = event.data as { type?: string; role?: string | null } | null;
       if (data?.type !== "split-pilot:role") return;
-      if (data.role === null) void arrange();
+      if (data.role === null) void arrange(splitId);
     };
 
     window.addEventListener("message", onMessage);
@@ -121,7 +128,7 @@ export function App() {
       if (document.visibilityState !== "visible") return;
       if (Date.now() - last < 60_000) return;
       last = Date.now();
-      void arrange();
+      void arrange(splitId);
     };
 
     document.addEventListener("visibilitychange", check);
@@ -151,7 +158,7 @@ export function App() {
       // connects through it without anyone copying a string.
       if (setup.browser_token) await syncToken(id, setup.browser_token);
 
-      if (setup.browser) void arrange();
+      if (setup.browser) void arrange(id);
     });
   }, []);
 

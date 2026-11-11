@@ -16,13 +16,6 @@ import { SPLIT_EXTENSION_ID } from "../config.js";
  * tab, by evaluating it there.
  */
 
-export interface SplitState {
-  paired: boolean;
-  split?: boolean;
-  left?: { id: number; index: number; url: string };
-  right?: { id: number; index: number; url: string };
-  error?: string;
-}
 
 /*
   Playwright answers in sections, and echoes the code it ran as one of them.
@@ -159,60 +152,25 @@ export async function openSplit(appUrl: string, stageUrl = "about:blank"): Promi
 }
 
 /**
- * Arrange the split unless it is already arranged.
+ * Open a stage tab for a page that is about to adopt it, if one is needed.
  *
- * Called whenever the app loads, so it has to be safe to call repeatedly: a
- * reload should not pile up stage tabs, and a pair that is already good
- * should be left exactly as it is.
- */
-export async function openSplitIfNeeded(appUrl: string): Promise<{
-  arranged: boolean;
-  state: string;
-}> {
-  /*
-    A pair is not enough; the bridge has to be able to reach the stage.
-
-    The extension holds the pair, so it survives the server restarting. The
-    Playwright connection does not, and it knows only the tabs it opened
-    itself — so after a restart the panes look perfectly arranged while the
-    assistant can route links to the stage and never address it. Checking only
-    for a pair left exactly that state in place and called it done.
-  */
-  const before = await parsedState();
-  if (before?.paired && before.right && (await bridgeKnowsBothPanes())) {
-    return { arranged: false, state: await splitState() };
-  }
-
-  /*
-    Report what happened, not what was attempted.
-
-    This said arranged: true whichever way it went, because every call here
-    returns text and a failure is just different text. With the browser server
-    down, the app was told its panes were ready while nothing had happened at
-    all — the worst kind of wrong, because nobody goes looking.
-  */
-  const outcome = await run({ type: "split-pilot:adopt" }, appUrl);
-  return { arranged: outcome.ok, state: outcome.text };
-}
-
-/**
- * The state as an object rather than as Playwright's formatted text.
+ * The adopting is done by the page, not here, because only the extension can
+ * tell which tab is asking — a page cannot know its own tab id, and two tabs
+ * showing the app are indistinguishable from the outside. Picking "a tab
+ * showing localhost" is what left a second app tab unsplit while the window
+ * reported itself arranged.
  *
- * Deciding whether to act by matching patterns against a block of prose meant
- * for a model is how a reload ends up opening a second stage: the text
- * changes shape and the match quietly stops holding.
+ * So this does the one part the page cannot: have Playwright open the tab, so
+ * the stage is one the bridge knows and the assistant can address.
  */
-async function parsedState(): Promise<SplitState | null> {
-  const body = await splitState();
-  const result = body.split("### ").find((section) => section.startsWith("Result"));
-  if (!result) return null;
+export async function openStageFor(role: string | null): Promise<{ needed: boolean }> {
+  // Already the left pane, and the bridge can still reach the other one.
+  if (role === "left" && (await bridgeKnowsBothPanes())) return { needed: false };
 
-  const json = result.slice(result.indexOf("\n") + 1).trim();
-  try {
-    return JSON.parse(json) as SplitState;
-  } catch {
-    return null;
-  }
+  await closeOrphanedStages();
+  const opened = await callBrowser("browser_tabs", { action: "new", url: "about:blank" });
+  if (opened.isError === true) throw new Error(text(opened));
+  return { needed: true };
 }
 
 /** Where the two tabs are, as the extension sees them. */

@@ -248,13 +248,16 @@ export const api = {
   prefs: () => json<{ home_location: string | null }>("/api/prefs"),
 
   /**
-   * Ask the server to arrange the split view. Safe to call on every load: it
-   * returns what is already there rather than opening a second pane.
+   * Ask the server to open a stage pane for this tab, if it needs one.
+   *
+   * Send the pane this tab currently is, so the server can tell "already
+   * arranged" from "a different tab is arranged". It answers whether it
+   * opened anything; if it did, the page adopts it through the extension.
    */
-  openSplitView: () =>
-    json<{ arranged?: boolean; state?: string }>("/api/split/open", {
+  openStage: (role: "left" | "right" | null) =>
+    json<{ needed: boolean }>("/api/split/stage", {
       method: "POST",
-      body: "{}",
+      body: JSON.stringify({ role }),
     }),
 
 

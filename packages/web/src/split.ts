@@ -75,3 +75,26 @@ export async function splitInstalled(id: string): Promise<boolean> {
 export async function syncToken(id: string, token: string): Promise<void> {
   await ask(id, { type: "split-pilot:set-token", token });
 }
+
+/**
+ * Which pane this tab is, if any.
+ *
+ * Asked of the extension rather than worked out here, because a page cannot
+ * know its own tab id and two tabs showing the app look identical from the
+ * outside. The extension is told who is asking by Chrome itself.
+ */
+export async function myRole(id: string): Promise<"left" | "right" | null> {
+  const reply = await ask<{ role: "left" | "right" | null }>(id, { type: "split-pilot:my-role" });
+  return reply?.role ?? null;
+}
+
+/**
+ * Take the tab the server just opened as this tab's stage.
+ *
+ * This has to be asked by the page that wants to be the left pane: the
+ * extension makes the asking tab the driver, which is the only way to be sure
+ * the right tab is paired.
+ */
+export async function adoptStage(id: string): Promise<void> {
+  await ask(id, { type: "split-pilot:adopt" });
+}
