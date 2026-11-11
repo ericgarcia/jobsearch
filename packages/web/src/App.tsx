@@ -103,7 +103,25 @@ export function App() {
       if (event.source !== window) return;
       const data = event.data as { type?: string; role?: string | null } | null;
       if (data?.type !== "split-pilot:role") return;
-      if (data.role === null) void arrange(splitId);
+      if (data.role !== null) return;
+
+      /*
+        Only react to losing the pair while this tab is the one being looked
+        at.
+
+        Every open app tab hears this. When one of them takes the split the
+        others are told their pair is gone, so they take it back, and are told
+        again: three app tabs left two stages behind and were still trading
+        the split between them. A tab nobody is looking at has no business
+        grabbing the window back.
+
+        This guard is here rather than inside arrange() because a page load
+        must still arrange even when the tab is in the background — opening
+        the app in a background tab is ordinary, and a load happens once, so
+        it cannot start a fight.
+      */
+      if (document.visibilityState !== "visible") return;
+      void arrange(splitId);
     };
 
     window.addEventListener("message", onMessage);
