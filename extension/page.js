@@ -19,6 +19,14 @@
     }
   });
 
+  /*
+    Both scripts start at document_start, in different worlds, and the role is
+    pushed only when it changes. If this listener were not up yet when the push
+    came, the message would be lost for the life of the page. So announce
+    instead of waiting: the isolated world answers whoever says it is ready.
+  */
+  window.postMessage({ type: "split-pilot:ready" }, "*");
+
   const open = window.open.bind(window);
 
   window.open = function (url, target, features) {

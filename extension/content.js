@@ -16,18 +16,30 @@
 
 let role = null;
 
+/*
+  The main world cannot ask the worker anything, so page.js is told. It is told
+  only when the answer changes: this script runs in every frame of every tab in
+  the browser, and a timer in each of them to repeat an answer that changes
+  perhaps twice a day is a poor way to spend a machine.
+*/
+function setRole(next) {
+  if (next === role) return;
+  role = next;
+  window.postMessage({ type: "split-pilot:role", role }, "*");
+}
+
 async function askRole() {
   try {
-    role = (await chrome.runtime.sendMessage({ type: "split-pilot:role" }))?.role ?? null;
+    setRole((await chrome.runtime.sendMessage({ type: "split-pilot:role" }))?.role ?? null);
   } catch {
-    role = null; // The worker is asleep, or the extension was reloaded.
+    setRole(null); // The worker is asleep, or the extension was reloaded.
   }
 }
 
 void askRole();
 
 chrome.runtime.onMessage.addListener((message) => {
-  if (message?.type === "split-pilot:you-are") role = message.role;
+  if (message?.type === "split-pilot:you-are") setRole(message.role);
 });
 
 function send(url) {
@@ -67,20 +79,17 @@ document.addEventListener(
   true,
 );
 
-/* window.open, forwarded from the main world by page.js. */
 window.addEventListener("message", (event) => {
   if (event.source !== window) return;
+
+  // page.js came up; tell it where things stand, whether or not that changed.
+  if (event.data?.type === "split-pilot:ready") {
+    window.postMessage({ type: "split-pilot:role", role }, "*");
+    return;
+  }
+
+  /* window.open, forwarded from the main world by page.js. */
   if (event.data?.type !== "split-pilot:page-open") return;
   if (role !== "left" || !routable(event.data.url)) return;
   send(event.data.url);
 });
-
-/*
-  The main world cannot ask the worker anything, so it is told whether to
-  suppress window.open. Repeated on every change.
-*/
-function tellPage() {
-  window.postMessage({ type: "split-pilot:role", role }, "*");
-}
-setInterval(tellPage, 1000);
-tellPage();

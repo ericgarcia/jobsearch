@@ -55,6 +55,11 @@ async function pairForWindow(windowId) {
   return (await pairs())[windowId] ?? null;
 }
 
+/** A URL the stage can show. Everything else is the browser's business. */
+function routable(url) {
+  return typeof url === "string" && (url.startsWith("http://") || url.startsWith("https://"));
+}
+
 /** The pair a given tab belongs to, and which side it is. */
 async function sideOf(tabId) {
   for (const [windowId, pair] of Object.entries(await pairs())) {
@@ -242,8 +247,14 @@ chrome.tabs.onCreated.addListener(async (tab) => {
   if (!found || found.side !== "left") return;
   if (tab.id === found.pair.right) return;
 
+  /*
+    Only a page the stage could actually show. The net used to check for
+    about:blank and nothing else, which swept up chrome-extension:// tabs —
+    including the connect page Playwright's own extension opens to establish
+    its session. Hijacking that killed the connection it was trying to make.
+  */
   const url = tab.pendingUrl ?? tab.url;
-  if (!url || url === "about:blank" || url === "chrome://newtab/") return;
+  if (!routable(url)) return;
 
   await chrome.tabs.update(found.pair.right, { url });
   try {
