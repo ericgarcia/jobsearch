@@ -82,9 +82,8 @@ async function connect() {
   if (reply?.ok) {
     headline.textContent = "Connected.";
     headline.className = "";
-    detail.textContent = "This tab closes itself.";
-    // The worker holds the socket now; this page has done its job.
-    setTimeout(() => window.close(), 400);
+    detail.textContent = "This tab will close.";
+    // The worker closes it: a page cannot close a tab it did not open.
     return;
   }
 

@@ -40,6 +40,21 @@ async function token() {
 let relay = null;
 
 /**
+ * The first tab to hand Playwright.
+ *
+ * It must be a real page. The obvious choice — whatever is active — is wrong
+ * at exactly this moment, because what is active is the connect page that
+ * just ran, and attaching to that leaves Playwright holding a tab which is
+ * about to close itself. Debugger cannot attach to chrome:// or devtools://
+ * at all, and an extension page is no use even where it can.
+ */
+async function firstOffer() {
+  const tabs = await chrome.tabs.query({ lastFocusedWindow: true });
+  const usable = tabs.filter((tab) => /^https?:/.test(tab.url ?? ""));
+  return usable.find((tab) => tab.active) ?? usable[usable.length - 1] ?? null;
+}
+
+/**
  * Open the relay and give Playwright a tab to work with.
  *
  * Playwright attaches to tabs it is offered, and offers nothing itself, so a
@@ -64,8 +79,8 @@ async function connectRelay(relayUrl) {
   relay = connection;
   connection.announce();
 
-  const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  if (active && !/^(chrome|edge|devtools):/.test(active.url ?? "")) connection.offer(active);
+  const first = await firstOffer();
+  if (first) connection.offer(first);
   return connection;
 }
 
@@ -261,8 +276,17 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
 
   /* From connect.html, which Playwright opened with the relay address. */
   if (message?.type === "split-pilot:connect") {
+    const page = sender.tab?.id;
     void connectRelay(message.relayUrl).then(
-      () => respond({ ok: true }),
+      () => {
+        respond({ ok: true });
+        /*
+          Close the connect tab from here. A page cannot close a tab it did
+          not open, so its own window.close() is refused and the tab lingers
+          in every listing Playwright makes.
+        */
+        if (page !== undefined) setTimeout(() => void chrome.tabs.remove(page).catch(() => {}), 500);
+      },
       (error) => respond({ ok: false, error: error.message }),
     );
     return true;
