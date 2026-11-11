@@ -23,7 +23,8 @@ this repository, because this repository is public and your job search is not.
   you have recorded.
 - A Chrome split view, held by an extension of its own, where the app sits on
   the left and every link you click opens on the right instead of in a new
-  tab. The assistant can arrange it and drive either side.
+  tab. The assistant can arrange it and drive either side. That extension is
+  also the Playwright target, so there is one extension to install, not two.
 
 ## How a resume stays true
 
@@ -95,40 +96,33 @@ instead. See `.env.example`.
 The app on the left, the posting the agent is reading on the right, in one
 window.
 
-1. Install the **Playwright Extension**, published by the Playwright Team at
-   Microsoft:
-   <https://chromewebstore.google.com/detail/mmlmfjhmonkocbjadbfplnigmagldckm>
-
-   Take the id seriously. Other extensions call themselves a "Playwright MCP
-   bridge" and look the same, but `@playwright/mcp` talks only to this one. If
-   you install another, the connection times out and says nothing.
-
-2. Open `chrome-extension://mmlmfjhmonkocbjadbfplnigmagldckm/status.html` and
-   copy the token. Put it, and the browser switch, in `.env`:
-
-   ```
-   JOBSEARCH_BROWSER=1
-   PLAYWRIGHT_MCP_EXTENSION_TOKEN=<the token from that page>
-   ```
-
-   Without the token the extension asks you to approve each connection in a tab
-   of its own. That tab is easy to miss, and the request times out while it
-   waits.
-
-3. Install **Split Pilot**, the extension in [`extension/`](extension/). It is
+1. Install **Split Pilot**, the extension in [`extension/`](extension/). It is
    not in the Web Store, so load it unpacked: open `chrome://extensions`, turn
    on **Developer mode**, choose **Load unpacked**, and select that folder.
 
-   Chrome gives an unpacked extension an id derived from the path it was
-   loaded from, so yours will differ from the default. Copy it from the
-   extension's card and put it in `.env`:
+   Chrome will ask you to accept the `debugger` permission. That is the one
+   behind the "is debugging this browser" banner, and it is what lets the
+   agent drive a tab at all.
+
+2. Copy the extension's id from its card in `chrome://extensions` — Chrome
+   derives it from the path you loaded it from, so yours is not the one in
+   this repository. Put it in `.env` with the browser switch:
 
    ```
+   JOBSEARCH_BROWSER=1
    JOBSEARCH_SPLIT_EXTENSION_ID=<the id on the card>
    ```
 
-4. Start the app, and press **Split view** in the header. The button appears
+   Then `npm install`. A postinstall step points the pinned Playwright at your
+   extension; without the id it leaves Playwright pointed at Microsoft's and
+   says so.
+
+3. Start the app and press **Split view** in the header. The button appears
    only if Split Pilot answers.
+
+   The first time Playwright connects, a tab asks whether to allow it.
+   Approve once; the token is remembered, and the app keeps it in step after
+   that.
 
 A second pane opens beside the app. From then on every link you click in the
 app opens in that pane instead of a new tab, and the pane never moves: it is
@@ -137,6 +131,26 @@ one tab, navigating in place.
 The assistant can set the same thing up for itself, with `open_split_view`, and
 can put a page on the right with `open_on_stage` without disturbing whatever
 you are reading on the left.
+
+### One extension, not two
+
+Driving a browser through `@playwright/mcp` normally means installing
+Microsoft's **Playwright Extension** as well: a small bridge that relays CDP
+over a WebSocket. Split Pilot does that job itself, so there is one extension
+to install and one to trust.
+
+Playwright chooses its extension with a constant compiled into
+`playwright-core`, and offers no flag for it, so the postinstall step rewrites
+that constant in the copy this repository installs. That is why
+`@playwright/mcp` is pinned to an exact version: a patch against a moving
+dependency rots in silence, while a patch against a pinned one either applies
+or stops the install and names the version it found.
+
+If any of this gets in your way, the fallback is intact. Install the
+[Playwright Extension](https://chromewebstore.google.com/detail/mmlmfjhmonkocbjadbfplnigmagldckm),
+drop `JOBSEARCH_SPLIT_EXTENSION_ID` from `.env`, reinstall, and Playwright
+goes back to talking to Microsoft's bridge. Split Pilot keeps holding the
+split and routing links either way.
 
 ### Why the extension, rather than arranging the tabs yourself
 

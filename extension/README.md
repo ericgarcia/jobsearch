@@ -19,6 +19,30 @@ never create tabs; they navigate the stage. So the stage keeps its identity and
 its position — the tab immediately right of the driver — and an agent that
 addresses tabs by index finds the same one every time.
 
+## It is also the Playwright target
+
+Driving a browser with `@playwright/mcp` normally needs Microsoft's Playwright
+Extension as well — a bridge that relays CDP over a WebSocket. `relay.js` does
+that job here, so one extension holds the panes and drives them.
+
+The protocol is small: five permitted methods (`debugger.attach`, `detach`,
+`sendCommand`, `tabs.create`, `tabs.remove`) and four forwarded events. A tab
+is offered to Playwright as though it had just been created, and Playwright
+attaches to it if it wants it. `relay.js` follows the structure of Microsoft's
+service worker, which is Apache-2.0; see [NOTICE](NOTICE).
+
+Playwright picks its extension with a constant compiled into `playwright-core`
+and offers no flag for it, so the app rewrites that constant at install time.
+That is why `@playwright/mcp` is pinned: a patch against a moving dependency
+rots in silence, while a patch against a pinned one either applies or stops
+the install.
+
+`connect.html` is the page Playwright opens to hand over the relay address,
+since it does not message extensions. A connection is allowed only with a
+token this extension holds. The first connection asks you, because anything
+that can open that URL could otherwise point your browser at a relay of its
+own; approving stores the token, and the app keeps it in step from then on.
+
 ## Requirements
 
 Chrome 155 or newer, for `tabs.createSplit`. Native split view itself arrived
@@ -86,6 +110,7 @@ service worker is stopped and restarted at Chrome's discretion.
 
 | Permission | Why |
 | --- | --- |
+| `debugger` | Be the Playwright target: attach to a tab and relay CDP. This is what puts Chrome's "is debugging this browser" banner on the window, whichever extension holds it |
 | `tabs` | Create the split, navigate the right tab, notice tabs closing |
 | `storage` | Remember the pair across service-worker restarts |
 | `<all_urls>` | Catch links on any site — the point of a general-purpose tool |
