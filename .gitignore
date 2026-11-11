@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+
+# Personal data must never land in a public repo.
+data/
+*.db
+*.db-journal
+*.sqlite
+resumes/
+cover-letters/
+profile.local.*
+.jobsearch/
