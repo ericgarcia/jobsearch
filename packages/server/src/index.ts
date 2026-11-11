@@ -15,7 +15,9 @@ import { evaluateCompanies } from "./discover.js";
 import { getInterests, setInterests } from "./interests.js";
 import { assessTopJobs, ASSESS_MODEL } from "./assess.js";
 import { browserEnabled, runAgent, verifyCredential } from "./agent/session.js";
-import { SPLIT_EXTENSION_ID } from "./config.js";
+import { APP_URL, SPLIT_EXTENSION_ID } from "./config.js";
+import { openSplitIfNeeded } from "./agent/split.js";
+import { splitOnLoad, setSplitOnLoad } from "./settings.js";
 import {
   clearCredential,
   credentialStatus,
@@ -225,12 +227,33 @@ app.post("/api/sync", async (request) => {
 /* ------------------------------------------------------------------- prefs */
 
 /** Where the person works, and so what the job list shows by default. */
-app.get("/api/prefs", async () => ({ home_location: homeLocation() }));
+/**
+ * Arrange the split view, unless it is arranged already.
+ *
+ * The app asks for this as it loads, which is the only moment the whole chain
+ * is known to be ready: the extension is answering, and the page making the
+ * request is itself the left pane. Doing it from the server rather than the
+ * page is what makes both panes drivable — the stage has to be a tab
+ * Playwright opened, and only the server can ask it to open one.
+ */
+app.post("/api/split/open", async (_request, reply) => {
+  if (!browserEnabled) return reply.code(409).send({ error: "The browser is switched off." });
+  if (!splitOnLoad()) return { skipped: "turned off" };
+  try {
+    return await openSplitIfNeeded(APP_URL);
+  } catch (error) {
+    // Never let this stop the app loading: it is an arrangement, not the work.
+    return reply.code(503).send({ error: (error as Error).message });
+  }
+});
+
+app.get("/api/prefs", async () => ({ home_location: homeLocation(), split_on_load: splitOnLoad() }));
 
 app.put("/api/prefs", async (request) => {
-  const body = (request.body ?? {}) as { home_location?: string };
-  setHomeLocation(body.home_location ?? "");
-  return { home_location: homeLocation() };
+  const body = (request.body ?? {}) as { home_location?: string; split_on_load?: boolean };
+  if (body.home_location !== undefined) setHomeLocation(body.home_location);
+  if (body.split_on_load !== undefined) setSplitOnLoad(body.split_on_load);
+  return { home_location: homeLocation(), split_on_load: splitOnLoad() };
 });
 
 app.get("/api/jobs", async (request) => {

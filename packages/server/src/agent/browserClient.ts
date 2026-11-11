@@ -4,9 +4,7 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { BROWSER_MCP_URL, ensureBrowserServer } from "./browserServer.js";
 import { openOnStage, openSplit, splitState } from "./split.js";
-
-/** Where the app itself is served. The left pane of the split. */
-const APP_URL = process.env.JOBSEARCH_APP_URL ?? `http://localhost:5173/`;
+import { APP_URL } from "../config.js";
 
 /**
  * One MCP connection to Playwright, held for the life of the app.
@@ -71,7 +69,16 @@ async function forward(name: string, args: Record<string, unknown>): Promise<Too
       })) as ToolResult;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const recoverable = /closed|disconnect|not connected|Target page/i.test(message);
+      /*
+        "fetch failed" is what a dead Playwright server looks like from here:
+        the HTTP transport cannot reach the port any more. It was missing from
+        this list, so killing the server turned every later call into a plain
+        error and the connection was never rebuilt.
+      */
+      const recoverable =
+        /closed|disconnect|not connected|Target page|fetch failed|ECONNREFUSED|socket hang up/i.test(
+          message,
+        );
       if (attempt === 0 && recoverable) {
         log(`${name} failed (${message}); reconnecting and trying once more.`);
         client = null;

@@ -56,15 +56,15 @@ export async function splitState(id: string): Promise<SplitState | null> {
   return ask<SplitState>(id, { type: "split-pilot:state" });
 }
 
-/**
- * Open the split from the app itself, which is the case where the extension
- * should make its own stage: nothing else needs to address that tab, so there
- * is no reason to have another tool open it first.
- */
-export async function openSplit(id: string, stageUrl?: string): Promise<SplitState | null> {
-  await ask(id, { type: "split-pilot:pair", url: stageUrl ?? "about:blank" });
-  return splitState(id);
-}
+/*
+  There is deliberately no openSplit here.
+
+  The extension can make its own stage, and from this page that is the wrong
+  thing to do: a tab this page creates is one Playwright never opened, so the
+  assistant could watch that pane and never drive it. Arranging the panes goes
+  through the server — POST /api/split/open — which has Playwright open the
+  stage and the extension adopt it.
+*/
 
 export async function closeSplit(id: string): Promise<void> {
   await ask(id, { type: "split-pilot:unpair" });

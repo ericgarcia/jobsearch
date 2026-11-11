@@ -54,7 +54,7 @@ function text(result: { content?: { text?: string }[] }): string {
  * answer "receiving end does not exist", which reads like the extension is
  * missing when it is simply being asked by the wrong page.
  */
-async function focusApp(): Promise<void> {
+async function focusApp(): Promise<boolean> {
   const listing = text(await callBrowser("browser_tabs", { action: "list" }));
 
   // Lines look like: "- 3: (current) [title](http://localhost:5173/)"
@@ -63,14 +63,52 @@ async function focusApp(): Promise<void> {
   for (const raw of listing.split("\n")) {
     const match = LINE.exec(raw.trim());
     if (!match) continue;
-    if (match[2]) return; // Already in view.
+    if (match[2]) return true; // Already in view.
     await callBrowser("browser_tabs", { action: "select", index: Number(match[1]) });
-    return;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Close blank tabs left over from previous arrangements.
+ *
+ * Every setup opens a stage. Unsplitting leaves that tab behind as an
+ * ordinary blank tab, so splitting again a few times buries the window in
+ * them — three after two rounds, in the run that found this. Only blank tabs
+ * Playwright itself opened are closed: a blank tab is by definition one
+ * nobody has put anything in.
+ */
+async function closeOrphanedStages(): Promise<void> {
+  const listing = text(await callBrowser("browser_tabs", { action: "list" }));
+  const BLANK = /^-\s+(\d+):\s*(\(current\)\s*)?\[\s*\]\(about:blank\)/;
+
+  const indices = listing
+    .split("\n")
+    .map((line) => BLANK.exec(line.trim()))
+    .filter((match): match is RegExpExecArray => match !== null)
+    .map((match) => Number(match[1]));
+
+  // Highest first: closing a tab renumbers everything after it.
+  for (const index of indices.sort((a, b) => b - a)) {
+    await callBrowser("browser_tabs", { action: "close", index });
   }
 }
 
+/** A call's output, and whether it actually worked. */
+interface Outcome {
+  ok: boolean;
+  text: string;
+}
+
 /** Run a Split Pilot command from the app's tab. */
-async function command(message: Record<string, unknown>): Promise<string> {
+async function run(message: Record<string, unknown>, setUpFrom?: string): Promise<Outcome> {
+  if (setUpFrom !== undefined) {
+    if (!(await focusApp())) await callBrowser("browser_navigate", { url: setUpFrom });
+    await closeOrphanedStages();
+    const opened = await callBrowser("browser_tabs", { action: "new", url: "about:blank" });
+    if (opened.isError === true) return { ok: false, text: text(opened) };
+  }
   await focusApp();
 
   const call = `() => new Promise((done) => {
@@ -81,7 +119,13 @@ async function command(message: Record<string, unknown>): Promise<string> {
       done(reply ?? { error: (chrome.runtime.lastError || {}).message || "Split Pilot did not answer. Is it installed and enabled?" });
     });
   })`;
-  return text(await callBrowser("browser_evaluate", { function: call }));
+  const result = await callBrowser("browser_evaluate", { function: call });
+  return { ok: result.isError !== true, text: text(result) };
+}
+
+/** The same, for callers that only want something to show. */
+async function command(message: Record<string, unknown>): Promise<string> {
+  return (await run(message)).text;
 }
 
 /**
@@ -89,7 +133,15 @@ async function command(message: Record<string, unknown>): Promise<string> {
  * first, because the command has to run in its page.
  */
 export async function openSplit(appUrl: string, stageUrl = "about:blank"): Promise<string> {
-  await callBrowser("browser_navigate", { url: appUrl });
+  /*
+    Only navigate when there is no app tab to use.
+
+    Navigating first was fine when a person pressed a button, having just
+    decided they wanted this. Run automatically it is not: the tab the relay
+    happens to hold could be anything the person was reading, and taking it
+    over to show the app is the kind of help nobody asks for twice.
+  */
+  if (!(await focusApp())) await callBrowser("browser_navigate", { url: appUrl });
 
   // Playwright opens the stage, so the bridge knows it from the start.
   await callBrowser("browser_tabs", { action: "new", url: stageUrl });
@@ -97,6 +149,52 @@ export async function openSplit(appUrl: string, stageUrl = "about:blank"): Promi
   // command() brings the app back into view; it is the only page allowed to
   // ask, and after opening the stage the stage is what is in view.
   return command({ type: "split-pilot:adopt" });
+}
+
+/**
+ * Arrange the split unless it is already arranged.
+ *
+ * Called whenever the app loads, so it has to be safe to call repeatedly: a
+ * reload should not pile up stage tabs, and a pair that is already good
+ * should be left exactly as it is.
+ */
+export async function openSplitIfNeeded(appUrl: string): Promise<{
+  arranged: boolean;
+  state: string;
+}> {
+  const before = await parsedState();
+  if (before?.paired && before.right) return { arranged: false, state: await splitState() };
+
+  /*
+    Report what happened, not what was attempted.
+
+    This said arranged: true whichever way it went, because every call here
+    returns text and a failure is just different text. With the browser server
+    down, the app was told its panes were ready while nothing had happened at
+    all — the worst kind of wrong, because nobody goes looking.
+  */
+  const outcome = await run({ type: "split-pilot:adopt" }, appUrl);
+  return { arranged: outcome.ok, state: outcome.text };
+}
+
+/**
+ * The state as an object rather than as Playwright's formatted text.
+ *
+ * Deciding whether to act by matching patterns against a block of prose meant
+ * for a model is how a reload ends up opening a second stage: the text
+ * changes shape and the match quietly stops holding.
+ */
+async function parsedState(): Promise<SplitState | null> {
+  const body = await splitState();
+  const result = body.split("### ").find((section) => section.startsWith("Result"));
+  if (!result) return null;
+
+  const json = result.slice(result.indexOf("\n") + 1).trim();
+  try {
+    return JSON.parse(json) as SplitState;
+  } catch {
+    return null;
+  }
 }
 
 /** Where the two tabs are, as the extension sees them. */

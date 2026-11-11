@@ -43,6 +43,9 @@ export const PORT = Number(process.env.PORT ?? 5179);
   on the machine this was built on; set JOBSEARCH_SPLIT_EXTENSION_ID to yours,
   which chrome://extensions shows under the extension's name.
 */
+/** Where the web app is served. The left pane of the split view. */
+export const APP_URL = process.env.JOBSEARCH_APP_URL ?? "http://localhost:5173/";
+
 export const SPLIT_EXTENSION_ID =
   process.env.JOBSEARCH_SPLIT_EXTENSION_ID ?? "nckkffcpdbfdbpjnkkkdbjagdmoepdee";
 export const MODEL = process.env.JOBSEARCH_MODEL ?? "claude-opus-5-5";

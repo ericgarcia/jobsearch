@@ -87,6 +87,24 @@ export function credentialEnv(credential: Credential): Record<string, string> {
 
 /* ------------------------------------------------------------------ search */
 
+const SPLIT_ON_LOAD = "split_on_load";
+
+/**
+ * Whether opening the app should arrange the split view.
+ *
+ * It exists so the app does not argue with the person. Pressing Unsplit and
+ * then being re-split by the next reload is the app insisting it knows
+ * better, so Unsplit turns this off and the Split view button turns it back
+ * on. On by default: the arrangement is the point of having the extension.
+ */
+export function splitOnLoad(): boolean {
+  return get(SPLIT_ON_LOAD) !== "0";
+}
+
+export function setSplitOnLoad(on: boolean): void {
+  put(SPLIT_ON_LOAD, on ? "1" : "0");
+}
+
 const HOME_LOCATION = "home_location";
 
 /**

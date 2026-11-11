@@ -14,7 +14,7 @@ import { JobDetail } from "./components/JobDetail.tsx";
 import { Chat } from "./components/Chat.tsx";
 import { Profile } from "./components/Profile.tsx";
 import { Boards } from "./components/Boards.tsx";
-import { closeSplit, openSplit, splitInstalled, syncToken, type SplitState } from "./split.ts";
+import { closeSplit, splitInstalled, splitState, syncToken, type SplitState } from "./split.ts";
 import { ResumeView } from "./components/ResumeView.tsx";
 import { CoverLetter } from "./components/CoverLetter.tsx";
 
@@ -67,9 +67,29 @@ export function App() {
       setSplitId(id ?? null);
       const there = id ? await splitInstalled(id) : false;
       setHasSplit(there);
+      if (!there || !id) return;
+
       // Keep the extension's token in step with the server's, so Playwright
       // connects through it without anyone copying a string.
-      if (there && id && setup.browser_token) await syncToken(id, setup.browser_token);
+      if (setup.browser_token) await syncToken(id, setup.browser_token);
+
+      /*
+        Arrange the panes from the server, not from here.
+
+        The app could pair the two tabs itself, and the result would look the
+        same and be half as useful: a stage this page creates is a tab
+        Playwright never opened, so the assistant could watch it and not touch
+        it. The server has Playwright open the stage and the extension adopt
+        it, which is the only order that leaves both panes drivable.
+      */
+      if (setup.browser) {
+        void api
+          .openSplitView()
+          .then(() => splitState(id).then(setSplit))
+          .catch(() => {
+            // An arrangement failing is not a reason for the app to fail.
+          });
+      }
     });
   }, []);
 
@@ -190,8 +210,13 @@ export function App() {
                 if (split?.paired) {
                   await closeSplit(splitId);
                   setSplit(null);
+                  // Remember it, or the next reload re-splits and the button
+                  // becomes something you press forever.
+                  await api.setSplitOnLoad(false);
                 } else {
-                  setSplit(await openSplit(splitId));
+                  await api.setSplitOnLoad(true);
+                  await api.openSplitView();
+                  setSplit(await splitState(splitId));
                 }
               })();
             }}
