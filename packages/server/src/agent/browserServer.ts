@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { DATA_DIR } from "../config.js";
 
@@ -21,10 +22,29 @@ export const BROWSER_MCP_URL = `http://localhost:${PORT}/mcp`;
 let child: ChildProcess | null = null;
 let starting: Promise<void> | null = null;
 
+/*
+  The exact Playwright MCP this app was built against.
+
+  It used to run `npx -y @playwright/mcp@latest`, which is three hazards in one
+  line. The version was never declared, so `npm ci` did not pin it and a fresh
+  clone got whatever was newest that day. npx resolves on its own schedule, so
+  one machine here already held two different versions. And the browser layer
+  is the most fragile part of this app — the last thing it needs is a
+  dependency that changes underneath it without a commit.
+
+  It is a normal dependency now, at an exact version, and this resolves the
+  copy npm installed. Upgrading is an edit to package.json and a test run.
+*/
+function serverEntry(): string {
+  const require = createRequire(import.meta.url);
+  const manifest = require.resolve("@playwright/mcp/package.json");
+  const bin = (require(manifest) as { bin: Record<string, string> }).bin;
+  return path.join(path.dirname(manifest), Object.values(bin)[0] ?? "cli.js");
+}
+
 function args(): string[] {
   const list = [
-    "-y",
-    "@playwright/mcp@latest",
+    serverEntry(),
     "--extension",
     "--port",
     String(PORT),
@@ -75,7 +95,8 @@ export function ensureBrowserServer(log: (message: string) => void): Promise<voi
       return;
     }
 
-    child = spawn("npx", args(), { stdio: ["ignore", "pipe", "pipe"] });
+    // node, not npx: the binary is resolved above, so nothing is fetched.
+    child = spawn(process.execPath, args(), { stdio: ["ignore", "pipe", "pipe"] });
     child.on("exit", (code) => {
       log(`Playwright MCP server exited (${code}).`);
       child = null;
