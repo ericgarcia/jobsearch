@@ -25,6 +25,10 @@ export function migrate(): void {
   // search_criteria was created in the first version and never used; interests
   // replaces it. Nothing ever wrote to it, so there is nothing to carry over.
   db.exec("DROP TABLE IF EXISTS search_criteria");
+  // split_on_load decided whether to arrange the split view. The arrangement
+  // is no longer optional, so a stored "off" would be a instruction nothing
+  // reads — worse than no row at all.
+  db.prepare(`DELETE FROM settings WHERE key = 'split_on_load'`).run();
 }
 
 /**

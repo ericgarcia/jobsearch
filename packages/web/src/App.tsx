@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   type Application,
@@ -14,7 +14,7 @@ import { JobDetail } from "./components/JobDetail.tsx";
 import { Chat } from "./components/Chat.tsx";
 import { Profile } from "./components/Profile.tsx";
 import { Boards } from "./components/Boards.tsx";
-import { closeSplit, splitInstalled, splitState, syncToken, type SplitState } from "./split.ts";
+import { splitInstalled, syncToken } from "./split.ts";
 import { ResumeView } from "./components/ResumeView.tsx";
 import { CoverLetter } from "./components/CoverLetter.tsx";
 
@@ -38,7 +38,6 @@ export function App() {
   /* null while unknown, false when Split Pilot is not installed. */
   const [splitId, setSplitId] = useState<string | null>(null);
   const [hasSplit, setHasSplit] = useState<boolean | null>(null);
-  const [split, setSplit] = useState<SplitState | null>(null);
   const [total, setTotal] = useState(0);
   const [untrackedOnly, setUntrackedOnly] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -53,6 +52,85 @@ export function App() {
     setOpenResume(null);
     setOpenLetter(null);
   }
+
+  /*
+    Arrange the panes from the server, not from here.
+
+    The app could pair the two tabs itself, and the result would look the same
+    and be half as useful: a stage this page creates is a tab Playwright never
+    opened, so the assistant could watch it and not touch it. The server has
+    Playwright open the stage and the extension adopt it, which is the only
+    order that leaves both panes drivable.
+
+    Failure is silent on purpose. The browser may be off, or the extension not
+    answering; neither is a reason to put an error in front of someone who
+    came here to look at jobs.
+  */
+  const arrangedAt = useRef(0);
+
+  const arrange = async () => {
+    // Several things can ask at once — a load, a return to the tab, the
+    // extension reporting the pair gone. They all want the same one call.
+    if (Date.now() - arrangedAt.current < 3000) return;
+    arrangedAt.current = Date.now();
+    try {
+      await api.openSplitView();
+    } catch {
+      // An arrangement failing is not a reason for the app to fail.
+    }
+  };
+
+  /*
+    Put the panes back as soon as the extension says they are gone.
+
+    The content script tells this page its role whenever the pairing changes,
+    and role becoming null means the pair has dissolved. That is the only
+    signal that arrives for the likeliest way to lose the arrangement — the
+    extension's own popup — because the tab never stops being visible and so
+    no focus or visibility event ever fires.
+  */
+  useEffect(() => {
+    if (!splitId || !hasSplit) return;
+
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== window) return;
+      const data = event.data as { type?: string; role?: string | null } | null;
+      if (data?.type !== "split-pilot:role") return;
+      if (data.role === null) void arrange();
+    };
+
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [splitId, hasSplit]);
+
+  /*
+    And when you come back to the tab, as a backstop.
+
+    The arrangement can be taken apart from outside the app — the extension's
+    own popup, or closing the stage — and without this it would stay broken
+    until the next reload, with the assistant quietly unable to reach half of
+    what it is being asked about. Checking on return rather than on a timer
+    means it costs nothing while you are reading, and the check is a no-op
+    when the panes are already good.
+  */
+  useEffect(() => {
+    if (!splitId || !hasSplit) return;
+    let last = 0;
+
+    const check = () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - last < 60_000) return;
+      last = Date.now();
+      void arrange();
+    };
+
+    document.addEventListener("visibilitychange", check);
+    window.addEventListener("focus", check);
+    return () => {
+      document.removeEventListener("visibilitychange", check);
+      window.removeEventListener("focus", check);
+    };
+  }, [splitId, hasSplit]);
 
   const loadSetup = useCallback(() => {
     void api.setup().then(setSetupInfo);
@@ -73,23 +151,7 @@ export function App() {
       // connects through it without anyone copying a string.
       if (setup.browser_token) await syncToken(id, setup.browser_token);
 
-      /*
-        Arrange the panes from the server, not from here.
-
-        The app could pair the two tabs itself, and the result would look the
-        same and be half as useful: a stage this page creates is a tab
-        Playwright never opened, so the assistant could watch it and not touch
-        it. The server has Playwright open the stage and the extension adopt
-        it, which is the only order that leaves both panes drivable.
-      */
-      if (setup.browser) {
-        void api
-          .openSplitView()
-          .then(() => splitState(id).then(setSplit))
-          .catch(() => {
-            // An arrangement failing is not a reason for the app to fail.
-          });
-      }
+      if (setup.browser) void arrange();
     });
   }, []);
 
@@ -197,33 +259,6 @@ export function App() {
         >
           {assessing ? "Assessing…" : "Assess top 20"}
         </button>
-        {hasSplit && splitId && (
-          <button
-            className="ghost"
-            title={
-              split?.paired
-                ? "Stop pairing. Both tabs stay open."
-                : "Open a pane beside this one. Links here will open in it instead of a new tab."
-            }
-            onClick={() => {
-              void (async () => {
-                if (split?.paired) {
-                  await closeSplit(splitId);
-                  setSplit(null);
-                  // Remember it, or the next reload re-splits and the button
-                  // becomes something you press forever.
-                  await api.setSplitOnLoad(false);
-                } else {
-                  await api.setSplitOnLoad(true);
-                  await api.openSplitView();
-                  setSplit(await splitState(splitId));
-                }
-              })();
-            }}
-          >
-            {split?.paired ? "Unsplit" : "Split view"}
-          </button>
-        )}
       </header>
 
       {notice && <div className="banner">{notice}</div>}

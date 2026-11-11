@@ -28,9 +28,6 @@ function runtime(): Chrome["runtime"] | null {
   return (globalThis as { chrome?: Chrome }).chrome?.runtime ?? null;
 }
 
-/** True when this page is allowed to talk to extensions at all. */
-export const canReachExtensions = () => runtime() != null;
-
 async function ask<T>(id: string, message: Record<string, unknown>): Promise<T | null> {
   const api = runtime();
   if (!api) return null;
@@ -52,23 +49,21 @@ export async function splitInstalled(id: string): Promise<boolean> {
   return (await ask<SplitState>(id, { type: "split-pilot:state" })) != null;
 }
 
-export async function splitState(id: string): Promise<SplitState | null> {
-  return ask<SplitState>(id, { type: "split-pilot:state" });
-}
-
 /*
-  There is deliberately no openSplit here.
+  There is deliberately no openSplit here, and no closeSplit either.
 
   The extension can make its own stage, and from this page that is the wrong
   thing to do: a tab this page creates is one Playwright never opened, so the
   assistant could watch that pane and never drive it. Arranging the panes goes
   through the server — POST /api/split/open — which has Playwright open the
   stage and the extension adopt it.
-*/
 
-export async function closeSplit(id: string): Promise<void> {
-  await ask(id, { type: "split-pilot:unpair" });
-}
+  Nothing takes the panes apart from the app. The two panes are how it is
+  meant to be used, and the assistant needs both to do its job; a control
+  whose only effect is to take half of that away is not a control worth
+  having. The extension's own popup can still unpair, because the extension
+  is not this app's.
+*/
 
 /**
  * Tell the extension which token Playwright will present.

@@ -118,7 +118,7 @@ window.
    says so.
 
 3. Start the app and open it. That is all: loading the app arranges the two
-   panes.
+   panes, and keeps them arranged.
 
    The first time Playwright connects, a tab asks whether to allow it.
    Approve once; the token is remembered, and the app keeps it in step after
@@ -130,10 +130,15 @@ one tab, navigating in place. The assistant can drive either pane, and can put
 a page on the right with `open_on_stage` without disturbing what you are
 reading on the left.
 
-**Split view** in the header is the override, not the route in. Press it while
-paired and it unpairs and stops arranging the panes on load; press it again to
-turn that back on. The setting is `split_on_load`, kept with the rest of your
-preferences, so an unsplit survives a reload instead of being undone by it.
+There is no control for this and no setting. The two panes are how the app is
+meant to be used, and the assistant needs both to do its job — a switch whose
+only effect is to take half of that away is not worth having. The app also
+puts the panes back when you return to its tab, so taking the arrangement
+apart from outside, through the extension's own popup, lasts until you look at
+the app again.
+
+To stop the browser work entirely, drop `JOBSEARCH_BROWSER` from `.env`. That
+is the real off switch, and it turns off the driving as well as the panes.
 
 ### Why the server arranges it, and not the page
 

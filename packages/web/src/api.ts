@@ -245,23 +245,18 @@ export const api = {
       { method: "DELETE" },
     ),
 
-  prefs: () => json<{ home_location: string | null; split_on_load: boolean }>("/api/prefs"),
+  prefs: () => json<{ home_location: string | null }>("/api/prefs"),
 
   /**
    * Ask the server to arrange the split view. Safe to call on every load: it
    * returns what is already there rather than opening a second pane.
    */
   openSplitView: () =>
-    json<{ arranged?: boolean; state?: string; skipped?: string }>("/api/split/open", {
+    json<{ arranged?: boolean; state?: string }>("/api/split/open", {
       method: "POST",
       body: "{}",
     }),
 
-  setSplitOnLoad: (on: boolean) =>
-    json<{ split_on_load: boolean }>("/api/prefs", {
-      method: "PUT",
-      body: JSON.stringify({ split_on_load: on }),
-    }),
 
   setHomeLocation: (place: string) =>
     json<{ home_location: string | null }>("/api/prefs", {

@@ -17,7 +17,6 @@ import { assessTopJobs, ASSESS_MODEL } from "./assess.js";
 import { browserEnabled, runAgent, verifyCredential } from "./agent/session.js";
 import { APP_URL, SPLIT_EXTENSION_ID } from "./config.js";
 import { openSplitIfNeeded } from "./agent/split.js";
-import { splitOnLoad, setSplitOnLoad } from "./settings.js";
 import {
   clearCredential,
   credentialStatus,
@@ -230,6 +229,10 @@ app.post("/api/sync", async (request) => {
 /**
  * Arrange the split view, unless it is arranged already.
  *
+ * There is no switch for this. The two panes are how the app is meant to be
+ * used, and a setting whose only job is to turn off the arrangement is a
+ * setting that leaves the assistant unable to reach half of it.
+ *
  * The app asks for this as it loads, which is the only moment the whole chain
  * is known to be ready: the extension is answering, and the page making the
  * request is itself the left pane. Doing it from the server rather than the
@@ -238,7 +241,6 @@ app.post("/api/sync", async (request) => {
  */
 app.post("/api/split/open", async (_request, reply) => {
   if (!browserEnabled) return reply.code(409).send({ error: "The browser is switched off." });
-  if (!splitOnLoad()) return { skipped: "turned off" };
   try {
     return await openSplitIfNeeded(APP_URL);
   } catch (error) {
@@ -247,13 +249,12 @@ app.post("/api/split/open", async (_request, reply) => {
   }
 });
 
-app.get("/api/prefs", async () => ({ home_location: homeLocation(), split_on_load: splitOnLoad() }));
+app.get("/api/prefs", async () => ({ home_location: homeLocation() }));
 
 app.put("/api/prefs", async (request) => {
-  const body = (request.body ?? {}) as { home_location?: string; split_on_load?: boolean };
+  const body = (request.body ?? {}) as { home_location?: string };
   if (body.home_location !== undefined) setHomeLocation(body.home_location);
-  if (body.split_on_load !== undefined) setSplitOnLoad(body.split_on_load);
-  return { home_location: homeLocation(), split_on_load: splitOnLoad() };
+  return { home_location: homeLocation() };
 });
 
 app.get("/api/jobs", async (request) => {
