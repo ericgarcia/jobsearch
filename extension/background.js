@@ -175,6 +175,62 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
 });
 
 /*
+  The control surface, for a page served from an origin in the manifest's
+  externally_connectable list.
+
+  Neither the popup nor any chrome-extension:// page can be automated — Chrome
+  refuses to let the debugger attach to them — so without this there is no way
+  for anything but a human hand to pair two tabs. That makes the arrangement
+  unusable by the agent it exists to serve.
+
+  The tab that sends the message becomes the left tab. A page can only ever
+  make itself the driver, never some other tab it has no business touching.
+*/
+chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
+  const tab = sender.tab;
+  if (!tab) return false;
+
+  switch (message?.type) {
+    case "split-pilot:pair":
+      void startPair(tab, message.url ?? "about:blank").then(respond);
+      return true;
+
+    case "split-pilot:unpair":
+      void dissolve(tab.windowId).then(() => respond({ ok: true }));
+      return true;
+
+    case "split-pilot:open":
+      void sendToRight(tab.id, message.url).then((routed) => respond({ routed }));
+      return true;
+
+    /*
+      Where the stage is. An agent addresses tabs by index, and an index moves
+      whenever another tab opens or closes, so it has to be able to ask rather
+      than remember.
+    */
+    case "split-pilot:state":
+      void (async () => {
+        const pair = await pairForWindow(tab.windowId);
+        if (!pair) return respond({ paired: false });
+        const [left, right] = await Promise.all([
+          chrome.tabs.get(pair.left).catch(() => null),
+          chrome.tabs.get(pair.right).catch(() => null),
+        ]);
+        respond({
+          paired: true,
+          split: pair.split,
+          left: left && { id: left.id, index: left.index, url: left.url },
+          right: right && { id: right.id, index: right.index, url: right.url },
+        });
+      })();
+      return true;
+
+    default:
+      return false;
+  }
+});
+
+/*
   Some links cannot be caught in the page: a target="_blank" form, a download
   that turns into a navigation, anything opened by the browser itself. Those
   still arrive as a new tab. If one was opened by the left tab, move its URL

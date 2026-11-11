@@ -7,6 +7,10 @@
   "minimum_chrome_version": "111",
   "permissions": ["tabs", "storage"],
   "host_permissions": ["<all_urls>"],
+  "_comment_externally_connectable": "The control surface. A page served from one of these origins can pair, unpair, route a URL, and ask where the stage is — which is how an agent drives the arrangement, since neither the popup nor any chrome-extension:// page can be automated. Narrow this to the app you drive from.",
+  "externally_connectable": {
+    "matches": ["http://localhost:*/*", "http://127.0.0.1:*/*"]
+  },
   "background": {
     "service_worker": "background.js",
     "type": "module"

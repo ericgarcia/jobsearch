@@ -89,11 +89,45 @@ service worker is stopped and restarted at Chrome's discretion.
 | `tabs` | Create the split, navigate the right tab, notice tabs closing |
 | `storage` | Remember the pair across service-worker restarts |
 | `<all_urls>` | Catch links on any site — the point of a general-purpose tool |
+| `externally_connectable` | Let the app you drive from pair and route, since the popup cannot be automated |
 
 `<all_urls>` is broad. The content scripts read nothing and send nothing but a
 URL you clicked, and only while the tab is the left of a pair you made. To
 limit it, narrow `content_scripts.matches` in `manifest.json` to the sites you
 actually drive from.
+
+## Driving it from a page
+
+Chrome refuses to let the debugger attach to the popup or to any
+`chrome-extension://` page, so an agent cannot click **Split this tab**. Without
+another way in, the arrangement could only ever be made by a human hand — which
+defeats the point of an arrangement built for an agent.
+
+So a page served from an origin in `externally_connectable` can drive it. The
+tab that sends the message becomes the left tab; a page can only make itself
+the driver, never some other tab.
+
+```js
+const EXT = "nckkffcpdbfdbpjnkkkdbjagdmoepdee"; // your unpacked id differs
+
+chrome.runtime.sendMessage(EXT, { type: "split-pilot:pair" });
+chrome.runtime.sendMessage(EXT, { type: "split-pilot:open", url });
+chrome.runtime.sendMessage(EXT, { type: "split-pilot:unpair" });
+chrome.runtime.sendMessage(EXT, { type: "split-pilot:state" }, console.log);
+```
+
+`state` answers with both tabs' **current indices**, which is the one thing an
+agent cannot work out for itself:
+
+```json
+{ "paired": true, "split": true,
+  "left":  { "id": 12, "index": 3, "url": "http://localhost:5173/" },
+  "right": { "id": 13, "index": 4, "url": "https://example.com/" } }
+```
+
+The default origins are `http://localhost:*` and `http://127.0.0.1:*`. Any page
+on those origins can rearrange your tabs, so narrow the list in
+`manifest.json` to the app you actually drive from.
 
 ## Driving both sides with Playwright
 
