@@ -41,6 +41,24 @@ export interface CredentialStatus {
   source: "env" | "database" | null;
 }
 
+export interface Company {
+  id: number;
+  name: string;
+  ats: string;
+  board_token: string;
+  active: number;
+  jobs?: number;
+}
+
+export interface DetectResult {
+  added: boolean;
+  results: {
+    name: string;
+    found: { ats: string; board_token: string; jobs: number; sample: string[] } | null;
+  }[];
+  missing: string[];
+}
+
 export interface Health {
   ok: boolean;
   db: string;
@@ -149,6 +167,17 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ status }),
     }),
+
+  companies: () => json<Company[]>("/api/companies"),
+
+  /** Find each company's board by name. `add` stores the ones it finds. */
+  detectCompanies: (names: string[], add: boolean) =>
+    json<DetectResult>("/api/companies/detect", {
+      method: "POST",
+      body: JSON.stringify({ names, add }),
+    }),
+
+  deleteCompany: (id: number) => json<unknown>(`/api/companies/${id}`, { method: "DELETE" }),
 
   prefs: () => json<{ home_location: string | null }>("/api/prefs"),
 

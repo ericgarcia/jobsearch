@@ -13,10 +13,11 @@ import { JobList } from "./components/JobList.tsx";
 import { JobDetail } from "./components/JobDetail.tsx";
 import { Chat } from "./components/Chat.tsx";
 import { Profile } from "./components/Profile.tsx";
+import { Boards } from "./components/Boards.tsx";
 import { ResumeView } from "./components/ResumeView.tsx";
 import { CoverLetter } from "./components/CoverLetter.tsx";
 
-type Tab = "jobs" | "applications" | "drafts" | "profile";
+type Tab = "jobs" | "applications" | "drafts" | "profile" | "boards";
 
 export function App() {
   const [health, setHealth] = useState<Health | null>(null);
@@ -175,6 +176,9 @@ export function App() {
         <button aria-selected={tab === "profile"} onClick={() => goToTab("profile")}>
           Profile
         </button>
+        <button aria-selected={tab === "boards"} onClick={() => goToTab("boards")}>
+          Boards
+        </button>
       </div>
 
       {tab === "jobs" && (
@@ -221,7 +225,9 @@ export function App() {
 
       <div className="body-wrap">
         <div className="scroll">
-          {tab === "profile" ? (
+          {tab === "boards" ? (
+            <Boards onChanged={loadData} />
+          ) : tab === "profile" ? (
             <Profile />
           ) : tab === "drafts" ? (
             resumes.length + letters.length === 0 ? (

@@ -337,3 +337,6 @@ button.tiny { padding: 1px 6px; font-size: 11px; }
 }
 .warnbox ul { margin: 6px 0 0; padding-left: 18px; }
 .warnbox li { margin: 2px 0; }
+
+.board-row { grid-template-columns: 1fr auto; cursor: default; }
+.board-row:hover { background: none; }

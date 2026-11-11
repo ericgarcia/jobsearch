@@ -34,11 +34,17 @@ export interface CompanyRow {
   ats: string;
   board_token: string;
   active: number;
+  /** Postings stored from this board, so the list is evidence not just config. */
+  jobs?: number;
 }
 
 export function listCompanies(): CompanyRow[] {
   return db
-    .prepare(`SELECT id, name, ats, board_token, active FROM companies ORDER BY name`)
+    .prepare(
+      `SELECT c.id, c.name, c.ats, c.board_token, c.active,
+              (SELECT COUNT(*) FROM jobs j WHERE j.company = c.name) AS jobs
+         FROM companies c ORDER BY c.name`,
+    )
     .all() as CompanyRow[];
 }
 
