@@ -5,6 +5,7 @@ import { STATUSES } from "../status.js";
 import { syncBoards } from "../sync.js";
 import { rankAllJobs } from "../matching.js";
 import { expandPlace } from "../location.js";
+import { detectMany } from "../sources/detect.js";
 import { homeLocation } from "../settings.js";
 import { assessTopJobs, ASSESS_MODEL } from "../assess.js";
 import { SOURCES } from "../sources/index.js";
@@ -81,6 +82,31 @@ const addCompany = tool(
     board_token: z.string().describe("The board identifier in the ATS URL"),
   },
   async (args) => guard(() => repo.addCompany(args.name, args.ats, args.board_token)),
+);
+
+const addCompaniesByName = tool(
+  "add_companies",
+  "Add companies to follow by name alone. Works out which applicant tracking system each one uses and what its board is called, then stores the ones it finds. Tell the person which companies could not be found: they may use a system this app does not read, or post only on their own site.",
+  {
+    names: z.array(z.string()).min(1).describe("Company names, for example [\"Figma\", \"Ramp\"]"),
+  },
+  async (args) =>
+    guard(async () => {
+      const found = await detectMany(args.names);
+      for (const row of found) {
+        if (row.found) repo.addCompany(row.name, row.found.ats, row.found.board_token);
+      }
+      return {
+        added: found.filter((row) => row.found).map((row) => ({
+          name: row.name,
+          ats: row.found!.ats,
+          board_token: row.found!.board_token,
+          jobs: row.found!.jobs,
+        })),
+        not_found: found.filter((row) => !row.found).map((row) => row.name),
+        note: "Run sync_boards next to fetch the postings, then rank_jobs.",
+      };
+    }),
 );
 
 const syncBoardsTool = tool(
@@ -273,6 +299,7 @@ export const jobsearchServer = createSdkMcpServer({
   tools: [
     listCompanies,
     addCompany,
+    addCompaniesByName,
     syncBoardsTool,
     rankJobs,
     assessTop,
@@ -291,6 +318,7 @@ export const jobsearchServer = createSdkMcpServer({
 /** Tools whose results change the stored data, so the UI should refetch. */
 export const MUTATING_TOOLS = new Set([
   "mcp__jobsearch__add_company",
+  "mcp__jobsearch__add_companies",
   "mcp__jobsearch__sync_boards",
   "mcp__jobsearch__rank_jobs",
   "mcp__jobsearch__assess_top_jobs",

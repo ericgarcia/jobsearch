@@ -10,6 +10,7 @@ import * as profile from "./profile.js";
 import * as resume from "./resume.js";
 import { rankAllJobs } from "./matching.js";
 import { expandPlace } from "./location.js";
+import { detectBoard, detectMany } from "./sources/detect.js";
 import { assessTopJobs, ASSESS_MODEL } from "./assess.js";
 import { browserEnabled, runAgent, verifyCredential } from "./agent/session.js";
 import {
@@ -90,6 +91,32 @@ app.post("/api/companies", async (request, reply) => {
     return reply.code(400).send({ error: "name, ats and board_token are required" });
   }
   return repo.addCompany(body.name, body.ats, body.board_token);
+});
+
+/**
+ * Work out which job board a company uses, from its name alone.
+ * `add` writes the board it finds; without it this only reports.
+ */
+app.post("/api/companies/detect", async (request, reply) => {
+  const body = (request.body ?? {}) as { names?: string[]; name?: string; add?: boolean };
+  const names = body.names ?? (body.name ? [body.name] : []);
+  if (names.length === 0) {
+    return reply.code(400).send({ error: "name or names is required" });
+  }
+
+  const found = await detectMany(names);
+
+  if (body.add) {
+    for (const row of found) {
+      if (row.found) repo.addCompany(row.name, row.found.ats, row.found.board_token);
+    }
+  }
+
+  return {
+    added: body.add === true,
+    results: found,
+    missing: found.filter((row) => !row.found).map((row) => row.name),
+  };
 });
 
 app.delete("/api/companies/:id", async (request) => ({
