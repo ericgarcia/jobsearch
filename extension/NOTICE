@@ -1,0 +1,15 @@
+Split Pilot
+Copyright (c) 2026 Eric Garcia
+
+relay.js is a reimplementation of the CDP relay protocol used by the
+Playwright Extension, and follows the structure of its service worker:
+
+  Playwright Extension
+  Copyright (c) Microsoft Corporation
+  Licensed under the Apache License, Version 2.0
+  http://www.apache.org/licenses/LICENSE-2.0
+  https://github.com/microsoft/playwright-mcp
+
+The protocol it speaks is defined by @playwright/mcp, which this repository
+pins to an exact version. Changing that version may change the protocol; see
+packages/server/package.json and extension/README.md.

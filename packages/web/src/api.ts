@@ -71,6 +71,8 @@ export interface Health {
 export interface Setup {
   /** Split Pilot's extension id, or absent when it is not configured. */
   split_extension_id?: string;
+  /** The token Playwright uses, handed to the extension so they agree. */
+  browser_token?: string | null;
   credential: CredentialStatus;
   browser: boolean;
   links: Record<CredentialKind, string>;

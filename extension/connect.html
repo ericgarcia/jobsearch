@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Split Pilot — connecting</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --dim: #5d646e;
+        --bad: #b4541a;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --dim: #9aa3ad;
+        }
+      }
+      body {
+        margin: 0;
+        padding: 48px 32px;
+        font: 14px/1.6 system-ui, sans-serif;
+        max-width: 42rem;
+      }
+      h1 {
+        font-size: 16px;
+        margin: 0 0 12px;
+      }
+      p {
+        color: var(--dim);
+        margin: 0 0 10px;
+      }
+      code {
+        font-size: 13px;
+        padding: 1px 4px;
+        border-radius: 4px;
+        background: rgba(128, 128, 128, 0.16);
+      }
+      .bad {
+        color: var(--bad);
+      }
+    </style>
+  </head>
+  <body>
+    <h1 id="headline">Connecting to Playwright…</h1>
+    <p id="detail"></p>
+    <script type="module" src="connect.js"></script>
+  </body>
+</html>

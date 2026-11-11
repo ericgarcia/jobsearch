@@ -60,6 +60,14 @@
     <button id="pair">Split this tab</button>
     <button id="unpair">Unpair</button>
     <p id="note"></p>
+    <hr style="border: none; border-top: 1px solid var(--line); margin: 12px 0" />
+    <p id="relay"></p>
+    <input id="token" readonly style="width: 100%; box-sizing: border-box; font: 11px monospace;
+      padding: 5px; border: 1px solid var(--line); border-radius: 5px; background: transparent;
+      color: inherit" />
+    <p class="fine" style="margin-top: 6px">
+      Put this in <code>.env</code> as <code>PLAYWRIGHT_MCP_EXTENSION_TOKEN</code>.
+    </p>
     <script src="popup.js"></script>
   </body>
 </html>

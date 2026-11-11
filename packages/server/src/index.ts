@@ -53,6 +53,13 @@ app.get("/api/setup", async () => ({
     cannot be compiled into the web app.
   */
   split_extension_id: SPLIT_EXTENSION_ID,
+  /*
+    The token Playwright presents when it connects. The app hands it to the
+    extension so the two agree without anyone copying a string. It is only
+    served to localhost, which is the same boundary the extension's own
+    control surface uses.
+  */
+  browser_token: process.env.PLAYWRIGHT_MCP_EXTENSION_TOKEN ?? null,
   /** The page each credential kind is created on, for the browser pane. */
   links: {
     "oauth-token": "https://claude.ai/login",

@@ -14,7 +14,7 @@ import { JobDetail } from "./components/JobDetail.tsx";
 import { Chat } from "./components/Chat.tsx";
 import { Profile } from "./components/Profile.tsx";
 import { Boards } from "./components/Boards.tsx";
-import { closeSplit, openSplit, splitInstalled, type SplitState } from "./split.ts";
+import { closeSplit, openSplit, splitInstalled, syncToken, type SplitState } from "./split.ts";
 import { ResumeView } from "./components/ResumeView.tsx";
 import { CoverLetter } from "./components/CoverLetter.tsx";
 
@@ -65,7 +65,11 @@ export function App() {
     void api.setup().then(async (setup) => {
       const id = setup.split_extension_id;
       setSplitId(id ?? null);
-      setHasSplit(id ? await splitInstalled(id) : false);
+      const there = id ? await splitInstalled(id) : false;
+      setHasSplit(there);
+      // Keep the extension's token in step with the server's, so Playwright
+      // connects through it without anyone copying a string.
+      if (there && id && setup.browser_token) await syncToken(id, setup.browser_token);
     });
   }, []);
 

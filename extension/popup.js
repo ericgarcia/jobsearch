@@ -36,4 +36,15 @@ $("unpair").addEventListener("click", async () => {
   await render();
 });
 
+async function renderToken() {
+  const reply = await ask("split-pilot:token");
+  $("token").value = reply?.token ?? "";
+  $("relay").textContent = reply?.connected
+    ? "Playwright is connected through this extension."
+    : "Playwright is not connected.";
+}
+
+$("token").addEventListener("focus", (event) => event.target.select());
+
 void render();
+void renderToken();

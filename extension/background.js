@@ -17,6 +17,57 @@
   There is nothing here about any particular app. A pair is two tab ids.
 */
 
+import { RelayConnection } from "./relay.js";
+
+/* ------------------------------------------------------------------- relay */
+
+/**
+ * The token that gates a Playwright connection.
+ *
+ * Generated once, here, rather than asked of the person: a token they choose
+ * is a token they reuse. It is shown in the popup so it can be copied into
+ * the app's .env.
+ */
+async function token() {
+  const stored = await chrome.storage.local.get("token");
+  if (stored.token) return stored.token;
+  const fresh = crypto.randomUUID().replace(/-/g, "");
+  await chrome.storage.local.set({ token: fresh });
+  return fresh;
+}
+
+let relay = null;
+
+/**
+ * Open the relay and give Playwright a tab to work with.
+ *
+ * Playwright attaches to tabs it is offered, and offers nothing itself, so a
+ * session that begins with no tab can do nothing at all. The tab in view is
+ * the right first offer: it is what the person is looking at, and in a pair
+ * it is the driver, from which the stage is one command away.
+ */
+async function connectRelay(relayUrl) {
+  relay?.close("Replaced by a new connection");
+
+  const socket = new WebSocket(relayUrl);
+  await new Promise((resolve, reject) => {
+    socket.onopen = resolve;
+    socket.onerror = () => reject(new Error("The relay refused the connection."));
+    setTimeout(() => reject(new Error("The relay did not answer within 5s.")), 5000);
+  });
+
+  const connection = new RelayConnection(socket);
+  connection.onclose = () => {
+    if (relay === connection) relay = null;
+  };
+  relay = connection;
+  connection.announce();
+
+  const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (active && !/^(chrome|edge|devtools):/.test(active.url ?? "")) connection.offer(active);
+  return connection;
+}
+
 /** One pair per window: the window is what the person sees. */
 const KEY = "pairs";
 
@@ -207,6 +258,20 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     return true;
   }
 
+  /* From connect.html, which Playwright opened with the relay address. */
+  if (message?.type === "split-pilot:connect") {
+    void connectRelay(message.relayUrl).then(
+      () => respond({ ok: true }),
+      (error) => respond({ ok: false, error: error.message }),
+    );
+    return true;
+  }
+
+  if (message?.type === "split-pilot:token") {
+    void token().then((value) => respond({ token: value, connected: relay != null }));
+    return true;
+  }
+
   // From the popup. It cannot import this worker, so it asks.
   if (message?.type === "split-pilot:state") {
     void (async () => {
@@ -271,6 +336,23 @@ chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
         respond(await adopt(tab, candidate));
       })();
       return true;
+
+    case "split-pilot:set-token": {
+      /*
+        Let the app set the token, rather than making the person copy one. The
+        app and the server read the same .env, so the token the server hands
+        Playwright is already known on the app's side; copying it by hand only
+        creates a step to get wrong. This is no weaker than the rest of this
+        surface: a page that can set the token can already pair and unpair.
+      */
+      const value = String(message.token ?? "");
+      if (!value) {
+        respond({ ok: false, error: "empty token" });
+        return true;
+      }
+      void chrome.storage.local.set({ token: value }).then(() => respond({ ok: true }));
+      return true;
+    }
 
     case "split-pilot:unpair":
       void dissolve(tab.windowId).then(() => respond({ ok: true }));
@@ -345,3 +427,6 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 chrome.windows.onRemoved.addListener(async (windowId) => {
   await putPair(windowId, null);
 });
+
+/* A token from the first moment, so the popup never shows an empty box. */
+chrome.runtime.onInstalled.addListener(() => void token());

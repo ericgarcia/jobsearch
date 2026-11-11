@@ -3,11 +3,14 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "npm run dev --workspace=@jobsearch/server & npm run dev --workspace=@jobsearch/web",
     "dev:server": "npm run dev --workspace=@jobsearch/server",
     "dev:web": "npm run dev --workspace=@jobsearch/web",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "postinstall": "node scripts/point-playwright-at-split-pilot.mjs"
   }
 }

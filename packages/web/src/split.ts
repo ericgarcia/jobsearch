@@ -69,3 +69,14 @@ export async function openSplit(id: string, stageUrl?: string): Promise<SplitSta
 export async function closeSplit(id: string): Promise<void> {
   await ask(id, { type: "split-pilot:unpair" });
 }
+
+/**
+ * Tell the extension which token Playwright will present.
+ *
+ * Without this the person copies a string from the extension's popup into
+ * .env and keeps the two in step by hand. The app already knows the token, so
+ * it says so.
+ */
+export async function syncToken(id: string, token: string): Promise<void> {
+  await ask(id, { type: "split-pilot:set-token", token });
+}
