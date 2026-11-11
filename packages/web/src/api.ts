@@ -69,6 +69,8 @@ export interface Health {
 }
 
 export interface Setup {
+  /** Split Pilot's extension id, or absent when it is not configured. */
+  split_extension_id?: string;
   credential: CredentialStatus;
   browser: boolean;
   links: Record<CredentialKind, string>;

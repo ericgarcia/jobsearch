@@ -14,6 +14,7 @@ import { JobDetail } from "./components/JobDetail.tsx";
 import { Chat } from "./components/Chat.tsx";
 import { Profile } from "./components/Profile.tsx";
 import { Boards } from "./components/Boards.tsx";
+import { closeSplit, openSplit, splitInstalled, type SplitState } from "./split.ts";
 import { ResumeView } from "./components/ResumeView.tsx";
 import { CoverLetter } from "./components/CoverLetter.tsx";
 
@@ -34,6 +35,10 @@ export function App() {
   // undefined until prefs load, so the first fetch is not sent for everywhere.
   const [place, setPlace] = useState<string | undefined>(undefined);
   const [includeRemote, setIncludeRemote] = useState(false);
+  /* null while unknown, false when Split Pilot is not installed. */
+  const [splitId, setSplitId] = useState<string | null>(null);
+  const [hasSplit, setHasSplit] = useState<boolean | null>(null);
+  const [split, setSplit] = useState<SplitState | null>(null);
   const [total, setTotal] = useState(0);
   const [untrackedOnly, setUntrackedOnly] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -53,6 +58,15 @@ export function App() {
     void api.setup().then(setSetupInfo);
     void api.health().then(setHealth);
     void api.prefs().then((prefs) => setPlace(prefs.home_location ?? ""));
+    /*
+      The extension is optional. Ask once; if it is not there the control is
+      not shown at all, rather than offering something that cannot happen.
+    */
+    void api.setup().then(async (setup) => {
+      const id = setup.split_extension_id;
+      setSplitId(id ?? null);
+      setHasSplit(id ? await splitInstalled(id) : false);
+    });
   }, []);
 
   useEffect(loadSetup, [loadSetup]);
@@ -159,6 +173,28 @@ export function App() {
         >
           {assessing ? "Assessing…" : "Assess top 20"}
         </button>
+        {hasSplit && splitId && (
+          <button
+            className="ghost"
+            title={
+              split?.paired
+                ? "Stop pairing. Both tabs stay open."
+                : "Open a pane beside this one. Links here will open in it instead of a new tab."
+            }
+            onClick={() => {
+              void (async () => {
+                if (split?.paired) {
+                  await closeSplit(splitId);
+                  setSplit(null);
+                } else {
+                  setSplit(await openSplit(splitId));
+                }
+              })();
+            }}
+          >
+            {split?.paired ? "Unsplit" : "Split view"}
+          </button>
+        )}
       </header>
 
       {notice && <div className="banner">{notice}</div>}

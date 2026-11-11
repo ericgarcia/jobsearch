@@ -36,5 +36,14 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 
 export const DB_PATH = path.join(DATA_DIR, "jobsearch.db");
 export const PORT = Number(process.env.PORT ?? 5179);
+
+/*
+  Split Pilot's extension id. An unpacked extension is identified by the path
+  it was loaded from, so this differs on every machine. The default is the id
+  on the machine this was built on; set JOBSEARCH_SPLIT_EXTENSION_ID to yours,
+  which chrome://extensions shows under the extension's name.
+*/
+export const SPLIT_EXTENSION_ID =
+  process.env.JOBSEARCH_SPLIT_EXTENSION_ID ?? "nckkffcpdbfdbpjnkkkdbjagdmoepdee";
 export const MODEL = process.env.JOBSEARCH_MODEL ?? "claude-opus-5-5";
 

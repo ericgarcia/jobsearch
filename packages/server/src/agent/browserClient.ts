@@ -3,6 +3,10 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { BROWSER_MCP_URL, ensureBrowserServer } from "./browserServer.js";
+import { openOnStage, openSplit, splitState } from "./split.js";
+
+/** Where the app itself is served. The left pane of the split. */
+const APP_URL = process.env.JOBSEARCH_APP_URL ?? `http://localhost:5173/`;
 
 /**
  * One MCP connection to Playwright, held for the life of the app.
@@ -83,6 +87,20 @@ async function forward(name: string, args: Record<string, unknown>): Promise<Too
   return { content: [{ type: "text", text: "Browser unreachable." }], isError: true };
 }
 
+/**
+ * Make one browser call from elsewhere in the server.
+ *
+ * The republished tools below are the agent's, and deliberately a short list.
+ * This is for the app's own use of the browser — arranging the split view —
+ * where the call is fixed and written here rather than chosen by a model.
+ */
+export async function callBrowser(
+  name: string,
+  args: Record<string, unknown>,
+): Promise<{ content?: { text?: string }[]; isError?: boolean }> {
+  return forward(name, args);
+}
+
 const pass = (name: string) => async (args: Record<string, unknown>) => {
   const result = await forward(name, args);
   return {
@@ -104,6 +122,37 @@ const TARGET = z
   .describe("Exact element reference from the latest browser_snapshot, or a CSS selector");
 
 export const browserTools = [
+  tool(
+    "open_split_view",
+    "Put the app and a driven page side by side in Chrome, as a native split view, and keep them that way. Afterwards every link the person clicks in the app opens in the right-hand pane instead of a new tab, and you can drive either pane with browser_tabs select. Use this when the person wants to see a page beside the app, or before a run of browsing where tabs piling up would get in the way. It needs the Split Pilot extension installed; say so plainly if it answers that it is missing.",
+    {
+      stage_url: z
+        .string()
+        .optional()
+        .describe("What to show in the right-hand pane to begin with. Blank if omitted."),
+    },
+    async (args) => ({
+      content: [
+        {
+          type: "text" as const,
+          text: await openSplit(APP_URL, args.stage_url ?? "about:blank"),
+        },
+      ],
+    }),
+  ),
+  tool(
+    "split_view_state",
+    "Where the two panes are. Answers with each pane's tab id, its index in Chrome's window, and the page it is showing. Chrome's indices are NOT the indices browser_tabs uses — those two numberings are unrelated, so never pass one to the other.",
+    {},
+    async () => ({ content: [{ type: "text" as const, text: await splitState() }] }),
+    { annotations: { readOnlyHint: true } },
+  ),
+  tool(
+    "open_on_stage",
+    "Show a URL in the right-hand pane without moving the pane the person is looking at. Use this rather than browser_navigate when the app is in view and should stay in view.",
+    { url: z.string().describe("The URL to show on the right") },
+    async (args) => ({ content: [{ type: "text" as const, text: await openOnStage(args.url) }] }),
+  ),
   tool(
     "browser_navigate",
     "Point the browser at a URL. This drives the tab the person has in view, so say what you are opening before you open it.",

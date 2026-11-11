@@ -15,6 +15,7 @@ import { evaluateCompanies } from "./discover.js";
 import { getInterests, setInterests } from "./interests.js";
 import { assessTopJobs, ASSESS_MODEL } from "./assess.js";
 import { browserEnabled, runAgent, verifyCredential } from "./agent/session.js";
+import { SPLIT_EXTENSION_ID } from "./config.js";
 import {
   clearCredential,
   credentialStatus,
@@ -46,6 +47,12 @@ app.get("/api/health", async () => ({
 app.get("/api/setup", async () => ({
   credential: credentialStatus(),
   browser: browserEnabled,
+  /*
+    Split Pilot's id, so the page can talk to it. An unpacked extension's id
+    comes from the path it was loaded from, so it differs per machine and
+    cannot be compiled into the web app.
+  */
+  split_extension_id: SPLIT_EXTENSION_ID,
   /** The page each credential kind is created on, for the browser pane. */
   links: {
     "oauth-token": "https://claude.ai/login",
