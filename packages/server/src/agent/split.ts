@@ -70,6 +70,13 @@ async function focusApp(): Promise<boolean> {
   return false;
 }
 
+/** Whether Playwright can address two tabs: the app and a stage beside it. */
+async function bridgeKnowsBothPanes(): Promise<boolean> {
+  const listing = text(await callBrowser("browser_tabs", { action: "list" }));
+  const tabs = listing.split("\n").filter((line) => /^-\s+\d+:/.test(line.trim()));
+  return tabs.length >= 2;
+}
+
 /**
  * Close blank tabs left over from previous arrangements.
  *
@@ -162,8 +169,19 @@ export async function openSplitIfNeeded(appUrl: string): Promise<{
   arranged: boolean;
   state: string;
 }> {
+  /*
+    A pair is not enough; the bridge has to be able to reach the stage.
+
+    The extension holds the pair, so it survives the server restarting. The
+    Playwright connection does not, and it knows only the tabs it opened
+    itself — so after a restart the panes look perfectly arranged while the
+    assistant can route links to the stage and never address it. Checking only
+    for a pair left exactly that state in place and called it done.
+  */
   const before = await parsedState();
-  if (before?.paired && before.right) return { arranged: false, state: await splitState() };
+  if (before?.paired && before.right && (await bridgeKnowsBothPanes())) {
+    return { arranged: false, state: await splitState() };
+  }
 
   /*
     Report what happened, not what was attempted.

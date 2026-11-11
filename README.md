@@ -117,8 +117,8 @@ window.
    extension; without the id it leaves Playwright pointed at Microsoft's and
    says so.
 
-3. Start the app and press **Split view** in the header. The button appears
-   only if Split Pilot answers.
+3. Start the app and open it. That is all: loading the app arranges the two
+   panes.
 
    The first time Playwright connects, a tab asks whether to allow it.
    Approve once; the token is remembered, and the app keeps it in step after
@@ -126,11 +126,31 @@ window.
 
 A second pane opens beside the app. From then on every link you click in the
 app opens in that pane instead of a new tab, and the pane never moves: it is
-one tab, navigating in place.
+one tab, navigating in place. The assistant can drive either pane, and can put
+a page on the right with `open_on_stage` without disturbing what you are
+reading on the left.
 
-The assistant can set the same thing up for itself, with `open_split_view`, and
-can put a page on the right with `open_on_stage` without disturbing whatever
-you are reading on the left.
+**Split view** in the header is the override, not the route in. Press it while
+paired and it unpairs and stops arranging the panes on load; press it again to
+turn that back on. The setting is `split_on_load`, kept with the rest of your
+preferences, so an unsplit survives a reload instead of being undone by it.
+
+### Why the server arranges it, and not the page
+
+The app could pair the two tabs by itself. The result would look identical and
+be half as useful.
+
+A tab the page opens is a tab Playwright never opened, and the bridge knows
+only the tabs it opened itself — so the assistant would watch that pane work
+and never be able to touch it. So the page asks the server (`POST
+/api/split/open`), the server has Playwright open the stage, and the extension
+adopts it. That is the only order that ends with both panes drivable.
+
+The request is safe to repeat, because the app makes it on every load: an
+arrangement that is already good is left alone, and blank stage tabs left over
+from previous rounds are cleared rather than piling up. If it fails — the
+browser is off, the extension is not answering — the app says nothing and
+carries on. It is an arrangement, not the work.
 
 ### One extension, not two
 
@@ -165,12 +185,13 @@ browser acts on them and sent to the right-hand pane, so no tab is ever
 created. [`extension/README.md`](extension/README.md) has the detail, including
 what it catches and what it costs you in permissions.
 
-One wrinkle worth knowing. The split is held by the extension, so it survives
-restarting the server. The Playwright connection does not — and because that
-connection only knows the tabs it opened itself, after a restart the agent can
-still route links to the pane but can no longer address it directly. Press
-**Split view** again, or ask the assistant to, and note that doing so leaves
-the old pane open as an ordinary tab.
+The split is held by the extension, so it survives restarting the server. The
+Playwright connection does not, and it knows only the tabs it opened itself,
+so after a restart the panes look perfectly arranged while the assistant can
+route links to the stage and no longer address it. The app checks for exactly
+that when it loads — a pair alone is not enough, the bridge has to be able to
+reach both panes — and rebuilds the arrangement when it cannot. Reloading the
+app is the whole fix.
 
 ### Why one connection matters
 
