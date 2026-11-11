@@ -22,18 +22,19 @@ import { RelayConnection } from "./relay.js";
 /* ------------------------------------------------------------------- relay */
 
 /**
- * The token that gates a Playwright connection.
+ * The token that gates a Playwright connection, or null before there is one.
  *
- * Generated once, here, rather than asked of the person: a token they choose
- * is a token they reuse. It is shown in the popup so it can be copied into
- * the app's .env.
+ * It used to be generated here, on install. That guaranteed a token nobody
+ * else knew, so every real connection was refused as a mismatch — and because
+ * a token existed, the connect page never offered to approve one either. The
+ * gate was shut with no handle on it.
+ *
+ * A token is not something this extension invents. It is something it is
+ * told: by the app, which reads it from the same .env the server does, or by
+ * the person approving a connection once.
  */
 async function token() {
-  const stored = await chrome.storage.local.get("token");
-  if (stored.token) return stored.token;
-  const fresh = crypto.randomUUID().replace(/-/g, "");
-  await chrome.storage.local.set({ token: fresh });
-  return fresh;
+  return (await chrome.storage.local.get("token")).token ?? null;
 }
 
 let relay = null;
@@ -427,6 +428,3 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 chrome.windows.onRemoved.addListener(async (windowId) => {
   await putPair(windowId, null);
 });
-
-/* A token from the first moment, so the popup never shows an empty box. */
-chrome.runtime.onInstalled.addListener(() => void token());

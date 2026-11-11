@@ -41,12 +41,22 @@ async function main() {
     they can see what is asking, and approving once is enough, because the
     token is kept.
   */
-  if (!token) {
-    headline.textContent = "Allow this connection?";
+  /*
+    Ask, whether there is no token yet or the one offered is different.
+
+    Refusing a changed token outright sounds safer and is not: a token
+    rotates, and the only instruction a refusal can give is to go and edit a
+    file, which leaves the person stuck in front of a page that will not budge.
+    Asking shows them exactly what is asking and lets them decide, which is
+    the same protection with a way through it.
+  */
+  if (!token || offered !== token) {
+    headline.textContent = token ? "Allow this new token?" : "Allow this connection?";
     detail.innerHTML =
       "Something on this machine is asking to drive your browser through Split Pilot. " +
       "It can read and act on every tab, including signed-in sessions. Allow it only if you " +
-      "started it. This is remembered, so you will not be asked again for the same token.";
+      "started it. This is remembered, so you will not be asked again for the same token." +
+      (token ? " This replaces the token already stored." : "");
 
     const allow = document.createElement("button");
     allow.textContent = "Allow and remember";
@@ -61,14 +71,6 @@ async function main() {
     });
     document.body.appendChild(allow);
     return;
-  }
-
-  if (offered !== token) {
-    return fail(
-      "That token does not match.",
-      "Set <code>PLAYWRIGHT_MCP_EXTENSION_TOKEN</code> in your <code>.env</code> to the token in this extension's popup, then restart the app. " +
-        "Nothing was connected.",
-    );
   }
 
   await connect();
