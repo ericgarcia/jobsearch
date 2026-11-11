@@ -32,6 +32,10 @@ export function Boards({
   const [result, setResult] = useState<DetectResult | null>(null);
   const [checked, setChecked] = useState<Evaluation[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [leaving, setLeaving] = useState<
+    { company: Company; total: number; tracked: number } | null
+  >(null);
+  const [gone, setGone] = useState<string | null>(null);
 
   const load = () => void api.companies().then(setCompanies);
   useEffect(load, []);
@@ -64,6 +68,17 @@ export function Boards({
     } finally {
       setBusy(null);
     }
+  }
+
+  async function unfollow(company: Company, withPostings: boolean) {
+    setLeaving(null);
+    const report = await api.deleteCompany(company.id, withPostings);
+    setGone(
+      `${company.name} removed. ${report.deleted} postings deleted` +
+        (report.kept > 0 ? `, ${report.kept} kept.` : "."),
+    );
+    load();
+    onChanged();
   }
 
   const added = result?.results.filter((row) => row.found) ?? [];
@@ -173,6 +188,37 @@ export function Boards({
         </div>
       )}
 
+      {gone && <div className="hint">{gone}</div>}
+
+      {leaving && (
+        <div className="hint">
+          <b>Stop following {leaving.company.name}?</b>
+          <p className="fine">
+            {leaving.total === 0
+              ? "Nothing has been fetched from this board yet."
+              : `${leaving.total} postings were fetched from this board. Kept, they stay in your
+                 list and keep their place in the order, but nothing will ever refresh them
+                 again.`}
+            {leaving.tracked > 0 &&
+              ` ${leaving.tracked} ${leaving.tracked === 1 ? "is one you are" : "are ones you are"}
+               pursuing or have drafted for. Those are kept either way.`}
+          </p>
+          <div className="row-actions">
+            {leaving.total > leaving.tracked && (
+              <button onClick={() => void unfollow(leaving.company, true)}>
+                Remove the board and {leaving.total - leaving.tracked} postings
+              </button>
+            )}
+            <button className="ghost" onClick={() => void unfollow(leaving.company, false)}>
+              Remove the board only
+            </button>
+            <button className="ghost" onClick={() => setLeaving(null)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       <h3>Following ({companies.length})</h3>
       {companies.length === 0 ? (
         <div className="empty">No boards yet. Add a company above.</div>
@@ -190,14 +236,11 @@ export function Boards({
               <button
                 className="ghost tiny"
                 title="Stop following this board"
-                onClick={() => {
-                  if (confirm(`Stop following ${company.name}? Its stored postings stay.`)) {
-                    void api.deleteCompany(company.id).then(() => {
-                      load();
-                      onChanged();
-                    });
-                  }
-                }}
+                onClick={() =>
+                  void api
+                    .companyPostings(company.id)
+                    .then((count) => setLeaving({ company, ...count }))
+                }
               >
                 ×
               </button>

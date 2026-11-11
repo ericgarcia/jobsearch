@@ -156,9 +156,22 @@ app.post("/api/companies/evaluate", async (request, reply) => {
   }
 });
 
-app.delete("/api/companies/:id", async (request) => ({
-  removed: repo.removeCompany(Number((request.params as { id: string }).id)),
-}));
+/** What un-following this board would leave behind, asked before doing it. */
+app.get("/api/companies/:id/postings", async (request) =>
+  repo.companyPostings(Number((request.params as { id: string }).id)),
+);
+
+/**
+ * Stop following a board. `postings=delete` removes the postings it fetched,
+ * except any being pursued or drafted for, which are always kept.
+ */
+app.delete("/api/companies/:id", async (request) => {
+  const query = request.query as { postings?: string };
+  return repo.removeCompany(
+    Number((request.params as { id: string }).id),
+    query.postings === "delete",
+  );
+});
 
 /** Re-score every posting against the profile. Cheap; run after a sync. */
 app.post("/api/rank", async (_request, reply) => {

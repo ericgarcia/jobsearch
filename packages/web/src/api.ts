@@ -226,7 +226,20 @@ export const api = {
       body: JSON.stringify({ names, location, include_remote: includeRemote }),
     }),
 
-  deleteCompany: (id: number) => json<unknown>(`/api/companies/${id}`, { method: "DELETE" }),
+  /** What un-following this board would leave behind. */
+  companyPostings: (id: number) =>
+    json<{ total: number; tracked: number }>(`/api/companies/${id}/postings`),
+
+  /**
+   * Stop following a board. Deleting its postings is a choice because keeping
+   * them means keeping rows nothing will ever refresh. Tracked postings are
+   * kept either way.
+   */
+  deleteCompany: (id: number, withPostings: boolean) =>
+    json<{ removed: boolean; deleted: number; kept: number }>(
+      `/api/companies/${id}?postings=${withPostings ? "delete" : "keep"}`,
+      { method: "DELETE" },
+    ),
 
   prefs: () => json<{ home_location: string | null }>("/api/prefs"),
 

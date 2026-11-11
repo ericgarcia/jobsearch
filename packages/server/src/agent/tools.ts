@@ -112,6 +112,18 @@ const evaluateCompaniesTool = tool(
   { annotations: { readOnlyHint: true } },
 );
 
+const removeCompanyTool = tool(
+  "remove_company",
+  "Stop following a board. Say whether to delete the postings it already fetched: left behind, they stay in the list and rank, and nothing ever refreshes them again. Postings being pursued or drafted for are always kept, however this is called. Check with list_companies first so you name the right one, and tell the person how many postings go.",
+  {
+    id: z.number().int().describe("The company id from list_companies"),
+    delete_postings: z
+      .boolean()
+      .describe("True to delete its stored postings. Ask the person before sending true."),
+  },
+  async (args) => guard(() => repo.removeCompany(args.id, args.delete_postings)),
+);
+
 const listCompanies = tool(
   "list_companies",
   "List the company job boards this app polls.",
@@ -345,6 +357,7 @@ export const jobsearchServer = createSdkMcpServer({
   version: "0.1.0",
   tools: [
     listCompanies,
+    removeCompanyTool,
     getInterestsTool,
     setInterestsTool,
     evaluateCompaniesTool,
@@ -369,6 +382,7 @@ export const jobsearchServer = createSdkMcpServer({
 export const MUTATING_TOOLS = new Set([
   "mcp__jobsearch__add_company",
   "mcp__jobsearch__add_companies",
+  "mcp__jobsearch__remove_company",
   "mcp__jobsearch__set_interests",
   "mcp__jobsearch__sync_boards",
   "mcp__jobsearch__rank_jobs",

@@ -268,6 +268,18 @@ The assistant has the same tool. Ask it which companies are worth following and
 it will propose names, read the boards and report what they are actually
 hiring for.
 
+### Stop following one
+
+Press the × beside a board. It asks what to do with the postings it already
+fetched, and shows how many there are.
+
+Keeping them is not free. They stay in your list and keep their place in the
+order, but nothing will ever refresh them again, so from that day they only go
+stale. Deleting them is usually right. Postings you are pursuing, or have
+drafted a resume or a cover letter for, are kept whichever you choose: their
+applications and drafts would cascade away with them, and no tidy-up is worth
+that.
+
 ### By hand
 
 Ask the assistant to add one, or post to the API:

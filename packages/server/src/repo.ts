@@ -58,8 +58,82 @@ export function addCompany(name: string, ats: string, boardToken: string): Compa
     .get(ats, boardToken) as CompanyRow;
 }
 
-export function removeCompany(id: number): boolean {
-  return db.prepare(`DELETE FROM companies WHERE id = ?`).run(id).changes > 0;
+/*
+  A posting worth keeping even when its board goes: one you are pursuing, or
+  one you have already drafted something for. Deleting those would take an
+  application's history and a tailored resume with them, which no amount of
+  tidying is worth.
+*/
+const TRACKED = `
+  j.id IN (SELECT job_id FROM applications)
+  OR j.id IN (SELECT job_id FROM cover_letters)
+  OR j.id IN (SELECT job_id FROM resumes WHERE job_id IS NOT NULL)`;
+
+export interface PostingCount {
+  /** Everything stored from this board. */
+  total: number;
+  /** Of those, the ones being pursued or drafted for. */
+  tracked: number;
+}
+
+/**
+ * What un-following a board would leave behind.
+ *
+ * Postings are keyed to a board by company name and ATS, because that is what
+ * the adapters write. Both are compared, so two companies sharing a name on
+ * different systems stay apart.
+ */
+export function companyPostings(id: number): PostingCount {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS total, SUM(CASE WHEN ${TRACKED} THEN 1 ELSE 0 END) AS tracked
+         FROM jobs j JOIN companies c ON c.name = j.company AND c.ats = j.source
+        WHERE c.id = ?`,
+    )
+    .get(id) as { total: number; tracked: number | null };
+  return { total: row.total, tracked: row.tracked ?? 0 };
+}
+
+export interface RemovalReport {
+  removed: boolean;
+  /** Postings deleted along with the board. */
+  deleted: number;
+  /** Postings left behind: tracked ones, or all of them if you kept them. */
+  kept: number;
+}
+
+/**
+ * Stop following a board, and optionally take its postings with it.
+ *
+ * Removing the board alone used to be the only option, and it stranded every
+ * posting already fetched: they stayed in the list, still ranked, and nothing
+ * would ever refresh them again. A stale posting that can never update is
+ * worse than no posting, so deleting them is offered here rather than left as
+ * a manual cleanup.
+ *
+ * Tracked postings are never deleted, whatever is asked. Their applications
+ * and drafts cascade, and losing those to a tidy-up is not a trade worth
+ * making. They are counted in `kept` so the caller can say so.
+ */
+export function removeCompany(id: number, withPostings = false): RemovalReport {
+  const before = companyPostings(id);
+
+  const run = db.transaction(() => {
+    let deleted = 0;
+    if (withPostings) {
+      deleted = db
+        .prepare(
+          `DELETE FROM jobs WHERE id IN (
+             SELECT j.id FROM jobs j JOIN companies c ON c.name = j.company AND c.ats = j.source
+              WHERE c.id = ? AND NOT (${TRACKED}))`,
+        )
+        .run(id).changes;
+    }
+    const removed = db.prepare(`DELETE FROM companies WHERE id = ?`).run(id).changes > 0;
+    return { removed, deleted, kept: before.total - deleted };
+  });
+
+  return run();
 }
 
 /* ----------------------------------------------------------------------- jobs */
