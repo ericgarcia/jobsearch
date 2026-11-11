@@ -3,7 +3,8 @@
   "name": "Split Pilot",
   "version": "0.1.0",
   "description": "Pair two tabs in a split view and send every link from the left tab into the right one, so the right stays a single stable page an agent can drive.",
-  "minimum_chrome_version": "155",
+  "_comment_minimum": "111 is where content_scripts.world MAIN arrived, which is the oldest Chrome this code runs on. The split view itself needs 155 and is detected at runtime; below that the pair still routes links as ordinary neighbouring tabs.",
+  "minimum_chrome_version": "111",
   "permissions": ["tabs", "storage"],
   "host_permissions": ["<all_urls>"],
   "background": {
