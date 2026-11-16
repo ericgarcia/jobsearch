@@ -132,6 +132,8 @@ export interface ThreadTab {
   url: string;
   /** On screen now, so closing it would take a page away as it is read. */
   active: boolean;
+  /** The page this thread had in the pane, and should get back. */
+  shown: boolean;
 }
 
 /** What closing this thread would close. Asked before it is done. */

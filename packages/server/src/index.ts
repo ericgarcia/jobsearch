@@ -754,6 +754,23 @@ app.post("/api/conversations", async (request) => {
   return { id: await repo.createConversation(body.title) };
 });
 
+app.get("/api/conversations/:id/workspace", async (request) =>
+  ({ workspace: await repo.getWorkspace(Number((request.params as { id: string }).id)) }),
+);
+
+/*
+  The app saying what it was showing in this conversation. No "threads"
+  event is raised: nothing else on screen depends on it, and a thread that
+  jumped in the list because someone scrolled would be a worse list.
+*/
+app.put("/api/conversations/:id/workspace", async (request) => {
+  await repo.setWorkspace(
+    Number((request.params as { id: string }).id),
+    (request.body ?? {}) as unknown,
+  );
+  return { ok: true };
+});
+
 app.get("/api/conversations/:id/messages", async (request) =>
   await repo.listMessages(Number((request.params as { id: string }).id)),
 );

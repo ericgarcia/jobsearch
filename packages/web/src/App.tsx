@@ -17,11 +17,88 @@ import { LayoutEditor } from "./components/LayoutEditor.tsx";
 import { Projects } from "./components/Projects.tsx";
 import { useReportState } from "./reportState.ts";
 import { Boards } from "./components/Boards.tsx";
-import { adoptStage, leaveSplit, routeToPane, splitInstalled, syncToken } from "./split.ts";
+import {
+  adoptStage,
+  leaveSplit,
+  routeToPane,
+  showInPane,
+  splitInstalled,
+  syncToken,
+  tellThread,
+  threadTabs,
+} from "./split.ts";
 import { ResumeView } from "./components/ResumeView.tsx";
 import { CoverLetter } from "./components/CoverLetter.tsx";
 
 type Tab = "jobs" | "applications" | "drafts" | "profile" | "projects" | "design" | "boards";
+
+/*
+  The open thread lives in the URL.
+
+  It used to live in a ref, which meant a reload started a new conversation
+  while the old one sat in the database unreachable — the work was kept and
+  the way back to it was not. The URL is the one piece of page state the
+  browser already persists across a reload, a restore and a bookmark.
+*/
+function threadFromUrl(): number | null {
+  const raw = new URLSearchParams(window.location.search).get("thread");
+  const id = raw ? Number(raw) : NaN;
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+function putThreadInUrl(id: number | null): void {
+  const url = new URL(window.location.href);
+  if (id === null) url.searchParams.delete("thread");
+  else url.searchParams.set("thread", String(id));
+  window.history.replaceState(null, "", url);
+}
+
+/**
+ * What the app was showing, kept per conversation.
+ *
+ * Not the filters that describe the person rather than the work — where
+ * they want to live is a preference, and it would be strange for it to
+ * change because they opened a different conversation.
+ */
+interface Workspace {
+  tab: Tab;
+  job: number | null;
+  resume: number | null;
+  letter: number | null;
+  surface: string | null;
+  search: string;
+  untrackedOnly: boolean;
+}
+
+const TABS: Tab[] = ["jobs", "applications", "drafts", "profile", "projects", "design", "boards"];
+
+/** Where a conversation starts: the job list, nothing open. */
+const FRESH: Workspace = {
+  tab: "jobs",
+  job: null,
+  resume: null,
+  letter: null,
+  surface: null,
+  search: "",
+  untrackedOnly: false,
+};
+
+/** A stored workspace, or nothing if it is not one. Written by an older app, say. */
+function asWorkspace(value: unknown): Workspace | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  if (!TABS.includes(raw.tab as Tab)) return null;
+  const id = (what: unknown) => (typeof what === "number" ? what : null);
+  return {
+    tab: raw.tab as Tab,
+    job: id(raw.job),
+    resume: id(raw.resume),
+    letter: id(raw.letter),
+    surface: typeof raw.surface === "string" ? raw.surface : null,
+    search: typeof raw.search === "string" ? raw.search : "",
+    untrackedOnly: raw.untrackedOnly === true,
+  };
+}
 
 export function App() {
   const [health, setHealth] = useState<Health | null>(null);
@@ -62,6 +139,9 @@ export function App() {
     nothing else announces that the arrangement changed.
   */
   const [inSplit, setInSplit] = useState(false);
+
+  /** The open conversation. The workspace below belongs to it. */
+  const [threadId, setThreadId] = useState<number | null>(threadFromUrl);
 
   /*
     The canvas is hidden, never unmounted.
@@ -114,6 +194,109 @@ export function App() {
     setOpenLetter(null);
   }
 
+
+  /*
+    Tell the extension which conversation is open, so pages opened from here
+    are recorded against it. Said on every change, including the first,
+    because the worker may have been asleep and forgotten.
+  */
+  useEffect(() => {
+    void tellThread(hasSplit ? splitId : null, threadId);
+  }, [splitId, hasSplit, threadId]);
+
+  /*
+    Switching conversation puts back what that conversation was showing.
+
+    A thread is a piece of work — a company, an application, an afternoon —
+    and coming back to it in the state you left it is the difference between
+    a conversation and a chat window that happens to remember text. The pane
+    follows: the page this thread was reading comes back beside it, and a
+    thread with no pages gets the whole window.
+
+    `applying` stops the save below from firing on the restore itself, which
+    would write the state we just left over the one we just loaded.
+  */
+  const applying = useRef(false);
+
+  /*
+    A conversation that was just born here keeps the view it was born in.
+
+    Starting a thread from the Profile tab means asking about the profile,
+    and resetting to the job list at that moment would take away the thing
+    being asked about. Every other arrival at a thread with nothing stored
+    is a switch to a conversation that has never had a view, and that one
+    starts fresh rather than borrowing the last thread's.
+  */
+  const bornHere = useRef(false);
+
+  useEffect(() => {
+    if (threadId === null) return;
+    let current = true;
+
+    void (async () => {
+      const { workspace } = await api.workspace(threadId).catch(() => ({ workspace: null }));
+      if (!current) return;
+
+      const kept = asWorkspace(workspace) ?? (bornHere.current ? null : FRESH);
+      bornHere.current = false;
+      if (kept) {
+        applying.current = true;
+        setTab(kept.tab);
+        setSelected(kept.job);
+        setOpenResume(kept.resume);
+        setOpenLetter(kept.letter);
+        setSurface(kept.surface);
+        setSearch(kept.search);
+        setUntrackedOnly(kept.untrackedOnly);
+      }
+
+      // And the pane. Its last page, or none — in which case the window is
+      // the app's again, with the page still open behind it.
+      const id = hasSplit ? splitId : null;
+      const pages = await threadTabs(id, threadId).catch(() => []);
+      if (!current) return;
+      // The one it had in the pane, or its most recent page if that one
+      // has since been closed.
+      const wanted = pages.find((page) => page.shown) ?? pages.at(-1);
+      if (wanted) await showInPane(id, wanted.id);
+      else await leaveSplit(id);
+    })();
+
+    return () => {
+      current = false;
+    };
+  }, [threadId, splitId, hasSplit]);
+
+  /*
+    And remember it, a moment after it stops changing.
+
+    On every keystroke would be a request per letter typed into the search
+    box. A moment later is soon enough for something nobody reads until they
+    come back to it.
+  */
+  useEffect(() => {
+    if (threadId === null) return;
+    if (applying.current) {
+      applying.current = false;
+      return;
+    }
+    const workspace: Workspace = {
+      tab,
+      job: selected,
+      resume: openResume,
+      letter: openLetter,
+      surface,
+      search,
+      untrackedOnly,
+    };
+    const timer = setTimeout(() => {
+      void api.saveWorkspace(threadId, workspace).catch(() => {
+        // Losing the place you were at is not worth an error in front of
+        // someone who is reading something else.
+      });
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [threadId, tab, selected, openResume, openLetter, surface, search, untrackedOnly]);
 
   /*
     The app's own links go in the pane beside it.
@@ -328,7 +511,18 @@ export function App() {
         >
           job<span>search</span>
         </button>
-          <Chat onDataChanged={loadData} splitId={hasSplit ? splitId : null} />
+          <Chat
+          onDataChanged={loadData}
+          splitId={hasSplit ? splitId : null}
+          threadId={threadId}
+          onOpenThread={(id) => {
+            // A thread the server made for a message just sent from here,
+            // rather than one picked from the list.
+            bornHere.current = threadId === null && id !== null;
+            setThreadId(id);
+            putThreadInUrl(id);
+          }}
+        />
       </aside>
 
       <div className="canvas" aria-hidden={inSplit || undefined}>

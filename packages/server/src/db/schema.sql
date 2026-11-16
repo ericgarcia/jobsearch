@@ -87,6 +87,10 @@ CREATE TABLE IF NOT EXISTS conversations (
   id             INTEGER PRIMARY KEY,
   sdk_session_id TEXT,
   title          TEXT,
+  -- What the app was showing in this conversation: the open tab, what was
+  -- selected in it, the search. A conversation is a piece of work, and
+  -- coming back to it should put back what you were looking at.
+  workspace      TEXT,
   created_at     TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );

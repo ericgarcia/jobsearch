@@ -1,14 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, chat, type ChatEvent, type Thread } from "../api.ts";
 import { useChanges } from "../changes.ts";
-import {
-  closeTab,
-  closeThreadTabs,
-  showInPane,
-  tellThread,
-  threadTabs,
-  type ThreadTab,
-} from "../split.ts";
+import { closeTab, closeThreadTabs, showInPane, threadTabs, type ThreadTab } from "../split.ts";
 
 interface Entry {
   kind: "user" | "assistant" | "tool" | "error";
@@ -19,28 +12,6 @@ function describeTool(name: string, input: unknown): string {
   const short = name.replace(/^mcp__[a-z]+__/, "");
   const args = input && typeof input === "object" ? JSON.stringify(input) : "";
   return `${short} ${args.length > 90 ? `${args.slice(0, 90)}…` : args}`;
-}
-
-/*
-  The open thread lives in the URL.
-
-  It used to live in a ref, which meant a reload started a new conversation
-  while the old one sat in the database unreachable — the work was kept and
-  the way back to it was not. The URL is the one piece of page state the
-  browser already persists across a reload, a restore and a bookmark, so it
-  is where this belongs.
-*/
-function threadFromUrl(): number | null {
-  const raw = new URLSearchParams(window.location.search).get("thread");
-  const id = raw ? Number(raw) : NaN;
-  return Number.isInteger(id) && id > 0 ? id : null;
-}
-
-function putThreadInUrl(id: number | null): void {
-  const url = new URL(window.location.href);
-  if (id === null) url.searchParams.delete("thread");
-  else url.searchParams.set("thread", String(id));
-  window.history.replaceState(null, "", url);
 }
 
 function label(thread: Thread): string {
@@ -61,22 +32,32 @@ function pageName(page: ThreadTab): string {
 export function Chat({
   onDataChanged,
   splitId,
+  threadId,
+  onOpenThread,
 }: {
   onDataChanged: () => void;
   /** Split Pilot's id, or null when it is not installed. */
   splitId: string | null;
+  /*
+    The open thread is the app's, not the chat's.
+
+    It used to live here, which was fine while it only chose which messages
+    to show. It now chooses which workspace the whole app is in — which tab,
+    what is selected, which page has the pane — so it belongs where those
+    live.
+  */
+  threadId: number | null;
+  onOpenThread: (id: number | null) => void;
 }) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [draft, setDraft] = useState("");
   const [running, setRunning] = useState(false);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [listOpen, setListOpen] = useState(false);
-  const [threadId, setThreadId] = useState<number | null>(threadFromUrl);
   const [renaming, setRenaming] = useState<number | null>(null);
   /** The pages this thread has open, as the extension sees them. */
   const [pages, setPages] = useState<ThreadTab[]>([]);
 
-  const conversationId = useRef<number | null>(threadId);
   const abort = useRef<AbortController | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -116,15 +97,6 @@ export function Chat({
   }, [threadId]);
 
   /*
-    Tell the extension which thread is open, so pages opened from here are
-    recorded against it. Said on every change, including the first, because
-    the worker may have been asleep and forgotten.
-  */
-  useEffect(() => {
-    void tellThread(splitId, threadId);
-  }, [splitId, threadId]);
-
-  /*
     The thread's pages: asked for once, then pushed.
 
     Asked on arrival because the worker has no idea this page just loaded.
@@ -160,16 +132,11 @@ export function Chat({
   }, [splitId, threadId]);
 
   function open(id: number | null): void {
-    if (id === threadId) {
-      setListOpen(false);
-      return;
-    }
-    abort.current?.abort();
-    conversationId.current = id;
-    setThreadId(id);
-    putThreadInUrl(id);
-    if (id === null) setEntries([]);
     setListOpen(false);
+    if (id === threadId) return;
+    abort.current?.abort();
+    if (id === null) setEntries([]);
+    onOpenThread(id);
   }
 
   /*
@@ -244,7 +211,7 @@ export function Chat({
     abort.current = controller;
 
     try {
-      for await (const event of chat(message, conversationId.current, controller.signal)) {
+      for await (const event of chat(message, threadId, controller.signal)) {
         apply(event);
       }
     } catch (chatError) {
@@ -262,9 +229,7 @@ export function Chat({
       case "conversation":
         // A thread the server just made for this first message. Record it
         // before anything else can reload the page out from under it.
-        conversationId.current = event.conversationId;
-        setThreadId(event.conversationId);
-        putThreadInUrl(event.conversationId);
+        onOpenThread(event.conversationId);
         break;
       case "text":
         setEntries((prior) => [...prior, { kind: "assistant", text: event.text }]);

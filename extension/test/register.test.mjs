@@ -288,4 +288,33 @@ assert.deepEqual(
 );
 ok("the other page and the thread are untouched");
 
+console.log("\n14. A thread remembers which page it had in the pane");
+
+const deskA = tabStub({ url: "http://localhost:5173/", title: "jobsearch" });
+await say({ type: "split-pilot:thread", thread: 21 }, deskA);
+const first = tabStub({ url: "https://example.com/1", title: "First" });
+const latest = tabStub({ url: "https://example.com/2", title: "Latest" });
+await say({ type: "split-pilot:adopt", tabId: first.id }, deskA);
+await say({ type: "split-pilot:adopt", tabId: latest.id }, deskA);
+
+// Switch back to the earlier page, which is what the strip does.
+await say({ type: "split-pilot:show", tabId: first.id }, deskA);
+
+let listed = (await say({ type: "split-pilot:thread-tabs", thread: 21 }, deskA)).tabs;
+assert.deepEqual(
+  listed.map((x) => x.id),
+  [first.id, latest.id],
+  "the strip keeps the order the pages were opened in",
+);
+assert.equal(listed.find((x) => x.shown)?.id, first.id, "and knows which one is in the pane");
+ok("showing a page records it without reordering the strip");
+
+console.log("\n15. And falls back when that page is closed");
+
+await chrome.tabs.remove(first.id);
+listed = (await say({ type: "split-pilot:thread-tabs", thread: 21 }, deskA)).tabs;
+assert.deepEqual(listed.map((x) => x.id), [latest.id]);
+assert.equal(listed[0].shown, true, "the page left over is the one to come back to");
+ok("closing the shown page hands the pane to what is left");
+
 console.log(`\n${passed} passed, 0 failed`);

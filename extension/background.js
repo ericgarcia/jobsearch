@@ -198,6 +198,15 @@ async function sideOf(tabId) {
 
 const THREADS = "threads";
 const CURRENT = "current";
+/*
+  thread -> the page it last had in the pane.
+
+  Kept apart from the list of its pages, which is in the order they were
+  opened. Switching the pane back and forth would otherwise reorder the
+  strip under the person's cursor, and a row of chips that rearranges when
+  you click one is a row nobody can aim at.
+*/
+const SHOWN = "shown";
 
 async function stored(key) {
   return (await chrome.storage.session.get(key))[key] ?? {};
@@ -237,7 +246,17 @@ async function remember(leftTabId, tabId) {
   const had = threads[thread] ?? [];
   if (!had.includes(tabId)) threads[thread] = [...had, tabId];
   await chrome.storage.session.set({ [THREADS]: threads });
+  // Opening a page is showing it. Switching to another one says so itself.
+  await setShown(thread, tabId);
   await announce(thread);
+}
+
+/** Record which page a thread has in the pane. */
+async function setShown(thread, tabId) {
+  const shown = await stored(SHOWN);
+  if (shown[thread] === tabId) return;
+  shown[thread] = tabId;
+  await chrome.storage.session.set({ [SHOWN]: shown });
 }
 
 /**
@@ -262,7 +281,10 @@ async function tabsOfThread(thread) {
  * strip and another way in the warning before it closes.
  */
 async function pagesOfThread(thread) {
+  const shown = (await stored(SHOWN))[thread];
   return (await tabsOfThread(thread)).map((other) => ({
+    /* The page to put back in the pane when this thread is opened again. */
+    shown: other.id === shown,
     id: other.id,
     title: other.title ?? "",
     url: other.url ?? "",
@@ -678,7 +700,11 @@ chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
       return answer(respond, async () => {
         const wanted = await chrome.tabs.get(message.tabId).catch(() => null);
         if (!wanted) return { error: "that page is not open any more" };
-        return await adopt(tab, wanted);
+        const arranged = await adopt(tab, wanted);
+        const thread = await threadOf(tab.id);
+        await setShown(thread, message.tabId);
+        await announce(thread);
+        return arranged;
       });
 
     /* And doing it. The app asks only after the person has agreed. */
@@ -691,6 +717,9 @@ chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
             // Gone already, which is where we were heading.
           });
         }
+        const shown = await stored(SHOWN);
+        delete shown[message.thread];
+        await chrome.storage.session.set({ [SHOWN]: shown });
         await announce(message.thread);
         return { closed: open.length };
       });
@@ -816,6 +845,18 @@ async function forget(tabId) {
   }
   if (touched.length > 0) {
     await chrome.storage.session.set({ [THREADS]: threads });
+
+    // The page in the pane can be the one that just closed. Fall back to
+    // whatever the thread has left, so reopening it still shows something.
+    const shown = await stored(SHOWN);
+    for (const thread of touched) {
+      if (shown[thread] !== tabId) continue;
+      const left = threads[thread] ?? [];
+      if (left.length > 0) shown[thread] = left.at(-1);
+      else delete shown[thread];
+    }
+    await chrome.storage.session.set({ [SHOWN]: shown });
+
     for (const thread of touched) await announce(thread);
   }
 }

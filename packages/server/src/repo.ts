@@ -469,6 +469,37 @@ export async function renameConversation(id: number, title: string): Promise<voi
   await dbRun(`UPDATE conversations SET title = ? WHERE id = ?`, title.slice(0, 120), id);
 }
 
+/**
+ * What the app was showing in a conversation, and putting it back.
+ *
+ * Stored as the app's own JSON rather than columns. The server has no use
+ * for the parts — it never asks which tab was open — and a column per field
+ * would mean a migration every time the app grows a panel. It is read back
+ * only by the page that wrote it, so a shape it no longer understands is
+ * discarded rather than repaired.
+ */
+export async function getWorkspace(id: number): Promise<unknown | null> {
+  const row = await dbGet<{ workspace: string | null }>(
+    `SELECT workspace FROM conversations WHERE id = ?`,
+    id,
+  );
+  if (!row?.workspace) return null;
+  try {
+    return JSON.parse(row.workspace) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+export async function setWorkspace(id: number, workspace: unknown): Promise<void> {
+  /*
+    Deliberately not touching updated_at. The thread list is ordered by it,
+    and a conversation would otherwise jump to the top because somebody
+    scrolled a list in it.
+  */
+  await dbRun(`UPDATE conversations SET workspace = ? WHERE id = ?`, JSON.stringify(workspace), id);
+}
+
 /** Messages go with it: the schema cascades. */
 export async function deleteConversation(id: number): Promise<boolean> {
   return (await dbRun(`DELETE FROM conversations WHERE id = ?`, id)).changes > 0;

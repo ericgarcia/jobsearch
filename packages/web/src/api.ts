@@ -354,6 +354,14 @@ export const api = {
     json<{ ok: true }>(`/api/conversations/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }),
   deleteThread: (id: number) =>
     json<{ deleted: boolean }>(`/api/conversations/${id}`, { method: "DELETE" }),
+  workspace: (id: number) =>
+    json<{ workspace: unknown | null }>(`/api/conversations/${id}/workspace`),
+  saveWorkspace: (id: number, workspace: unknown) =>
+    json<{ ok: true }>(`/api/conversations/${id}/workspace`, {
+      method: "PUT",
+      body: JSON.stringify(workspace),
+    }),
+
   threadMessages: (id: number) =>
     json<{ role: "user" | "assistant"; content: string; at: string }[]>(`/api/conversations/${id}/messages`),
 
