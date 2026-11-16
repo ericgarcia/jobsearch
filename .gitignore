@@ -17,3 +17,6 @@ resumes/
 cover-letters/
 profile.local.*
 .jobsearch/
+
+# The layout engine compiles into its package, like the server does.
+packages/*/dist/

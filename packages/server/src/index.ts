@@ -21,6 +21,16 @@ import { assessTopJobs, ASSESS_MODEL } from "./assess.js";
 import { browserEnabled, runAgent, verifyCredential } from "./agent/session.js";
 import { APP_URL, SPLIT_EXTENSION_ID } from "./config.js";
 import { openStageFor } from "./agent/split.js";
+import { PAGE, TOKENS, DEFAULTS, SECTION_KINDS, SECTION_NOTES, renderDocument } from "@jobsearch/layout";
+import {
+  createLayout,
+  defaultLayout,
+  gatherContent,
+  getLayout,
+  listLayouts,
+  seedLayouts,
+  updateLayout,
+} from "./layout/store.js";
 import {
   clearCredential,
   credentialStatus,
@@ -41,6 +51,7 @@ import {
 */
 await migrate();
 await seedIfEmpty();
+await seedLayouts();
 
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
 await app.register(cors, { origin: true });
@@ -261,6 +272,97 @@ app.post("/api/split/stage", async (request, reply) => {
     // Never let this stop the app loading: it is an arrangement, not the work.
     return reply.code(503).send({ error: (error as Error).message });
   }
+});
+
+/* ----------------------------------------------------------------- layouts */
+
+/**
+ * What can be customised, and what each control does.
+ *
+ * Served rather than documented twice: the styling skill and the UI both
+ * read this, so neither can drift from what the renderer will accept.
+ */
+app.get("/api/layout/vocabulary", async () => ({
+  tokens: Object.fromEntries(
+    Object.entries(TOKENS).map(([name, def]) => [
+      name,
+      { type: def.type, surfaces: def.surfaces, values: def.values, min: def.min, max: def.max, note: def.note },
+    ]),
+  ),
+  defaults: DEFAULTS,
+  sections: SECTION_KINDS.map((kind) => ({ kind, note: SECTION_NOTES[kind] })),
+  page: PAGE,
+}));
+
+app.get("/api/layouts", async (request) => {
+  const surface = (request.query as { surface?: string }).surface;
+  return listLayouts(surface === "profile" || surface === "resume" ? surface : undefined);
+});
+
+app.post("/api/layouts", async (request, reply) => {
+  const body = (request.body ?? {}) as { surface?: string; name?: string; from?: number };
+  if (body.surface !== "profile" && body.surface !== "resume") {
+    return reply.code(400).send({ error: "surface must be profile or resume" });
+  }
+  return createLayout(body.surface, body.name ?? "Untitled", body.from);
+});
+
+app.put("/api/layouts/:id", async (request, reply) => {
+  const id = Number((request.params as { id: string }).id);
+  try {
+    return await updateLayout(id, (request.body ?? {}) as Record<string, never>);
+  } catch (error) {
+    // The message names the token or the section that was refused, so the
+    // caller — usually the agent — can correct it rather than guess.
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+/**
+ * Render a surface as a whole HTML document.
+ *
+ * `?resume=<id>` swaps the content for a tailored draft, leaving the template
+ * alone — style once, export anything. `?paged=1` draws the page edges, which
+ * printing never shows.
+ */
+app.get("/api/layouts/:id/render", async (request, reply) => {
+  const id = Number((request.params as { id: string }).id);
+  const query = request.query as { resume?: string; paged?: string };
+
+  try {
+    const layout = await getLayout(id);
+    const content = await gatherContent(query.resume ? Number(query.resume) : null);
+    const html = renderDocument({
+      spec: layout.spec,
+      tokens: layout.tokens,
+      content,
+      surface: layout.surface,
+      paged: query.paged === "1",
+    });
+    return reply.type("text/html; charset=utf-8").send(html);
+  } catch (error) {
+    return reply.code(404).send({ error: (error as Error).message });
+  }
+});
+
+/** The same, through whichever layout a surface uses by default. */
+app.get("/api/render/:surface", async (request, reply) => {
+  const surface = (request.params as { surface: string }).surface;
+  if (surface !== "profile" && surface !== "resume") {
+    return reply.code(404).send({ error: "surface must be profile or resume" });
+  }
+  const query = request.query as { resume?: string; paged?: string };
+  const layout = await defaultLayout(surface);
+  const content = await gatherContent(query.resume ? Number(query.resume) : null);
+  return reply.type("text/html; charset=utf-8").send(
+    renderDocument({
+      spec: layout.spec,
+      tokens: layout.tokens,
+      content,
+      surface,
+      paged: query.paged === "1",
+    }),
+  );
 });
 
 app.get("/api/prefs", async () => ({ home_location: await homeLocation() }));

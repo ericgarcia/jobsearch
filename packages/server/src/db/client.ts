@@ -157,6 +157,7 @@ async function addMissingColumns(): Promise<void> {
     ["resumes", "warnings", "TEXT NOT NULL DEFAULT '[]'"],
     ["job_assessments", "model", "TEXT"],
     ["jobs", "location_tokens", "TEXT"],
+    ["resumes", "layout_id", "INTEGER REFERENCES layouts (id) ON DELETE SET NULL"],
   ];
 
   for (const [table, column, definition] of additions) {

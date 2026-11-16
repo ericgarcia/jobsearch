@@ -1,4 +1,8 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
+import { stylingGuide } from "@jobsearch/layout";
+import { defaultLayout, getLayout, listLayouts, updateLayout } from "../layout/store.js";
+import { measurePages } from "../layout/measure.js";
+import { browserEnabled } from "./browserFlag.js";
 import { z } from "zod";
 import * as profile from "../profile.js";
 import * as resume from "../resume.js";
@@ -223,7 +227,112 @@ const draftCoverLetter = tool(
   async (args) => guard(async () => await resume.saveCoverLetter(args.job_id, args.body)),
 );
 
+
+/* ------------------------------------------------------------- styling */
+
+const stylingGuideTool = tool(
+  "styling_guide",
+  "How to style the profile and the resume: every token, what it accepts, what it does, and the section list. Read this before changing a layout.",
+  {},
+  async () => guard(async () => stylingGuide()),
+  { annotations: { readOnlyHint: true } },
+);
+
+const getLayoutTool = tool(
+  "get_layout",
+  "The current layout for a surface: its sections in order, which are hidden, and the tokens set on it. Read before changing anything — some of it may be deliberate.",
+  { surface: z.enum(["profile", "resume"]) },
+  async (args) => guard(async () => defaultLayout(args.surface)),
+  { annotations: { readOnlyHint: true } },
+);
+
+const styleLayoutTool = tool(
+  "style_layout",
+  "Set design tokens on a layout. Merges with what is there, so send only what changes; an empty string puts a token back to its default. A refused value says which token and why — correct it rather than trying another spelling.",
+  {
+    surface: z.enum(["profile", "resume"]),
+    tokens: z.record(z.string(), z.string()).describe('For example {"accent": "#2b3a55", "density": "0.9"}'),
+  },
+  async (args) =>
+    guard(async () => {
+      const layout = await defaultLayout(args.surface);
+      return updateLayout(layout.id, { tokens: args.tokens });
+    }),
+);
+
+const arrangeLayoutTool = tool(
+  "arrange_layout",
+  "Set which sections appear, in which order, with what heading. Send the whole list: its order is the order on the page. A hidden section keeps its place for when it comes back.",
+  {
+    surface: z.enum(["profile", "resume"]),
+    sections: z.array(
+      z.object({
+        kind: z.string(),
+        visible: z.boolean().optional(),
+        heading: z.string().nullable().optional(),
+        options: z.record(z.string(), z.unknown()).optional(),
+      }),
+    ),
+  },
+  async (args) =>
+    guard(async () => {
+      const layout = await defaultLayout(args.surface);
+      return updateLayout(layout.id, { spec: { sections: args.sections } });
+    }),
+);
+
+const previewLayoutTool = tool(
+  "preview_layout",
+  "What a surface currently looks like: the sections shown, the tokens set, and — for a resume, when the browser is on — how many letter pages it comes to and how full the last one is. Check this after styling rather than assuming. A resume that grew to three pages is a worse answer than the two-page one it replaced.",
+  { surface: z.enum(["profile", "resume"]), resume_id: z.number().optional() },
+  async (args) =>
+    guard(async () => {
+      const layout = await defaultLayout(args.surface);
+      const query = args.resume_id ? `?resume=${args.resume_id}` : "";
+      const url = `/api/render/${args.surface}${query}`;
+
+      const base = {
+        layout: { id: layout.id, name: layout.name, tokens: layout.tokens },
+        sections: layout.spec.sections.filter((s) => s.visible).map((s) => s.kind),
+        url: `${url}${args.surface === "resume" ? (query ? "&" : "?") + "paged=1" : ""}`,
+      };
+
+      if (args.surface !== "resume") return base;
+      if (!browserEnabled) {
+        return { ...base, pages: null, note: "The browser is off, so the page count cannot be measured." };
+      }
+
+      /*
+        Measured rather than estimated, and a failure to measure is reported
+        rather than swallowed: "I could not check" is useful, and a made-up
+        page count is worse than none.
+      */
+      try {
+        const measured = await measurePages(`${url}${query ? "&" : "?"}paged=1`);
+        return {
+          ...base,
+          pages: measured.pages,
+          last_page_fill: measured.lastPageFill,
+          note:
+            measured.lastPageFill > 0.9
+              ? "The last page is nearly full; a small addition will spill onto another."
+              : measured.lastPageFill < 0.25 && measured.pages > 1
+                ? "The last page holds very little. Tightening density or cutting a bullet may save a page."
+                : undefined,
+        };
+      } catch (error) {
+        return { ...base, pages: null, note: `Could not measure: ${(error as Error).message}` };
+      }
+    }),
+  { annotations: { readOnlyHint: true } },
+);
+
 export const profileTools = [
+  stylingGuideTool,
+  getLayoutTool,
+  styleLayoutTool,
+  arrangeLayoutTool,
+  previewLayoutTool,
   getProfile,
   updateProfile,
   addRole,
@@ -242,6 +351,8 @@ export const profileTools = [
 ];
 
 export const PROFILE_MUTATING = [
+  "style_layout",
+  "arrange_layout",
   "update_profile",
   "add_role",
   "update_role",

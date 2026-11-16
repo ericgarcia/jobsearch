@@ -62,6 +62,41 @@ with:
 npm test --workspace=@jobsearch/server
 ```
 
+## Styling the profile and the resume
+
+Two surfaces, styled separately, both stored as data:
+
+- the **profile**, a web page;
+- the **resume**, a letter-size document previewed at 8.5in by 11in with the
+  page edges marked, and exported by printing it.
+
+A layout is an ordered list of sections, each shown or hidden, plus a set of
+design tokens. Ask the agent — "make the resume warmer and more traditional",
+"move education above experience", "drop the skills section" — or set them
+through `/api/layouts/:id`.
+
+```
+GET  /api/layout/vocabulary     every token, what it accepts, what it does
+GET  /api/render/resume?paged=1 the resume, with page edges
+GET  /api/render/profile        the public page
+```
+
+Style the template once; the content changes under it. `?resume=<id>` renders
+a tailored draft through the same template, which is the point of keeping the
+two apart.
+
+### No user-authored CSS, and why
+
+A stylesheet is a program. It fetches, so it reports every visitor's address
+to whoever wrote it; it can cover the page, hide something the page must
+show, or display text through `content` that nobody reviewing the stored data
+would ever see. So there is none: tokens are the whole styling surface, and
+each value is checked against a type and a range before it reaches a
+stylesheet. A refusal names the token and the reason.
+
+`spikes/public-profile/` holds the measurements this decision rests on,
+including what a page served from the app's own origin managed to do.
+
 ## Where the data lives
 
 `~/.jobsearch/jobsearch.db`, a SQLite file, read through libSQL. Set

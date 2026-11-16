@@ -163,6 +163,28 @@ CREATE TABLE IF NOT EXISTS profile_skills (
   years    INTEGER
 );
 
+/* ----------------------------------------------------------------- layouts */
+/*
+  How a surface is laid out and styled. Data, not code: a hosted copy offers
+  the same customising as a local one, and nothing stored here is executable.
+
+  spec   — the sections, in order, each shown or hidden (JSON).
+  tokens — overrides on the design tokens (JSON). Every value is checked
+           against a type before it is written, because it reaches a
+           stylesheet. There is no user-authored CSS anywhere in this system.
+*/
+CREATE TABLE IF NOT EXISTS layouts (
+  id         INTEGER PRIMARY KEY,
+  surface    TEXT    NOT NULL CHECK (surface IN ('profile', 'resume')),
+  name       TEXT    NOT NULL,
+  spec       TEXT    NOT NULL DEFAULT '{}',
+  tokens     TEXT    NOT NULL DEFAULT '{}',
+  is_default INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS layouts_surface_idx ON layouts (surface);
+
 /* ----------------------------------------------------------------- resumes */
 
 CREATE TABLE IF NOT EXISTS resumes (
