@@ -114,6 +114,15 @@ a { color: var(--accent); }
 .resizer:hover,
 .resizer:active,
 .resizer:focus-visible { background: var(--accent); outline: none; }
+/*
+  Sitting in the middle. Wider and brighter than the ordinary drag state,
+  so the snap is something you can see happen rather than something you
+  discover when you let go.
+*/
+.resizer.snapped {
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
 
 .canvas { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 

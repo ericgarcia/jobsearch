@@ -99,6 +99,14 @@ const SHARE_DEFAULT = 0.5;
 const SHARE_MIN = 0.2;
 const SHARE_MAX = 0.75;
 
+/*
+  How close to the middle counts as the middle.
+
+  In pixels, not a share: it is a question about the hand holding the
+  pointer, and a hand does not get steadier on a larger monitor.
+*/
+const SNAP_PX = 22;
+
 function sensibleShare(share: number): number {
   return Math.min(SHARE_MAX, Math.max(SHARE_MIN, share));
 }
@@ -211,6 +219,15 @@ export function App() {
   */
   const dragging = useRef(false);
   const shareNow = useRef(share);
+  /** Whether the edge is sitting in the middle, so the handle can say so. */
+  const [snapped, setSnapped] = useState(false);
+  const snappedNow = useRef(false);
+
+  const markSnapped = (is: boolean) => {
+    if (snappedNow.current === is) return;
+    snappedNow.current = is;
+    setSnapped(is);
+  };
 
   const resize = (next: number) => {
     shareNow.current = next;
@@ -657,7 +674,7 @@ export function App() {
       */}
       {!inSplit && (
         <div
-          className="resizer"
+          className={`resizer${snapped ? " snapped" : ""}`}
           role="separator"
           aria-orientation="vertical"
           aria-label="Width of the assistant"
@@ -678,8 +695,20 @@ export function App() {
           }}
           onPointerMove={(event) => {
             if (!dragging.current) return;
+            /*
+              Half is the width worth hitting exactly, because it is the
+              width Chrome's split always uses: the app and the split then
+              line up rather than nearly lining up. Only half — a handful of
+              snap points is a handle that fights you.
+
+              Hold alt to place it anywhere, as every tool with snapping
+              does, so this never costs you a width you actually wanted.
+            */
+            const middle = window.innerWidth / 2;
+            const sticks = !event.altKey && Math.abs(event.clientX - middle) <= SNAP_PX;
+            markSnapped(sticks);
             // The column starts at the left edge, so the pointer's x is it.
-            resize(shareAt(event.clientX));
+            resize(sticks ? SHARE_DEFAULT : shareAt(event.clientX));
           }}
           onPointerUp={(event) => {
             try {
@@ -688,6 +717,7 @@ export function App() {
               // It was never captured.
             }
             dragging.current = false;
+            markSnapped(false);
             rememberShare(shareNow.current);
           }}
           onKeyDown={(event) => {
