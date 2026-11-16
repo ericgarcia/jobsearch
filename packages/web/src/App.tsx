@@ -68,6 +68,14 @@ interface Workspace {
   surface: string | null;
   search: string;
   untrackedOnly: boolean;
+  /*
+    Whether the pane was open when you left.
+
+    Having pages is not the same as showing one. Giving the window back to
+    the app is a thing you chose, and a thread that reopened split every
+    time undid that choice on the way back in.
+  */
+  pane: boolean;
 }
 
 const TABS: Tab[] = ["jobs", "applications", "drafts", "profile", "projects", "design", "boards"];
@@ -117,6 +125,7 @@ const FRESH: Workspace = {
   surface: null,
   search: "",
   untrackedOnly: false,
+  pane: false,
 };
 
 /** A stored workspace, or nothing if it is not one. Written by an older app, say. */
@@ -133,6 +142,9 @@ function asWorkspace(value: unknown): Workspace | null {
     surface: typeof raw.surface === "string" ? raw.surface : null,
     search: typeof raw.search === "string" ? raw.search : "",
     untrackedOnly: raw.untrackedOnly === true,
+    // Absent in anything written before the pane was remembered. Those
+    // threads behaved as "show the page", so that is what they keep.
+    pane: raw.pane !== false,
   };
 }
 
@@ -273,6 +285,8 @@ export function App() {
     would write the state we just left over the one we just loaded.
   */
   const applying = useRef(false);
+  /** A debounced save that has not gone out yet, and whose thread it is. */
+  const unsaved = useRef<{ id: number; workspace: Workspace } | null>(null);
 
   /*
     A conversation that was just born here keeps the view it was born in.
@@ -312,9 +326,9 @@ export function App() {
       const pages = await threadTabs(id, threadId).catch(() => []);
       if (!current) return;
       // The one it had in the pane, or its most recent page if that one
-      // has since been closed.
+      // has since been closed — and only if the pane was open at all.
       const wanted = pages.find((page) => page.shown) ?? pages.at(-1);
-      if (wanted) await showInPane(id, wanted.id);
+      if (wanted && (kept?.pane ?? true)) await showInPane(id, wanted.id);
       else await leaveSplit(id);
     })();
 
@@ -344,15 +358,36 @@ export function App() {
       surface,
       search,
       untrackedOnly,
+      pane: inSplit,
     };
+    unsaved.current = { id: threadId, workspace };
+
     const timer = setTimeout(() => {
+      unsaved.current = null;
       void api.saveWorkspace(threadId, workspace).catch(() => {
         // Losing the place you were at is not worth an error in front of
         // someone who is reading something else.
       });
     }, 600);
     return () => clearTimeout(timer);
-  }, [threadId, tab, selected, openResume, openLetter, surface, search, untrackedOnly]);
+  }, [threadId, tab, selected, openResume, openLetter, surface, search, untrackedOnly, inSplit]);
+
+  /*
+    A change made in the last moment before leaving still counts.
+
+    The save above waits, and switching conversation cancels what it was
+    waiting for — so giving the window back to the app and immediately
+    switching threads lost exactly the thing you had just done. This writes
+    whatever is still waiting, for the thread being left, before the next
+    one is loaded.
+  */
+  useEffect(() => {
+    return () => {
+      const waiting = unsaved.current;
+      unsaved.current = null;
+      if (waiting) void api.saveWorkspace(waiting.id, waiting.workspace).catch(() => undefined);
+    };
+  }, [threadId]);
 
   /*
     The app's own links go in the pane beside it.
