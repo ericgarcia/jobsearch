@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { api, chat, type ChatEvent, type Thread } from "../api.ts";
 import { useChanges } from "../changes.ts";
 import { closeTab, closeThreadTabs, showInPane, threadTabs, type ThreadTab } from "../split.ts";
@@ -51,6 +53,34 @@ function writeDraft(threadId: number | null, text: string): void {
   } catch {
     // Nothing the person is doing fails. They lose a draft on reload.
   }
+}
+
+/*
+  The assistant writes markdown, so the assistant's messages are read as
+  markdown. Theirs only: what the person typed is shown as they typed it,
+  because a message box is not a document and nobody means a list when they
+  start a line with a dash.
+
+  react-markdown renders no raw HTML unless asked, and it is not asked. The
+  text here can quote a job posting, and a posting is not a thing to hand a
+  renderer that executes what it finds.
+*/
+function Prose({ text }: { text: string }) {
+  return (
+    <Markdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        /*
+          A link keeps its privacy attribute and needs no target: the app
+          catches clicks on anything leaving this origin and puts it in the
+          pane. Where there is no pane to be had, the fallback opens it.
+        */
+        a: ({ node: _node, ...rest }) => <a {...rest} rel="noreferrer" />,
+      }}
+    >
+      {text}
+    </Markdown>
+  );
 }
 
 /** What to call a page. Its own title, else the site it is on. */
@@ -413,6 +443,10 @@ export function Chat({
           entry.kind === "tool" ? (
             <div className="tool-line" key={index}>
               <b>⟩</b> {entry.text}
+            </div>
+          ) : entry.kind === "assistant" ? (
+            <div className="msg assistant prose" key={index}>
+              <Prose text={entry.text} />
             </div>
           ) : (
             <div className={`msg ${entry.kind}`} key={index}>
