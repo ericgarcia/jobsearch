@@ -129,6 +129,21 @@ mine = (await say({ type: "split-pilot:thread-tabs", thread: 7 }, app)).tabs;
 assert.equal(mine[0].active, true, "the app needs this to warn before closing");
 ok("in view is reported, so the app can ask first");
 
+console.log("\n3b. So is a pane of a split, which is never the active tab");
+
+tabs.get(posting.id).active = false;
+tabs.get(posting.id).splitViewId = 42;
+mine = (await say({ type: "split-pilot:thread-tabs", thread: 7 }, app)).tabs;
+assert.equal(
+  mine[0].active,
+  true,
+  "both panes of a split are on screen; only one of them is Chrome's active tab",
+);
+ok("the page beside the app counts as in view");
+
+delete tabs.get(posting.id).splitViewId;
+tabs.get(posting.id).active = true;
+
 console.log("\n4. Another thread's pages are its own");
 
 await say({ type: "split-pilot:thread", thread: 8 }, app);

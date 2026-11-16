@@ -589,11 +589,16 @@ chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
           title: other.title ?? "",
           url: other.url ?? "",
           /*
-            In view means on screen now: the active tab of its window, and
-            that window the one in front. A tab active in a window behind
-            another is not being read.
+            In view means on screen now.
+
+            The active tab of its window is the obvious half. The other half
+            is a tab in a split: both panes are displayed, and only one of
+            them is Chrome's active tab — so the page beside the app, the
+            very page this feature puts there, would have been closed with
+            no warning at all. A tab carries a splitViewId while it is in
+            one.
           */
-          active: other.active === true,
+          active: other.active === true || (other.splitViewId ?? -1) >= 0,
         })),
       }));
 
