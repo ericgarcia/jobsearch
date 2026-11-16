@@ -148,14 +148,22 @@ be half as useful.
 A tab the page opens is a tab Playwright never opened, and the bridge knows
 only the tabs it opened itself — so the assistant would watch that pane work
 and never be able to touch it. So the page asks the server (`POST
-/api/split/open`), the server has Playwright open the stage, and the extension
+/api/split/stage`), the server has Playwright open the stage, and the extension
 adopts it. That is the only order that ends with both panes drivable.
 
-The request is safe to repeat, because the app makes it on every load: an
-arrangement that is already good is left alone, and blank stage tabs left over
-from previous rounds are cleared rather than piling up. If it fails — the
-browser is off, the extension is not answering — the app says nothing and
-carries on. It is an arrangement, not the work.
+The request is safe to repeat, because the app makes it on every load. Three
+things keep it from leaving a mess behind:
+
+- An arrangement that is already good is left alone.
+- One stage is opened however many tabs ask at once. The limit is on the
+  server, which is the only place that can see all of them.
+- A stage that a new arrangement replaces is closed, by the extension, as it
+  is replaced. Nothing navigates it again, so leaving it open only collects
+  tabs. Blank tabs the server can sweep itself; one with a page in it only the
+  extension can recognise.
+
+If it fails — the browser is off, the extension is not answering — the app says
+nothing and carries on. It is an arrangement, not the work.
 
 ### One extension, not two
 

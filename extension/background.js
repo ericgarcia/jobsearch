@@ -111,6 +111,33 @@ async function putPair(windowId, pair) {
   }
 }
 
+/**
+ * Answer a message, whether the work behind it succeeded or not.
+ *
+ * Chrome holds the port open until respond() is called. A handler that throws
+ * instead never calls it, so the page that asked waits for an answer that is
+ * not coming, and the failure surfaces only as an uncaught rejection in the
+ * worker's console with nothing to say which message caused it. That is how
+ * "No tab with id" was reaching the error page.
+ *
+ * Anything that touches a tab can fail — a tab stops existing the moment the
+ * person closes it — so answering is the handler's business rather than
+ * something each happy path remembers. Returns true, which is Chrome's signal
+ * that the answer is coming later.
+ */
+function answer(respond, work) {
+  Promise.resolve().then(work).then(respond, (error) => {
+    respond({ error: String(error?.message ?? error) });
+  });
+  return true;
+}
+
+/** The tab a popup's command is about. */
+async function activeTab() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tab ?? null;
+}
+
 function tell(tabId, role) {
   chrome.tabs.sendMessage(tabId, { type: "split-pilot:you-are", role }).catch(() => {
     // No content script in that tab — a chrome:// page, or one loaded before
@@ -144,13 +171,44 @@ async function sideOf(tabId) {
 const canSplit = () => typeof chrome.tabs.createSplit === "function";
 
 /**
+ * Take apart whatever pair a window has, and name the stage it had.
+ *
+ * dissolve() leaves both tabs open, which is right when a person unpairs —
+ * they still want what they were reading. It is wrong when a new stage is
+ * arriving: the old one is then a tab nothing will ever navigate again, and
+ * left open it collects. So the two cases are separated here, and a caller
+ * that is replacing a pair passes what this returns to retire().
+ */
+async function supersede(windowId) {
+  const previous = await pairForWindow(windowId);
+  await dissolve(windowId);
+  return previous?.right;
+}
+
+/**
+ * Close a stage that a new arrangement has replaced.
+ *
+ * Only the extension can do this. The server sees "a tab with a page in it"
+ * and cannot tell the stage it just replaced from something the person opened
+ * themselves, which is why its own sweep is limited to blank tabs.
+ *
+ * `keep` is the tabs now in use as panes, never closed however the ids line up.
+ */
+async function retire(superseded, ...keep) {
+  if (superseded === undefined || keep.includes(superseded)) return;
+  await chrome.tabs.remove(superseded).catch(() => {
+    // Already gone. That is the outcome we wanted.
+  });
+}
+
+/**
  * Make the given tab the left of a new pair, and open a right tab beside it.
  *
  * splitWithTabId puts the new tab to the right, which is the arrangement the
  * rest of this file assumes: left drives, right is driven.
  */
 async function startPair(leftTab, url = "about:blank") {
-  await dissolve(leftTab.windowId);
+  const superseded = await supersede(leftTab.windowId);
 
   let right;
   if (canSplit()) {
@@ -171,6 +229,9 @@ async function startPair(leftTab, url = "about:blank") {
     split: canSplit(),
   };
   await putPair(leftTab.windowId, pair);
+
+  // After the new pair is stored, so a failure here cannot lose the pairing.
+  await retire(superseded, leftTab.id, right.id);
   return pair;
 }
 
@@ -192,7 +253,7 @@ async function findCandidate(leftTab, message) {
 
 /** Move a tab next to the driver and split with it. */
 async function adopt(leftTab, stage) {
-  await dissolve(leftTab.windowId);
+  const superseded = await supersede(leftTab.windowId);
 
   // createSplit refuses tabs that are already split, or not neighbours.
   if (stage.splitViewId !== undefined && stage.splitViewId >= 0 && chrome.tabs.unsplit) {
@@ -226,6 +287,9 @@ async function adopt(leftTab, stage) {
     split,
   };
   await putPair(leftTab.windowId, pair);
+
+  // After the new pair is stored, so a failure here cannot lose the pairing.
+  await retire(superseded, leftTab.id, stage.id);
   return pair;
 }
 
@@ -266,12 +330,10 @@ async function sendToRight(fromTabId, url) {
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message?.type === "split-pilot:open") {
-    void sendToRight(sender.tab?.id, message.url).then((routed) => respond({ routed }));
-    return true;
+    return answer(respond, async () => ({ routed: await sendToRight(sender.tab?.id, message.url) }));
   }
   if (message?.type === "split-pilot:role") {
-    void sideOf(sender.tab?.id).then((found) => respond({ role: found?.side ?? null }));
-    return true;
+    return answer(respond, async () => ({ role: (await sideOf(sender.tab?.id))?.side ?? null }));
   }
 
   /* From connect.html, which Playwright opened with the relay address. */
@@ -293,33 +355,29 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   }
 
   if (message?.type === "split-pilot:token") {
-    void token().then((value) => respond({ token: value, connected: relay != null }));
-    return true;
+    return answer(respond, async () => ({ token: await token(), connected: relay != null }));
   }
 
   // From the popup. It cannot import this worker, so it asks.
   if (message?.type === "split-pilot:state") {
-    void (async () => {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    return answer(respond, async () => {
+      const tab = await activeTab();
       const pair = tab ? await pairForWindow(tab.windowId) : null;
-      respond({ tabId: tab?.id ?? null, pair, canSplit: canSplit() });
-    })();
-    return true;
+      return { tabId: tab?.id ?? null, pair, canSplit: canSplit() };
+    });
   }
   if (message?.type === "split-pilot:pair") {
-    void (async () => {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      respond(tab ? await startPair(tab, message.url) : null);
-    })();
-    return true;
+    return answer(respond, async () => {
+      const tab = await activeTab();
+      return tab ? await startPair(tab, message.url) : null;
+    });
   }
   if (message?.type === "split-pilot:unpair") {
-    void (async () => {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    return answer(respond, async () => {
+      const tab = await activeTab();
       if (tab) await dissolve(tab.windowId);
-      respond({ ok: true });
-    })();
-    return true;
+      return { ok: true };
+    });
   }
   return false;
 });
@@ -342,8 +400,7 @@ chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
 
   switch (message?.type) {
     case "split-pilot:pair":
-      void startPair(tab, message.url ?? "about:blank").then(respond);
-      return true;
+      return answer(respond, () => startPair(tab, message.url ?? "about:blank"));
 
     /*
       Take an existing tab as the stage, instead of making one.
@@ -355,12 +412,11 @@ chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
       split with it. It stays a tab the tool knows.
     */
     case "split-pilot:adopt":
-      void (async () => {
+      return answer(respond, async () => {
         const candidate = await findCandidate(tab, message);
-        if (!candidate) return respond({ error: "no tab to adopt" });
-        respond(await adopt(tab, candidate));
-      })();
-      return true;
+        if (!candidate) return { error: "no tab to adopt" };
+        return await adopt(tab, candidate);
+      });
 
     case "split-pilot:set-token": {
       /*
@@ -375,8 +431,10 @@ chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
         respond({ ok: false, error: "empty token" });
         return true;
       }
-      void chrome.storage.local.set({ token: value }).then(() => respond({ ok: true }));
-      return true;
+      return answer(respond, async () => {
+        await chrome.storage.local.set({ token: value });
+        return { ok: true };
+      });
     }
 
     /*
@@ -390,16 +448,16 @@ chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
       everything reported itself arranged.
     */
     case "split-pilot:my-role":
-      void sideOf(tab.id).then((found) => respond({ role: found?.side ?? null }));
-      return true;
+      return answer(respond, async () => ({ role: (await sideOf(tab.id))?.side ?? null }));
 
     case "split-pilot:unpair":
-      void dissolve(tab.windowId).then(() => respond({ ok: true }));
-      return true;
+      return answer(respond, async () => {
+        await dissolve(tab.windowId);
+        return { ok: true };
+      });
 
     case "split-pilot:open":
-      void sendToRight(tab.id, message.url).then((routed) => respond({ routed }));
-      return true;
+      return answer(respond, async () => ({ routed: await sendToRight(tab.id, message.url) }));
 
     /*
       Where the stage is. An agent addresses tabs by index, and an index moves
@@ -407,21 +465,20 @@ chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
       than remember.
     */
     case "split-pilot:state":
-      void (async () => {
+      return answer(respond, async () => {
         const pair = await pairForWindow(tab.windowId);
-        if (!pair) return respond({ paired: false });
+        if (!pair) return { paired: false };
         const [left, right] = await Promise.all([
           chrome.tabs.get(pair.left).catch(() => null),
           chrome.tabs.get(pair.right).catch(() => null),
         ]);
-        respond({
+        return {
           paired: true,
           split: pair.split,
           left: left && { id: left.id, index: left.index, url: left.url },
           right: right && { id: right.id, index: right.index, url: right.url },
-        });
-      })();
-      return true;
+        };
+      });
 
     default:
       return false;
@@ -449,11 +506,22 @@ chrome.tabs.onCreated.addListener(async (tab) => {
   const url = tab.pendingUrl ?? tab.url;
   if (!routable(url)) return;
 
-  await chrome.tabs.update(found.pair.right, { url });
-  try {
-    await chrome.tabs.remove(tab.id);
-  } catch {
-    // Already gone.
+  /*
+    Through sendToRight, which survives a stage that is no longer there.
+
+    Calling tabs.update directly threw "No tab with id" into an async listener,
+    where nothing catches it — it reached the console as an uncaught rejection
+    and the handler stopped, leaving the link in a tab this was meant to
+    absorb. The stage can be gone for ordinary reasons: the person closed it,
+    or an arrangement replaced it a moment ago.
+
+    And close the intercepted tab only if the URL actually landed. Closing it
+    after a failed route would throw the link away.
+  */
+  if (await sendToRight(tab.openerTabId, url)) {
+    await chrome.tabs.remove(tab.id).catch(() => {
+      // Already gone.
+    });
   }
 });
 

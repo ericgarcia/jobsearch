@@ -51,6 +51,11 @@ in Chrome 145, and the extension API to control it in 155.
 On older Chrome the pairing still works and links are still routed. The two
 tabs are ordinary neighbours instead of a visible split, and the popup says so.
 
+The floor is Chrome 111, which `minimum_chrome_version` states. That is where
+`content_scripts.world: "MAIN"` arrived, and `page.js` cannot run without it.
+Split view is detected at runtime instead, because the extension is useful
+below 155 and refusing to install would be the wrong answer.
+
 ## Install
 
 It is not in the Chrome Web Store. Load it unpacked:
@@ -71,6 +76,11 @@ A second tab opens to the right, split with the first. From then on every link
 in the left tab opens on the right.
 
 **Unpair** takes the split apart and leaves both tabs open.
+
+Pairing the same tab again, or pairing a different tab in that window, closes
+the stage the new one replaces. Unpair leaves it; a new arrangement does not.
+The difference is intent: unpairing means you still want what you were
+reading, while a replacement makes the old stage a tab nothing can navigate.
 
 ## What it catches
 
