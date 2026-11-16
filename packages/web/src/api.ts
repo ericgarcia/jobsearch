@@ -109,6 +109,16 @@ export interface ProseSection {
   sort_order: number;
 }
 
+
+export interface Thread {
+  id: number;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+  messages: number;
+  preview: string | null;
+}
+
 /* ------------------------------------------------------------- layouts */
 
 export interface TokenDef {
@@ -153,7 +163,20 @@ export interface Layout {
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
-    headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
+    headers: {
+      /*
+        The header only when there is a body to describe.
+
+        It used to go on every request, including the bodyless DELETEs, and
+        Fastify answers that with a 400: "Body cannot be empty when
+        content-type is set to 'application/json'". Every delete button in
+        the app threw, the throw went nowhere visible, and the row stayed on
+        the screen — the same request by hand, without the header, deleted
+        the row. Found by clicking one rather than by reading this.
+      */
+      ...(init?.body == null ? {} : { "content-type": "application/json" }),
+      ...(init?.headers ?? {}),
+    },
   });
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as { error?: string };
@@ -324,6 +347,15 @@ export const api = {
     json<ProseSection>(`/api/sections/${id}`, { method: "PUT", body: JSON.stringify(patch) }),
   deleteSection: (id: number) =>
     json<{ deleted: boolean }>(`/api/sections/${id}`, { method: "DELETE" }),
+
+  threads: () => json<Thread[]>("/api/conversations"),
+  newThread: () => json<{ id: number }>("/api/conversations", { method: "POST", body: "{}" }),
+  renameThread: (id: number, title: string) =>
+    json<{ ok: true }>(`/api/conversations/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }),
+  deleteThread: (id: number) =>
+    json<{ deleted: boolean }>(`/api/conversations/${id}`, { method: "DELETE" }),
+  threadMessages: (id: number) =>
+    json<{ role: "user" | "assistant"; content: string; at: string }[]>(`/api/conversations/${id}/messages`),
 
   vocabulary: () => json<Vocabulary>("/api/layout/vocabulary"),
 

@@ -22,7 +22,7 @@ import { browserEnabled, runAgent, verifyCredential } from "./agent/session.js";
 import { APP_URL, SPLIT_EXTENSION_ID } from "./config.js";
 import { openStageFor } from "./agent/split.js";
 import { pdfFilename, renderPdf } from "./layout/pdf.js";
-import { onChange } from "./notify.js";
+import { changed, onChange } from "./notify.js";
 import { clearState, reportState } from "./appState.js";
 import { PAGE, TOKENS, DEFAULTS, SECTION_KINDS, SECTION_NOTES, renderDocument } from "@jobsearch/layout";
 import {
@@ -732,6 +732,24 @@ app.delete("/api/cover-letters/:id", async (request) => ({
 
 /* ---------------------------------------------------------------------- chat */
 
+
+app.get("/api/conversations", async () => repo.listConversations());
+
+app.patch("/api/conversations/:id", async (request, reply) => {
+  const title = ((request.body ?? {}) as { title?: string }).title;
+  if (typeof title !== "string" || !title.trim()) {
+    return reply.code(400).send({ error: "title is required" });
+  }
+  await repo.renameConversation(Number((request.params as { id: string }).id), title.trim());
+  changed("threads");
+  return { ok: true };
+});
+
+app.delete("/api/conversations/:id", async (request) => {
+  const deleted = await repo.deleteConversation(Number((request.params as { id: string }).id));
+  if (deleted) changed("threads");
+  return { deleted };
+});
 
 app.post("/api/conversations", async (request) => {
   const body = (request.body ?? {}) as { title?: string };

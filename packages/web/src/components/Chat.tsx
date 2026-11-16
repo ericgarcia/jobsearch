@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import { chat, type ChatEvent } from "../api.ts";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { api, chat, type ChatEvent, type Thread } from "../api.ts";
+import { useChanges } from "../changes.ts";
 
 interface Entry {
   kind: "user" | "assistant" | "tool" | "error";
@@ -12,17 +13,129 @@ function describeTool(name: string, input: unknown): string {
   return `${short} ${args.length > 90 ? `${args.slice(0, 90)}…` : args}`;
 }
 
+/*
+  The open thread lives in the URL.
+
+  It used to live in a ref, which meant a reload started a new conversation
+  while the old one sat in the database unreachable — the work was kept and
+  the way back to it was not. The URL is the one piece of page state the
+  browser already persists across a reload, a restore and a bookmark, so it
+  is where this belongs.
+*/
+function threadFromUrl(): number | null {
+  const raw = new URLSearchParams(window.location.search).get("thread");
+  const id = raw ? Number(raw) : NaN;
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+function putThreadInUrl(id: number | null): void {
+  const url = new URL(window.location.href);
+  if (id === null) url.searchParams.delete("thread");
+  else url.searchParams.set("thread", String(id));
+  window.history.replaceState(null, "", url);
+}
+
+function label(thread: Thread): string {
+  return thread.title?.trim() || thread.preview?.trim() || "New thread";
+}
+
 export function Chat({ onDataChanged }: { onDataChanged: () => void }) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [draft, setDraft] = useState("");
   const [running, setRunning] = useState(false);
-  const conversationId = useRef<number | null>(null);
+  const [threads, setThreads] = useState<Thread[]>([]);
+  const [listOpen, setListOpen] = useState(false);
+  const [threadId, setThreadId] = useState<number | null>(threadFromUrl);
+  const [renaming, setRenaming] = useState<number | null>(null);
+
+  const conversationId = useRef<number | null>(threadId);
   const abort = useRef<AbortController | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [entries]);
+
+  const loadThreads = useCallback(() => {
+    void api.threads().then(setThreads).catch(() => undefined);
+  }, []);
+
+  useEffect(loadThreads, [loadThreads]);
+  // The agent creates and writes threads too, so the list is not ours alone.
+  useChanges("threads", loadThreads);
+
+  /*
+    Load the open thread's messages.
+
+    Only what was said is replayed: the tool lines were never stored, and
+    inventing them from nothing would show a history that did not happen.
+  */
+  useEffect(() => {
+    if (threadId === null) return;
+    let current = true;
+    void api
+      .threadMessages(threadId)
+      .then((messages) => {
+        if (!current) return;
+        setEntries(messages.map((m) => ({ kind: m.role, text: m.content })));
+      })
+      .catch(() => {
+        if (current) setEntries([{ kind: "error", text: "That thread could not be loaded." }]);
+      });
+    return () => {
+      current = false;
+    };
+  }, [threadId]);
+
+  function open(id: number | null): void {
+    if (id === threadId) {
+      setListOpen(false);
+      return;
+    }
+    abort.current?.abort();
+    conversationId.current = id;
+    setThreadId(id);
+    putThreadInUrl(id);
+    if (id === null) setEntries([]);
+    setListOpen(false);
+  }
+
+  /*
+    Say so when a thread action fails.
+
+    The first version let the promise reject into nothing. The delete route
+    was answering 400, the row stayed where it was, and the page gave no
+    sign — which reads as a dead button, not as an error.
+  */
+  function report(error: unknown): void {
+    setEntries((prior) => [...prior, { kind: "error", text: (error as Error).message }]);
+  }
+
+  async function remove(id: number): Promise<void> {
+    try {
+      await api.deleteThread(id);
+    } catch (error) {
+      report(error);
+      return;
+    }
+    // Deleting what you are reading has to leave you somewhere, and a blank
+    // thread is the one place that is certainly still there.
+    if (id === threadId) open(null);
+    loadThreads();
+  }
+
+  async function rename(id: number, title: string): Promise<void> {
+    setRenaming(null);
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    try {
+      await api.renameThread(id, trimmed);
+    } catch (error) {
+      report(error);
+      return;
+    }
+    loadThreads();
+  }
 
   async function send() {
     const message = draft.trim();
@@ -52,7 +165,11 @@ export function Chat({ onDataChanged }: { onDataChanged: () => void }) {
   function apply(event: ChatEvent) {
     switch (event.type) {
       case "conversation":
+        // A thread the server just made for this first message. Record it
+        // before anything else can reload the page out from under it.
         conversationId.current = event.conversationId;
+        setThreadId(event.conversationId);
+        putThreadInUrl(event.conversationId);
         break;
       case "text":
         setEntries((prior) => [...prior, { kind: "assistant", text: event.text }]);
@@ -77,28 +194,72 @@ export function Chat({ onDataChanged }: { onDataChanged: () => void }) {
     }
   }
 
+  const here = threads.find((thread) => thread.id === threadId);
+
   return (
     <div className="chat" style={{ height: 260 }}>
       <div className="chat-head">
-        <span>Assistant</span>
+        <button className="ghost" onClick={() => setListOpen((was) => !was)}>
+          {listOpen ? "▾" : "▸"} Threads ({threads.length})
+        </button>
+        <span className="thread-here">{here ? label(here) : "New thread"}</span>
         <div className="spacer" />
         {running && (
           <button className="ghost" onClick={() => abort.current?.abort()}>
             Stop
           </button>
         )}
-        {entries.length > 0 && !running && (
-          <button
-            className="ghost"
-            onClick={() => {
-              setEntries([]);
-              conversationId.current = null;
-            }}
-          >
+        {(entries.length > 0 || threadId !== null) && !running && (
+          <button className="ghost" onClick={() => open(null)}>
             New thread
           </button>
         )}
       </div>
+
+      {listOpen && (
+        <div className="thread-list scroll">
+          {threads.length === 0 && <div className="thread-empty">No threads yet.</div>}
+          {threads.map((thread) => (
+            <div
+              className={`thread-row${thread.id === threadId ? " current" : ""}`}
+              key={thread.id}
+            >
+              {renaming === thread.id ? (
+                <input
+                  autoFocus
+                  defaultValue={thread.title ?? ""}
+                  placeholder="Name this thread"
+                  // Renaming nearly always replaces the name rather than
+                  // extending it, so the old one starts selected.
+                  onFocus={(event) => event.target.select()}
+                  onBlur={(event) => void rename(thread.id, event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") event.currentTarget.blur();
+                    if (event.key === "Escape") setRenaming(null);
+                  }}
+                />
+              ) : (
+                <>
+                  <button
+                    className="thread-open"
+                    title={label(thread)}
+                    onClick={() => open(thread.id)}
+                  >
+                    <span className="thread-label">{label(thread)}</span>
+                    <span className="thread-meta">{thread.messages}</span>
+                  </button>
+                  <button className="ghost" title="Rename" onClick={() => setRenaming(thread.id)}>
+                    ✎
+                  </button>
+                  <button className="ghost" title="Close" onClick={() => void remove(thread.id)}>
+                    ✕
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="chat-log scroll" ref={logRef}>
         {entries.length === 0 && (

@@ -8,7 +8,14 @@ import { useEffect, useRef, useState } from "react";
  * origin, and six components watching six streams would starve the chat.
  */
 
-export type Topic = "profile" | "projects" | "sections" | "layout" | "interests" | "resumes";
+export type Topic =
+  | "profile"
+  | "projects"
+  | "sections"
+  | "layout"
+  | "interests"
+  | "resumes"
+  | "threads";
 
 type Listener = (topic: Topic) => void;
 

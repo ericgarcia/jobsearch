@@ -1,6 +1,7 @@
 import type { InValue } from "@libsql/client";
 import { all as dbAll, get as dbGet, run as dbRun, tx } from "./db/client.js";
 import { locationClause, locationTokens } from "./location.js";
+import { changed } from "./notify.js";
 import { allowedNext, canTransition, isStatus, type Status } from "./status.js";
 import type { SourceJob } from "./sources/types.js";
 
@@ -428,9 +429,54 @@ export async function applicationHistory(jobId: number) {
 /* -------------------------------------------------------------- conversations */
 
 export async function createConversation(title?: string): Promise<number> {
-  return Number(
+  const id = Number(
     (await dbRun(`INSERT INTO conversations (title) VALUES (?)`, title ?? null)).lastInsertRowid,
   );
+  changed("threads");
+  return id;
+}
+
+export interface ConversationRow {
+  id: number;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+  messages: number;
+  /** The first words of the opening message, when there is no title. */
+  preview: string | null;
+}
+
+/**
+ * Every thread, most recently spoken in first.
+ *
+ * There was no way to list these, which is why the app could only ever show
+ * one conversation: it held the id in memory and a reload started a new one,
+ * quietly abandoning whatever had been said. The rows were always there.
+ */
+export async function listConversations(): Promise<ConversationRow[]> {
+  return (await dbAll(
+    `SELECT c.id, c.title, c.created_at, c.updated_at,
+            (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) AS messages,
+            (SELECT m.content FROM messages m
+              WHERE m.conversation_id = c.id AND m.role = 'user'
+              ORDER BY m.id LIMIT 1) AS preview
+       FROM conversations c
+      ORDER BY c.updated_at DESC, c.id DESC`,
+  )) as ConversationRow[];
+}
+
+export async function renameConversation(id: number, title: string): Promise<void> {
+  await dbRun(`UPDATE conversations SET title = ? WHERE id = ?`, title.slice(0, 120), id);
+}
+
+/** Messages go with it: the schema cascades. */
+export async function deleteConversation(id: number): Promise<boolean> {
+  return (await dbRun(`DELETE FROM conversations WHERE id = ?`, id)).changes > 0;
+}
+
+/** Bring a thread to the top of the list without saying anything in it. */
+export async function touchConversation(id: number): Promise<void> {
+  await dbRun(`UPDATE conversations SET updated_at = datetime('now') WHERE id = ?`, id);
 }
 
 export async function getSdkSessionId(conversationId: number): Promise<string | null> {
@@ -443,9 +489,17 @@ export async function setSdkSessionId(conversationId: number, sessionId: string)
 }
 
 export async function addMessage(conversationId: number, role: "user" | "assistant", content: string) {
-  (await dbRun(`INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)`, conversationId,
+  await dbRun(
+    `INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)`,
+    conversationId,
     role,
-    content));
+    content,
+  );
+  // So the list orders by when a thread was last spoken in. updated_at was
+  // only touched when the agent session id was first stored, which happens
+  // once per thread rather than once per message.
+  await dbRun(`UPDATE conversations SET updated_at = datetime('now') WHERE id = ?`, conversationId);
+  changed("threads");
 }
 
 export async function listMessages(conversationId: number) {
