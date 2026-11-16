@@ -18,6 +18,41 @@ function label(thread: Thread): string {
   return thread.title?.trim() || thread.preview?.trim() || "New thread";
 }
 
+/*
+  An unsent message, kept as it is typed.
+
+  In the browser rather than with the conversation on the server, for two
+  reasons. A message being typed before the first one is sent belongs to no
+  conversation yet — there is no row to put it on, and that is exactly when
+  the longest messages are lost. And a half-written sentence is this
+  machine's scratch, not part of the record: it should not travel to another
+  device, and it should not need a request per keystroke.
+
+  Every access is wrapped, because storage throws rather than returns in a
+  private window or with site data blocked, and losing a draft must never
+  take the message box with it.
+*/
+function draftKey(threadId: number | null): string {
+  return `jobsearch:draft:${threadId ?? "new"}`;
+}
+
+function readDraft(threadId: number | null): string {
+  try {
+    return window.localStorage.getItem(draftKey(threadId)) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function writeDraft(threadId: number | null, text: string): void {
+  try {
+    if (text) window.localStorage.setItem(draftKey(threadId), text);
+    else window.localStorage.removeItem(draftKey(threadId));
+  } catch {
+    // Nothing the person is doing fails. They lose a draft on reload.
+  }
+}
+
 /** What to call a page. Its own title, else the site it is on. */
 function pageName(page: ThreadTab): string {
   const title = page.title.trim();
@@ -50,7 +85,7 @@ export function Chat({
   onOpenThread: (id: number | null) => void;
 }) {
   const [entries, setEntries] = useState<Entry[]>([]);
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(() => readDraft(threadId));
   const [running, setRunning] = useState(false);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [listOpen, setListOpen] = useState(false);
@@ -94,6 +129,11 @@ export function Chat({
     return () => {
       current = false;
     };
+  }, [threadId]);
+
+  /* Each conversation keeps its own unsent message. */
+  useEffect(() => {
+    setDraft(readDraft(threadId));
   }, [threadId]);
 
   /*
@@ -178,6 +218,13 @@ export function Chat({
       return;
     }
 
+    /*
+      The draft goes with it. Ids are handed out as one past the highest, so
+      a deleted conversation's number comes round again — and a new thread
+      would open with a stranger's half-written message in the box.
+    */
+    writeDraft(id, "");
+
     // After the thread is gone, so a refusal above leaves the tabs alone.
     await closeThreadTabs(splitId, id).catch(() => 0);
     // Deleting what you are reading has to leave you somewhere, and a blank
@@ -204,6 +251,7 @@ export function Chat({
     if (!message || running) return;
 
     setDraft("");
+    writeDraft(threadId, "");
     setEntries((prior) => [...prior, { kind: "user", text: message }]);
     setRunning(true);
 
@@ -385,7 +433,10 @@ export function Chat({
         <textarea
           value={draft}
           placeholder="Ask the assistant…"
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => {
+            setDraft(event.target.value);
+            writeDraft(threadId, event.target.value);
+          }}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
