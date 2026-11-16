@@ -62,6 +62,27 @@ with:
 npm test --workspace=@jobsearch/server
 ```
 
+## Changes show up by themselves
+
+`GET /api/events` is a stream of "this changed", open for the life of the
+page. Every write raises its topic — whoever made it: the agent through a
+tool, you in the page, another tab, or anything calling the API — so a change
+reaches the screen without the page guessing when to ask.
+
+The writes raise it themselves, in `profile.ts` and friends, rather than each
+route and each tool remembering to. A route that emitted while its matching
+tool did not would leave a page quietly out of date, which nobody reports as
+a bug; they just reload.
+
+The event carries the topic and nothing else. Sending the data would mean
+every writer knowing the shape every reader wants, and a reader that fetches
+for itself can decide whether it is ready.
+
+**A form with unsaved text in it does not take the update.** It shows a line
+saying something changed elsewhere and catches up when you save or discard.
+Replacing someone's half-written paragraph with the server's copy is the one
+failure this mechanism could introduce, so it is the one it guards against.
+
 ## Projects, and writing at length
 
 A project has two bodies, and they do different jobs.

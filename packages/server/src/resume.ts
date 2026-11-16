@@ -1,6 +1,7 @@
 import { all as dbAll, get as dbGet, run as dbRun, tx } from "./db/client.js";
 import { checkAgainstCorpus, checkRendering } from "./factcheck.js";
 import * as profile from "./profile.js";
+import { changed } from "./notify.js";
 
 export interface DraftLine {
   /** Must name a bullet that already exists in the profile. */
@@ -89,6 +90,7 @@ export async function draftResume(input: {
       );
     }
 
+    changed("resumes");
     return { resumeId, warnings: allWarnings };
   });
 }
@@ -232,6 +234,7 @@ export async function saveCoverLetter(jobId: number, body: string) {
   const id = Number(
     (await dbRun(`INSERT INTO cover_letters (job_id, body, warnings) VALUES (?, ?, ?)`, jobId, body, JSON.stringify(warnings))).lastInsertRowid,
   );
+  changed("resumes");
   return { id, job_id: jobId, warnings };
 }
 

@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type Project, type ProseSection } from "../api.ts";
+import { useChanges } from "../changes.ts";
 
 /**
  * Projects and prose, the long-form half of the profile.
@@ -16,22 +17,42 @@ import { api, type Project, type ProseSection } from "../api.ts";
  * internet would be a bad tool.
  */
 
+/** Empty text and no text are the same thing here. */
+function normalise(project: Project): Project {
+  const blank = (value: string | null) => (value === null || value.trim() === "" ? null : value);
+  return { ...project, blurb: blank(project.blurb), narrative: blank(project.narrative) };
+}
+
 function ProjectCard({
   project,
   roleName,
   onSave,
   onDelete,
+  onDirty,
 }: {
   project: Project;
   roleName: string | null;
   onSave: (patch: Partial<Project>) => void;
   onDelete: () => void;
+  onDirty: (dirty: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(project);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(project);
+  /*
+    Compared with empty strings and nulls treated alike. A textarea gives ""
+    where the database holds null, so a person who typed a sentence and then
+    deleted it would leave this card dirty for the rest of the session —
+    and a dirty card holds back every update to this tab, without saying so.
+  */
+  const same = (a: Project, b: Project) =>
+    JSON.stringify(normalise(a)) === JSON.stringify(normalise(b));
+  const dirty = !same(draft, project);
 
   useEffect(() => setDraft(project), [project]);
+  useEffect(() => {
+    onDirty(dirty);
+    return () => onDirty(false);
+  }, [dirty, onDirty]);
 
   return (
     <li className="project-card">
@@ -113,11 +134,21 @@ export function Projects() {
   const [name, setName] = useState("");
   const [roleId, setRoleId] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+  const editing = useRef(new Set<number>());
 
   const reload = () => {
     void api.projects().then(setProjects).catch(() => setError("Could not load projects."));
     void api.sections().then(setSections).catch(() => setError("Could not load sections."));
   };
+
+  /*
+    An open card with unsaved edits is the one thing worth protecting here.
+    Someone writing a narrative is typing for minutes at a time, and the
+    agent may be changing the profile in the same minutes.
+  */
+  const heldProjects = useChanges("projects", reload, () => editing.current.size > 0);
+  const heldSections = useChanges("sections", reload, () => editing.current.size > 0);
+  const held = heldProjects || heldSections;
 
   useEffect(() => {
     reload();
@@ -146,6 +177,12 @@ export function Projects() {
   return (
     <div className="projects-pane">
       {error && <div className="banner error">{error}</div>}
+      {held && (
+        <div className="banner">
+          Something changed elsewhere. This page will catch up when you have saved or discarded your
+          edit.
+        </div>
+      )}
 
       <h3>Projects</h3>
       <p className="editor-note">
@@ -190,6 +227,10 @@ export function Projects() {
               }}
               onDelete={() => {
                 void api.deleteProject(project.id).then(reload);
+              }}
+              onDirty={(dirty) => {
+                if (dirty) editing.current.add(project.id);
+                else editing.current.delete(project.id);
               }}
             />
           ))}

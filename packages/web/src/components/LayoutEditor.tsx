@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Layout, type LayoutSection, type TokenDef, type Vocabulary } from "../api.ts";
+import { useChanges } from "../changes.ts";
 
 /**
  * Styling the profile and the resume.
@@ -291,6 +292,33 @@ export function LayoutEditor() {
 
   const frame = useRef<HTMLIFrameElement>(null);
   const pending = useRef<number | undefined>(undefined);
+
+  /*
+    The agent styles through the same calls this panel makes, so its changes
+    land on the controls and in the preview. Held while a save of ours is in
+    flight: taking the server's copy mid-write would show the value we are
+    about to replace, then flip back a moment later.
+  */
+  useChanges(
+    "layout",
+    () => {
+      void api
+        .layouts(surface)
+        .then((list) => {
+          if (list[0]) setLayout(list[0]);
+          setVersion((n) => n + 1);
+        })
+        .catch(() => undefined);
+    },
+    () => saving,
+  );
+
+  // The content can change under a layout that did not, so the preview has
+  // to follow those too.
+  const bumpPreview = () => setVersion((n) => n + 1);
+  useChanges("profile", bumpPreview);
+  useChanges("projects", bumpPreview);
+  useChanges("sections", bumpPreview);
 
   useEffect(() => {
     void api.vocabulary().then(setVocabulary).catch(() => setError("Could not read what can be styled."));

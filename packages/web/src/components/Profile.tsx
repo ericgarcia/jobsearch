@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useChanges } from "../changes.ts";
 import { Interests } from "./Interests.tsx";
 import { api, type Bullet, type Profile as ProfileData, type Role } from "../api.ts";
 
@@ -127,6 +128,9 @@ export function Profile() {
 
   const load = () => void api.profile().then(setData);
   useEffect(load, []);
+  // The agent edits the profile through the same functions this page calls,
+  // so a change it makes shows up here without anyone reloading.
+  useChanges("profile", load);
 
   if (!data) return <div className="empty">Loading profile…</div>;
 

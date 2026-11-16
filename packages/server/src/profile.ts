@@ -1,5 +1,6 @@
 import type { InValue } from "@libsql/client";
 import { all as dbAll, get as dbGet, run as dbRun } from "./db/client.js";
+import { changed } from "./notify.js";
 
 export interface ProfileRow {
   id: number;
@@ -195,6 +196,7 @@ export async function updateProfile(patch: Partial<Omit<ProfileRow, "id">>): Pro
   if (set.length > 0) {
     (await dbRun(`UPDATE profile SET ${set.join(", ")}, updated_at = datetime('now') WHERE id = 1`, ...params));
   }
+  changed("profile");
   return await getProfile();
 }
 
@@ -209,6 +211,7 @@ export async function addRole(
       role.end_date ?? null,
       role.summary ?? null,
       role.sort_order ?? 0));
+  changed("profile");
   return (await dbGet(`SELECT * FROM profile_roles WHERE id = ?`, info.lastInsertRowid)) as RoleRow;
 }
 
@@ -227,11 +230,14 @@ export async function updateRole(id: number, patch: Partial<RoleRow>): Promise<R
   }
   const row = (await dbGet(`SELECT * FROM profile_roles WHERE id = ?`, id)) as RoleRow | undefined;
   if (!row) throw new Error(`No role with id ${id}`);
+  changed("profile");
   return row;
 }
 
 export async function deleteRole(id: number): Promise<boolean> {
-  return (await dbRun(`DELETE FROM profile_roles WHERE id = ?`, id)).changes > 0;
+  const gone = (await dbRun(`DELETE FROM profile_roles WHERE id = ?`, id)).changes > 0;
+  if (gone) changed("profile");
+  return gone;
 }
 
 export async function addBullet(
@@ -253,6 +259,7 @@ export async function addBullet(
     JSON.stringify(skills),
     next.n,
   ));
+  changed("profile");
   return (await dbGet(`SELECT * FROM profile_bullets WHERE id = ?`, info.lastInsertRowid)) as BulletRow;
 }
 
@@ -263,11 +270,14 @@ export async function updateBullet(id: number, text?: string, skills?: string[])
   }
   const row = (await dbGet(`SELECT * FROM profile_bullets WHERE id = ?`, id)) as BulletRow | undefined;
   if (!row) throw new Error(`No bullet with id ${id}`);
+  changed("profile");
   return row;
 }
 
 export async function deleteBullet(id: number): Promise<boolean> {
-  return (await dbRun(`DELETE FROM profile_bullets WHERE id = ?`, id)).changes > 0;
+  const gone = (await dbRun(`DELETE FROM profile_bullets WHERE id = ?`, id)).changes > 0;
+  if (gone) changed("profile");
+  return gone;
 }
 
 export async function addEducation(item: Omit<EducationRow, "id">): Promise<EducationRow> {
@@ -278,21 +288,27 @@ export async function addEducation(item: Omit<EducationRow, "id">): Promise<Educ
       item.start_date ?? null,
       item.end_date ?? null,
       item.note ?? null));
+  changed("profile");
   return (await dbGet(`SELECT * FROM profile_education WHERE id = ?`, info.lastInsertRowid)) as EducationRow;
 }
 
 export async function deleteEducation(id: number): Promise<boolean> {
-  return (await dbRun(`DELETE FROM profile_education WHERE id = ?`, id)).changes > 0;
+  const gone = (await dbRun(`DELETE FROM profile_education WHERE id = ?`, id)).changes > 0;
+  if (gone) changed("profile");
+  return gone;
 }
 
 export async function addSkill(name: string, category?: string, years?: number): Promise<SkillRow> {
   (await dbRun(`INSERT INTO profile_skills (name, category, years) VALUES (?, ?, ?)
      ON CONFLICT (name) DO UPDATE SET category = excluded.category, years = excluded.years`, name, category ?? null, years ?? null));
+  changed("profile");
   return (await dbGet(`SELECT * FROM profile_skills WHERE name = ?`, name)) as SkillRow;
 }
 
 export async function deleteSkill(id: number): Promise<boolean> {
-  return (await dbRun(`DELETE FROM profile_skills WHERE id = ?`, id)).changes > 0;
+  const gone = (await dbRun(`DELETE FROM profile_skills WHERE id = ?`, id)).changes > 0;
+  if (gone) changed("profile");
+  return gone;
 }
 
 /* ---------------------------------------------------------- projects */
@@ -327,6 +343,7 @@ export async function addProject(project: {
     project.narrative_public ? 1 : 0,
     next.n,
   );
+  changed("projects");
   return (await dbGet(`SELECT * FROM profile_projects WHERE id = ?`, info.lastInsertRowid)) as ProjectRow;
 }
 
@@ -345,11 +362,14 @@ export async function updateProject(id: number, patch: Partial<ProjectRow>): Pro
   }
   const row = (await dbGet(`SELECT * FROM profile_projects WHERE id = ?`, id)) as ProjectRow | undefined;
   if (!row) throw new Error(`No project with id ${id}`);
+  changed("projects");
   return row;
 }
 
 export async function deleteProject(id: number): Promise<boolean> {
-  return (await dbRun(`DELETE FROM profile_projects WHERE id = ?`, id)).changes > 0;
+  const gone = (await dbRun(`DELETE FROM profile_projects WHERE id = ?`, id)).changes > 0;
+  if (gone) changed("projects");
+  return gone;
 }
 
 /* ---------------------------------------------------------- sections */
@@ -369,6 +389,7 @@ export async function addSection(section: {
     section.is_public === false ? 0 : 1,
     next.n,
   );
+  changed("sections");
   return (await dbGet(`SELECT * FROM profile_sections WHERE id = ?`, info.lastInsertRowid)) as SectionRow;
 }
 
@@ -387,9 +408,12 @@ export async function updateSection(id: number, patch: Partial<SectionRow>): Pro
   }
   const row = (await dbGet(`SELECT * FROM profile_sections WHERE id = ?`, id)) as SectionRow | undefined;
   if (!row) throw new Error(`No section with id ${id}`);
+  changed("sections");
   return row;
 }
 
 export async function deleteSection(id: number): Promise<boolean> {
-  return (await dbRun(`DELETE FROM profile_sections WHERE id = ?`, id)).changes > 0;
+  const gone = (await dbRun(`DELETE FROM profile_sections WHERE id = ?`, id)).changes > 0;
+  if (gone) changed("sections");
+  return gone;
 }

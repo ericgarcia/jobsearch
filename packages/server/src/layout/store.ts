@@ -1,4 +1,5 @@
 import { all, get, run } from "../db/client.js";
+import { changed } from "../notify.js";
 import { getInterests } from "../interests.js";
 import * as profile from "../profile.js";
 import { getResume } from "../resume.js";
@@ -153,6 +154,7 @@ export async function updateLayout(id: number, patch: LayoutPatch): Promise<Layo
   }
 
   await run(`UPDATE layouts SET updated_at = datetime('now') WHERE id = ?`, id);
+  changed("layout");
   return getLayout(id);
 }
 
@@ -165,6 +167,7 @@ export async function createLayout(surface: Surface, name: string, from?: number
     JSON.stringify(base?.spec ?? DEFAULT_SPECS[surface]),
     JSON.stringify(base?.tokens ?? {}),
   );
+  changed("layout");
   return getLayout(result.lastInsertRowid);
 }
 

@@ -1,4 +1,5 @@
 import { all as dbAll, get as dbGet, run as dbRun, tx } from "./db/client.js";
+import { changed } from "./notify.js";
 
 /**
  * What the person is looking for, in their own words.
@@ -43,6 +44,7 @@ export async function setInterests(patch: Partial<Interests>): Promise<Interests
     JSON.stringify(next.include),
     JSON.stringify(next.exclude),
     next.note));
+  changed("interests");
   return await getInterests();
 }
 

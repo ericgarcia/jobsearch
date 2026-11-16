@@ -22,6 +22,7 @@ import { browserEnabled, runAgent, verifyCredential } from "./agent/session.js";
 import { APP_URL, SPLIT_EXTENSION_ID } from "./config.js";
 import { openStageFor } from "./agent/split.js";
 import { pdfFilename, renderPdf } from "./layout/pdf.js";
+import { onChange } from "./notify.js";
 import { PAGE, TOKENS, DEFAULTS, SECTION_KINDS, SECTION_NOTES, renderDocument } from "@jobsearch/layout";
 import {
   createLayout,
@@ -273,6 +274,47 @@ app.post("/api/split/stage", async (request, reply) => {
     // Never let this stop the app loading: it is an arrangement, not the work.
     return reply.code(503).send({ error: (error as Error).message });
   }
+});
+
+/* ------------------------------------------------------------------ events */
+
+/**
+ * A stream of "this changed".
+ *
+ * Open for the life of the page. Every write raises its topic, whoever made
+ * it — the agent through a tool, this person in the page, another tab, or
+ * anything calling the API — so a change reaches the screen without the page
+ * having to guess when to ask.
+ *
+ * It carries the topic and nothing else. Sending the new data would mean
+ * every writer knowing the shape every reader wants, and a reader that then
+ * fetches for itself can decide whether it is ready to take the update.
+ */
+app.get("/api/events", async (request, reply) => {
+  reply.raw.writeHead(200, {
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache, no-transform",
+    connection: "keep-alive",
+  });
+  reply.raw.write(`: connected\n\n`);
+
+  const send = (change: { topic: string; at: string }) => {
+    reply.raw.write(`data: ${JSON.stringify(change)}\n\n`);
+  };
+  const stop = onChange(send);
+
+  // A comment line every 25 seconds. The browser gives up on a silent
+  // EventSource, and this stream is silent whenever nobody is editing —
+  // which is most of the time.
+  const beat = setInterval(() => reply.raw.write(`: beat\n\n`), 25_000);
+
+  request.raw.on("close", () => {
+    clearInterval(beat);
+    stop();
+  });
+
+  // Never resolves: the response ends when the client disconnects.
+  await new Promise<void>(() => {});
 });
 
 /* ---------------------------------------------------------------- projects */
