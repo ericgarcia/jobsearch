@@ -557,8 +557,10 @@ export function App() {
     setSyncing(true);
     setNotice(null);
     try {
-      const reports = await api.sync();
+      const { reports, note } = await api.sync();
       const inserted = reports.reduce((total, report) => total + report.inserted, 0);
+      const seen = reports.reduce((total, report) => total + report.seen, 0);
+      const kept = reports.reduce((total, report) => total + report.kept, 0);
       const failed = reports.filter((report) => report.error);
 
       // New postings have no score, and an unscored list falls back to fetch
@@ -571,8 +573,15 @@ export function App() {
         ranked = " · not ranked (add roles to your profile first)";
       }
 
+      /*
+        Both numbers, because they are different facts. "12 new" alone hides
+        that 2,400 postings were looked at and most were not for this person,
+        which is the thing worth knowing about a board you just followed.
+      */
       setNotice(
-        `Synced ${reports.length} boards · ${inserted} new postings${ranked}` +
+        `Synced ${reports.length} boards · ${kept} of ${seen} postings match you · ` +
+          `${inserted} new${ranked}` +
+          (note ? ` · ${note}` : "") +
           (failed.length ? ` · ${failed.length} failed: ${failed.map((f) => f.company).join(", ")}` : ""),
       );
       loadData();
@@ -650,6 +659,13 @@ export function App() {
           onDataChanged={loadData}
           splitId={hasSplit ? splitId : null}
           threadId={threadId}
+          onOpenJob={(id) => {
+            // The canvas, not the pane: this is a posting we hold, not a
+            // page on the web. If the app is in a split it comes back first.
+            void leaveSplit(hasSplit ? splitId : null);
+            goToTab("jobs");
+            setSelected(id);
+          }}
           onOpenThread={(id) => {
             // A thread the server made for a message just sent from here,
             // rather than one picked from the list.

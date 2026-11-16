@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import Markdown from "react-markdown";
+import Markdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, chat, type ChatEvent, type Thread } from "../api.ts";
 import { useChanges } from "../changes.ts";
@@ -65,17 +65,53 @@ function writeDraft(threadId: number | null, text: string): void {
   text here can quote a job posting, and a posting is not a thing to hand a
   renderer that executes what it finds.
 */
-function Prose({ text }: { text: string }) {
+/*
+  A link into the app's own data, written by a tool.
+
+  An imported posting is worth more than a sentence saying it was imported:
+  the next thing anybody wants is to look at it. So the import tool hands
+  back a markdown link with a jobsearch: target and the agent repeats it,
+  which means the card is part of the message — stored with the thread,
+  still there after a reload, and impossible for a later render to lose.
+  A card held outside the message would be gone the moment the page
+  refreshed, which is exactly when you come back to a thread.
+*/
+const INTERNAL = /^jobsearch:job\/(\d+)$/;
+
+function Prose({ text, onOpenJob }: { text: string; onOpenJob: (id: number) => void }) {
   return (
     <Markdown
       remarkPlugins={[remarkGfm]}
+      /*
+        react-markdown drops any URL scheme it does not know, which is the
+        right default — it is what stops javascript: in text that came off
+        a web page — and it silently emptied the href on our own cards. So
+        this scheme is allowed by name and everything else still goes
+        through the standard check.
+      */
+      urlTransform={(url) => (INTERNAL.test(url) ? url : defaultUrlTransform(url))}
       components={{
-        /*
-          A link keeps its privacy attribute and needs no target: the app
-          catches clicks on anything leaving this origin and puts it in the
-          pane. Where there is no pane to be had, the fallback opens it.
-        */
-        a: ({ node: _node, ...rest }) => <a {...rest} rel="noreferrer" />,
+        a: ({ node: _node, href, children, ...rest }) => {
+          const internal = INTERNAL.exec(href ?? "");
+          if (internal) {
+            return (
+              <button className="job-card" onClick={() => onOpenJob(Number(internal[1]))}>
+                <span className="job-card-label">{children}</span>
+                <span className="job-card-go">Open →</span>
+              </button>
+            );
+          }
+          /*
+            Everything else keeps its privacy attribute and needs no target:
+            the app catches clicks on anything leaving this origin and puts
+            it in the pane. Where there is no pane, the fallback opens it.
+          */
+          return (
+            <a {...rest} href={href} rel="noreferrer">
+              {children}
+            </a>
+          );
+        },
       }}
     >
       {text}
@@ -99,6 +135,7 @@ export function Chat({
   splitId,
   threadId,
   onOpenThread,
+  onOpenJob,
 }: {
   onDataChanged: () => void;
   /** Split Pilot's id, or null when it is not installed. */
@@ -113,6 +150,8 @@ export function Chat({
   */
   threadId: number | null;
   onOpenThread: (id: number | null) => void;
+  /** Show a posting the assistant put a card in the thread for. */
+  onOpenJob: (id: number) => void;
 }) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [draft, setDraft] = useState(() => readDraft(threadId));
@@ -446,7 +485,7 @@ export function Chat({
             </div>
           ) : entry.kind === "assistant" ? (
             <div className="msg assistant prose" key={index}>
-              <Prose text={entry.text} />
+              <Prose text={entry.text} onOpenJob={onOpenJob} />
             </div>
           ) : (
             <div className={`msg ${entry.kind}`} key={index}>

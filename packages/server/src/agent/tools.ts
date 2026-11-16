@@ -9,7 +9,8 @@ import { expandPlace } from "../location.js";
 import { detectMany } from "../sources/detect.js";
 import { evaluateCompanies } from "../discover.js";
 import { getInterests, setInterests } from "../interests.js";
-import { homeLocation } from "../settings.js";
+import { homeLocation, matchBar, setMatchBar } from "../settings.js";
+import { importPosting } from "../importing.js";
 import { assessTopJobs, ASSESS_MODEL } from "../assess.js";
 import { SOURCES } from "../sources/index.js";
 import { profileTools, PROFILE_MUTATING } from "./profileTools.js";
@@ -170,9 +171,45 @@ const addCompaniesByName = tool(
     }),
 );
 
+const importPostingTool = tool(
+  "import_posting",
+  "Bring one posting into the job list from wherever the person found it — a LinkedIn listing, a link someone sent them, the page open in the pane beside the app. Give the posting's own URL when it is already on greenhouse, lever or ashby; otherwise give the company and the role title, and this finds the company's own board and the posting on it. The canonical posting is the one worth storing: it can be applied to, it stays up to date, and it ranks against everything else. A posting imported this way is kept whatever it scores, because they asked for it by name. When it answers with candidates it was not sure which posting is meant — show them and ask, never pick one. Set follow to also subscribe to that company's board, which brings in its other matching roles on the next sync.",
+  {
+    url: z.string().optional().describe("The posting's URL, from any site"),
+    company: z.string().optional().describe("The company, when the URL is not a board we read"),
+    title: z.string().optional().describe("The role title, as the other site gives it"),
+    follow: z
+      .boolean()
+      .optional()
+      .describe("Also follow the company's board. Ask first for a large company."),
+  },
+  async (args) => guard(async () => await importPosting(args)),
+);
+
+const matchBarTool = tool(
+  "set_match_bar",
+  "Set how good a match a posting must be to be stored when a board is synced. Scores run 0-65, and the bar starts at 50. Raise it when the list is full of roles they would not read; lower it when a board they follow is contributing almost nothing. This changes what comes in from the next sync onward — it never removes a posting already stored. Say what the new bar is and that it takes effect on the next sync.",
+  {
+    score: z.number().int().min(0).max(65).describe("The score a posting must reach, 0 to 65"),
+  },
+  async (args) =>
+    guard(async () => ({
+      bar: await setMatchBar(args.score),
+      note: "Applies from the next sync. Postings already stored are untouched.",
+    })),
+);
+
+const getMatchBarTool = tool(
+  "get_match_bar",
+  "The score a posting must reach to be stored when a board is synced.",
+  {},
+  async () => guard(async () => ({ bar: await matchBar() })),
+  { annotations: { readOnlyHint: true } },
+);
+
 const syncBoardsTool = tool(
   "sync_boards",
-  "Fetch the current postings from the company boards and store them. Run this before searching when the user wants fresh results. Returns how many postings were seen and how many were new.",
+  "Fetch the current postings from the company boards and store the ones worth this person's attention. A board is the company's list, not theirs: postings outside the places they work, or scoring below the relevance bar, are not stored at all. Returns, per board, how many were seen, how many were kept and how many are new — and a note when the filter could not be applied. Run this before searching when the user wants fresh results.",
   {
     companies: z
       .array(z.string())
@@ -386,6 +423,9 @@ export const jobsearchServer = createSdkMcpServer({
     addCompany,
     addCompaniesByName,
     syncBoardsTool,
+    importPostingTool,
+    matchBarTool,
+    getMatchBarTool,
     rankJobs,
     assessTop,
     searchJobs,

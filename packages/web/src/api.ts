@@ -81,9 +81,19 @@ export interface Setup {
 export interface SyncReport {
   company: string;
   ats: string;
+  /** On the board. */
   seen: number;
+  /** Of those, the ones that passed the relevance bar and were stored. */
+  kept: number;
+  /** Of those, the ones that were not already here. */
   inserted: number;
   error?: string;
+}
+
+export interface SyncOutcome {
+  reports: SyncReport[];
+  /** Present when the filter could not be applied, and why. */
+  note?: string;
 }
 
 
@@ -263,7 +273,7 @@ export const api = {
 
   applications: () => json<Application[]>("/api/applications"),
 
-  sync: () => json<SyncReport[]>("/api/sync", { method: "POST", body: "{}" }),
+  sync: () => json<SyncOutcome>("/api/sync", { method: "POST", body: "{}" }),
 
   assess: (limit: number, location: string | undefined, includeRemote: boolean) =>
     json<{

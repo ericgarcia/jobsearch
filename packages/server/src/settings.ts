@@ -103,6 +103,31 @@ export async function homeLocation(): Promise<string | null> {
   return city && city.length > 0 ? city : null;
 }
 
+/* -------------------------------------------------------------- the bar */
+
+const MATCH_BAR = "match_threshold";
+
+/*
+  How good a match a posting has to be before it is worth storing.
+
+  A setting rather than a constant, because it is a judgement about this
+  person's search and not about the software. A board is the company's whole
+  list: at 40 one company contributed 208 postings out of 660, which is not
+  a shortlist. Scores run to 65, so 50 keeps roughly the top quarter.
+*/
+export const DEFAULT_MATCH_BAR = 50;
+
+export async function matchBar(): Promise<number> {
+  const stored = Number(await get(MATCH_BAR));
+  return Number.isFinite(stored) && stored > 0 ? stored : DEFAULT_MATCH_BAR;
+}
+
+export async function setMatchBar(score: number): Promise<number> {
+  const wanted = Math.round(Math.min(65, Math.max(0, score)));
+  await put(MATCH_BAR, String(wanted));
+  return wanted;
+}
+
 /** Pass an empty string to search everywhere. */
 export async function setHomeLocation(place: string): Promise<void> {
   put(HOME_LOCATION, place.trim());

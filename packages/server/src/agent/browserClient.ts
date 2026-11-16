@@ -3,7 +3,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { BROWSER_MCP_URL, ensureBrowserServer } from "./browserServer.js";
-import { openOnStage, openSplit, splitState } from "./split.js";
+import { openOnStage, openSplit, readPane, splitState } from "./split.js";
 import { APP_URL } from "../config.js";
 
 /**
@@ -152,6 +152,13 @@ export const browserTools = [
     "Where the two panes are. Answers with each pane's tab id, its index in Chrome's window, and the page it is showing. Chrome's indices are NOT the indices browser_tabs uses — those two numberings are unrelated, so never pass one to the other.",
     {},
     async () => ({ content: [{ type: "text" as const, text: await splitState() }] }),
+    { annotations: { readOnlyHint: true } },
+  ),
+  tool(
+    "read_pane",
+    "Read the page open in the pane beside the app, as an accessibility tree. Use this to answer anything about what the person is looking at — a posting they have open, a form they are filling in — rather than asking them to describe it. It puts the view back where it was, so it costs them nothing.",
+    {},
+    async () => ({ content: [{ type: "text" as const, text: await readPane() }] }),
     { annotations: { readOnlyHint: true } },
   ),
   tool(

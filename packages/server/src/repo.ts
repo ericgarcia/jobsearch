@@ -306,6 +306,18 @@ export async function searchJobs(filter: JobFilter = {}): Promise<JobWithStatus[
   )) as JobWithStatus[];
 }
 
+/** A stored posting by where it came from, for a caller that just wrote it. */
+export async function findJob(
+  source: string,
+  sourceJobId: string,
+): Promise<{ id: number } | undefined> {
+  return (await dbGet(
+    `SELECT id FROM jobs WHERE source = ? AND source_job_id = ?`,
+    source,
+    sourceJobId,
+  )) as { id: number } | undefined;
+}
+
 export async function getJob(id: number): Promise<JobWithStatus | undefined> {
   return (await dbGet(`SELECT j.*, a.status, s.fit_score, s.reasoning, s.model, m.score AS match_score
          FROM jobs j

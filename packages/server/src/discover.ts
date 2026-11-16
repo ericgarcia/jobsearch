@@ -1,8 +1,7 @@
 import { getSource } from "./sources/index.js";
 import { detectBoard } from "./sources/detect.js";
-import { buildScorer, corpusBest, finalScore, rawScore } from "./matching.js";
-import { expandPlace, locationMatches } from "./location.js";
-import { homeLocation } from "./settings.js";
+import { buildScorer, corpusBest } from "./matching.js";
+import { buildBar, inScope, scoreOf, type Bar } from "./relevance.js";
 import * as repo from "./repo.js";
 
 /**
@@ -55,8 +54,7 @@ export interface EvaluateOptions {
 async function evaluateOne(
   name: string,
   options: EvaluateOptions,
-  scorer: Awaited<ReturnType<typeof buildScorer>>,
-  best: number,
+  bar: Bar,
   followed: Set<string>,
 ): Promise<Evaluation> {
   const empty: Evaluation = {
@@ -87,32 +85,21 @@ async function evaluateOne(
     };
   }
 
-  const places =
-    options.location === undefined ? (await homeLocation() ?? "") : options.location;
-  const wanted = places
-    .split(",")
-    .map((place) => place.trim())
-    .filter(Boolean)
-    .flatMap(expandPlace);
+  /*
+    The same bar sync applies when it stores a board. These two used to
+    decide separately and could disagree — the count reported here is the
+    count that will be followed, or it is worth nothing.
+  */
+  const reachable = jobs.filter((job) => inScope(bar, job));
 
-  const inScope = jobs.filter((job) => {
-    if (wanted.length === 0) return true;
-    if (wanted.some((place) => locationMatches(job.location, place))) return true;
-    return options.includeRemote === true && job.remote;
-  });
-
-  const threshold = options.threshold ?? 40;
-  const scored: Hit[] = inScope
-    .map((job) => {
-      const raw = rawScore(scorer, job.title, job.description ?? "");
-      return {
-        title: job.title,
-        location: job.location,
-        remote: job.remote,
-        url: job.url,
-        score: finalScore(scorer, raw.total, best, job.title, job.description ?? ""),
-      };
-    })
+  const scored: Hit[] = reachable
+    .map((job) => ({
+      title: job.title,
+      location: job.location,
+      remote: job.remote,
+      url: job.url,
+      score: scoreOf(bar, job),
+    }))
     .sort((a, b) => b.score - a.score);
 
   return {
@@ -120,8 +107,8 @@ async function evaluateOne(
     ats: found.ats,
     board_token: found.board_token,
     total: jobs.length,
-    in_scope: inScope.length,
-    matching: scored.filter((hit) => hit.score >= threshold).length,
+    in_scope: reachable.length,
+    matching: scored.filter((hit) => hit.score >= bar.threshold).length,
     best_score: scored[0]?.score ?? 0,
     top: scored.slice(0, options.perCompany ?? 5),
     already_followed: followed.has(key),
@@ -148,6 +135,7 @@ export async function evaluateCompanies(
     throw new Error("Rank the stored postings first, so there is a scale to measure against.");
   }
 
+  const bar = await buildBar(options);
   const followed = new Set(
     (await repo.listCompanies()).map((company) => `${company.ats}:${company.board_token}`),
   );
@@ -159,7 +147,7 @@ export async function evaluateCompanies(
       ...(await Promise.all(
         names
           .slice(i, i + batch)
-          .map((name) => evaluateOne(name, options, scorer, best, followed)),
+          .map((name) => evaluateOne(name, options, bar, followed)),
       )),
     );
   }

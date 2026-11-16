@@ -216,6 +216,50 @@ export async function splitState(): Promise<string> {
 }
 
 /**
+ * Read the page in the pane, without moving what the person is looking at.
+ *
+ * The browser tools act on the tab in view, and the tab in view is the app.
+ * Selecting the pane, snapshotting, and selecting back is visible as the
+ * window flickering through two tab changes for a read; doing it here keeps
+ * it to one hop and puts the view back. "What is beside me" is the question
+ * the pane exists to make answerable, so it should not cost the person
+ * their place.
+ */
+export async function readPane(): Promise<string> {
+  const state = parse<{ paired?: boolean; right?: { url?: string } }>(await splitState());
+  if (state?.paired !== true || !state.right?.url) return "Nothing is open in the pane.";
+
+  const wanted = state.right.url;
+  const listing = text(await callBrowser("browser_tabs", { action: "list" }));
+
+  /*
+    Chrome's tab indices and the bridge's are different numberings, and the
+    tools say so. The URL is the thing both agree on, so it is what the pane
+    is found by here.
+  */
+  const LINE = /^-\s+(\d+):\s*(?:\(current\)\s*)?\[[^\]]*\]\(([^)]+)\)/;
+  let index: number | null = null;
+  let current: number | null = null;
+  for (const raw of listing.split("\n")) {
+    const found = LINE.exec(raw.trim());
+    if (!found) continue;
+    if (raw.includes("(current)")) current = Number(found[1]);
+    if (found[2] === wanted) index = Number(found[1]);
+  }
+
+  if (index === null) {
+    return `The pane is showing ${wanted}, but the bridge cannot address that tab — it was opened outside Playwright, so its contents cannot be read here. Ask the person what it says, or open the page again from the app.`;
+  }
+
+  await callBrowser("browser_tabs", { action: "select", index });
+  const snapshot = text(await callBrowser("browser_snapshot", {}));
+  if (current !== null && current !== index) {
+    await callBrowser("browser_tabs", { action: "select", index: current });
+  }
+  return `The pane is showing ${wanted}\n\n${snapshot}`;
+}
+
+/**
  * What the extension answered, out of Playwright's report of the call.
  *
  * The reply is a JSON object inside a block of prose about running the code.
