@@ -62,6 +62,19 @@ with:
 npm test --workspace=@jobsearch/server
 ```
 
+## The agent knows what you have open
+
+`app_state` tells it which tab you are on and what is selected in it, so
+"make this one warmer" and "why is this ranked so low" resolve without a
+screenshot. The page reports while it is visible and beats every twenty
+seconds; a hidden tab says nothing, because a background tab asserting what
+you are looking at is how the split view once ended up with three tabs
+taking the pair off each other.
+
+It says when it does not know. After fifty seconds of silence the answer is
+"probably not looking", with the age, rather than the last thing it saw — a
+confident answer about the wrong resume is worse than asking which one.
+
 ## Changes show up by themselves
 
 `GET /api/events` is a stream of "this changed", open for the life of the

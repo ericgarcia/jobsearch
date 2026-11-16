@@ -281,8 +281,12 @@ function ExportPdf() {
   );
 }
 
-export function LayoutEditor() {
+export function LayoutEditor({ onSurface }: { onSurface?: (surface: Surface) => void }) {
   const [surface, setSurface] = useState<Surface>("resume");
+
+  // Reported upward so the agent can be told which of the two is on screen.
+  // "Make this warmer" means the one being looked at.
+  useEffect(() => onSurface?.(surface), [surface, onSurface]);
   const [vocabulary, setVocabulary] = useState<Vocabulary | null>(null);
   const [layout, setLayout] = useState<Layout | null>(null);
   const [error, setError] = useState<string | null>(null);

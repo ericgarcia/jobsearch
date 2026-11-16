@@ -1,4 +1,5 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
+import { currentState } from "../appState.js";
 import { z } from "zod";
 import * as repo from "../repo.js";
 import { STATUSES } from "../status.js";
@@ -353,10 +354,30 @@ const getStats = tool(
   { annotations: { readOnlyHint: true } },
 );
 
+
+/**
+ * What is on the person's screen.
+ *
+ * Cheap, and it removes most of the reason to open a browser. "Make this one
+ * warmer" and "why is this ranked so low" both resolve from here, where
+ * otherwise they need a screenshot read back.
+ *
+ * It says when it does not know. A confident answer about the wrong resume
+ * is worse than asking which one.
+ */
+const appState = tool(
+  "app_state",
+  "What the person currently has open in the app: which tab, and what is selected in it. Call this before acting on 'this one', 'that posting' or 'the current resume' instead of guessing or taking a screenshot. It reports honestly when the app is closed or has not said recently.",
+  {},
+  async () => guard(async () => currentState()),
+  { annotations: { readOnlyHint: true } },
+);
+
 export const jobsearchServer = createSdkMcpServer({
   name: "jobsearch",
   version: "0.1.0",
   tools: [
+    appState,
     listCompanies,
     removeCompanyTool,
     getInterestsTool,

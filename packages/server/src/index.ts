@@ -23,6 +23,7 @@ import { APP_URL, SPLIT_EXTENSION_ID } from "./config.js";
 import { openStageFor } from "./agent/split.js";
 import { pdfFilename, renderPdf } from "./layout/pdf.js";
 import { onChange } from "./notify.js";
+import { clearState, reportState } from "./appState.js";
 import { PAGE, TOKENS, DEFAULTS, SECTION_KINDS, SECTION_NOTES, renderDocument } from "@jobsearch/layout";
 import {
   createLayout,
@@ -274,6 +275,27 @@ app.post("/api/split/stage", async (request, reply) => {
     // Never let this stop the app loading: it is an arrangement, not the work.
     return reply.code(503).send({ error: (error as Error).message });
   }
+});
+
+/* --------------------------------------------------------------- app state */
+
+/**
+ * The page saying what it is showing.
+ *
+ * Only a visible tab reports. Several tabs of this app can be open, and a
+ * background one asserting what the person is looking at is how the split
+ * view ended up with three tabs trading the pair between them.
+ */
+app.post("/api/app-state", async (request, reply) => {
+  const body = (request.body ?? {}) as { tab?: string; selected?: Record<string, number | null>; gone?: boolean };
+  if (body.gone) {
+    clearState();
+    return reply.code(204).send();
+  }
+  if (typeof body.tab !== "string") return reply.code(400).send({ error: "tab is required" });
+
+  reportState({ tab: body.tab, selected: (body.selected ?? {}) as never });
+  return reply.code(204).send();
 });
 
 /* ------------------------------------------------------------------ events */

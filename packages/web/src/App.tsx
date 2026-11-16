@@ -15,6 +15,7 @@ import { Chat } from "./components/Chat.tsx";
 import { Profile } from "./components/Profile.tsx";
 import { LayoutEditor } from "./components/LayoutEditor.tsx";
 import { Projects } from "./components/Projects.tsx";
+import { useReportState } from "./reportState.ts";
 import { Boards } from "./components/Boards.tsx";
 import { adoptStage, myRole, splitInstalled, syncToken } from "./split.ts";
 import { ResumeView } from "./components/ResumeView.tsx";
@@ -46,6 +47,16 @@ export function App() {
   const [assessing, setAssessing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [stats, setStats] = useState<{ jobs: number } | null>(null);
+  const [surface, setSurface] = useState<string | null>(null);
+
+  /*
+    Tell the server what is on screen, so the agent can resolve "this one"
+    without a screenshot. Only a visible tab reports; see reportState.ts.
+  */
+  useReportState({
+    tab,
+    selected: { job: selected, resume: openResume, coverLetter: openLetter, surface },
+  });
 
   /** Changing tab closes whatever overlay is open, so the new tab is visible. */
   function goToTab(next: Tab) {
@@ -368,7 +379,7 @@ export function App() {
           {tab === "projects" ? (
             <Projects />
           ) : tab === "design" ? (
-            <LayoutEditor />
+            <LayoutEditor onSurface={setSurface} />
           ) : tab === "boards" ? (
             <Boards place={place} includeRemote={includeRemote} onChanged={loadData} />
           ) : tab === "profile" ? (
