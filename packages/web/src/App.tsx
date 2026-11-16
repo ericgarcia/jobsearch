@@ -291,15 +291,13 @@ export function App() {
       {notice && <div className="banner">{notice}</div>}
 
       <div className="tabs">
-        <button aria-selected={tab === "jobs"} onClick={() => goToTab("jobs")}>
-          Jobs
-        </button>
-        <button aria-selected={tab === "applications"} onClick={() => goToTab("applications")}>
-          Applications ({applications.length})
-        </button>
-        <button aria-selected={tab === "drafts"} onClick={() => goToTab("drafts")}>
-          Drafts ({resumes.length + letters.length})
-        </button>
+        {/*
+          Who you are first, then the search. Profile, Projects and Design are
+          one thing — what you have done, written up, and how it looks — and
+          they are what you set up before any of the rest is useful. Projects
+          travels with them rather than staying between Drafts and Boards,
+          where it would be the only part of that group left behind.
+        */}
         <button aria-selected={tab === "profile"} onClick={() => goToTab("profile")}>
           Profile
         </button>
@@ -308,6 +306,15 @@ export function App() {
         </button>
         <button aria-selected={tab === "design"} onClick={() => goToTab("design")}>
           Design
+        </button>
+        <button aria-selected={tab === "jobs"} onClick={() => goToTab("jobs")}>
+          Jobs
+        </button>
+        <button aria-selected={tab === "applications"} onClick={() => goToTab("applications")}>
+          Applications ({applications.length})
+        </button>
+        <button aria-selected={tab === "drafts"} onClick={() => goToTab("drafts")}>
+          Drafts ({resumes.length + letters.length})
         </button>
         <button aria-selected={tab === "boards"} onClick={() => goToTab("boards")}>
           Boards
