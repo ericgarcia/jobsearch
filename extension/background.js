@@ -293,17 +293,22 @@ async function announce(thread) {
   const pages = await pagesOfThread(thread);
 
   /*
-    Compared as text, because the same thread arrives both ways: as the
-    number the app sent, and as the string Object.entries gives back for a
-    key of the register. They are not equal, and the push went nowhere.
+    A thread id arrives two ways: as the value the app sent, and as the
+    string Object.entries gives back for a key of the register. They are
+    not equal, so the match is made on text — and the message carries
+    `showing`, the value the app itself registered, not the key. Sending
+    the key meant the app compared "42" with 42, dropped its own update,
+    and left a chip on screen for a tab that had been closed.
   */
   const wanted = String(thread);
 
   for (const [tabId, showing] of Object.entries(current)) {
     if (String(showing) !== wanted) continue;
-    chrome.tabs.sendMessage(Number(tabId), { type: "split-pilot:tabs", thread, pages }).catch(() => {
-      // No content script there. The app asks for itself when it loads.
-    });
+    chrome.tabs
+      .sendMessage(Number(tabId), { type: "split-pilot:tabs", thread: showing, pages })
+      .catch(() => {
+        // No content script there. The app asks for itself when it loads.
+      });
   }
 }
 

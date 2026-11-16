@@ -17,7 +17,7 @@ import { LayoutEditor } from "./components/LayoutEditor.tsx";
 import { Projects } from "./components/Projects.tsx";
 import { useReportState } from "./reportState.ts";
 import { Boards } from "./components/Boards.tsx";
-import { adoptStage, routeToPane, splitInstalled, syncToken } from "./split.ts";
+import { adoptStage, leaveSplit, routeToPane, splitInstalled, syncToken } from "./split.ts";
 import { ResumeView } from "./components/ResumeView.tsx";
 import { CoverLetter } from "./components/CoverLetter.tsx";
 
@@ -312,10 +312,23 @@ export function App() {
         the canvas, which gives way when a site opens beside it.
       */}
       <aside className="messaging">
-        <div className="brand">
+        {/*
+          The logo gives the window back to the app.
+
+          It is the one thing on screen that always means "the app itself",
+          so it is where you reach for the whole of it. Nothing closes: the
+          page keeps its tab and its chip, and clicking the chip takes the
+          pane back.
+        */}
+        <button
+          className="brand"
+          disabled={!inSplit}
+          title={inSplit ? "Show the whole app. The open page stays open." : undefined}
+          onClick={() => void leaveSplit(hasSplit ? splitId : null)}
+        >
           job<span>search</span>
-        </div>
-          <Chat onDataChanged={loadData} splitId={hasSplit ? splitId : null} inSplit={inSplit} />
+        </button>
+          <Chat onDataChanged={loadData} splitId={hasSplit ? splitId : null} />
       </aside>
 
       <div className="canvas" aria-hidden={inSplit || undefined}>

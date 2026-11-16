@@ -4,7 +4,6 @@ import { useChanges } from "../changes.ts";
 import {
   closeTab,
   closeThreadTabs,
-  leaveSplit,
   showInPane,
   tellThread,
   threadTabs,
@@ -62,13 +61,10 @@ function pageName(page: ThreadTab): string {
 export function Chat({
   onDataChanged,
   splitId,
-  inSplit,
 }: {
   onDataChanged: () => void;
   /** Split Pilot's id, or null when it is not installed. */
   splitId: string | null;
-  /** Whether a page currently has the other half of the window. */
-  inSplit: boolean;
 }) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [draft, setDraft] = useState("");
@@ -150,7 +146,9 @@ export function Chat({
       if (event.source !== window) return;
       const data = event.data as { type?: string; thread?: number; pages?: ThreadTab[] } | null;
       if (data?.type !== "split-pilot:tabs") return;
-      if (data.thread !== threadId) return;
+      // As text: a thread id crosses two worlds and a storage key on the
+      // way here, and one of those turns it into a string.
+      if (String(data.thread) !== String(threadId)) return;
       setPages(data.pages ?? []);
     };
 
@@ -388,15 +386,6 @@ export function Chat({
               </button>
             </div>
           ))}
-          {inSplit && (
-            <button
-              className="ghost full-app"
-              title="Give the window back to the app. The page stays open."
-              onClick={() => void leaveSplit(splitId)}
-            >
-              Full app
-            </button>
-          )}
         </div>
       )}
 

@@ -254,6 +254,30 @@ const missing = await say({ type: "split-pilot:show", tabId: 999999 }, watcher);
 assert.match(missing.error ?? "", /not open/);
 ok("asking for a page that has gone says so rather than throwing");
 
+console.log("\n12b. A closed page is pushed as gone, addressed as the app asked");
+
+pushes.length = 0;
+const throwaway = tabStub({ url: "https://example.com/c", title: "C page" });
+await say({ type: "split-pilot:adopt", tabId: throwaway.id }, watcher);
+pushes.length = 0;
+await chrome.tabs.remove(throwaway.id);
+
+const afterClose = pushes.filter((p) => p.message.type === "split-pilot:tabs").at(-1);
+assert.ok(afterClose, "closing a page told nobody");
+/*
+  The thread must come back as the app sent it. It reached this push as a
+  register key, which is a string, and the app compares it with the number
+  it registered — so a correct list was pushed to a listener that dropped
+  it, and the chip for a closed tab stayed on screen.
+*/
+assert.strictEqual(afterClose.message.thread, 11, "pushed as a number, as registered");
+assert.equal(
+  afterClose.message.pages.some((x) => x.id === throwaway.id),
+  false,
+  "and the closed page is not in it",
+);
+ok("the push says the page is gone, and the app can tell it is theirs");
+
 console.log("\n13. One page closes without taking the thread");
 
 await say({ type: "split-pilot:close-tab", tabId: second.id }, watcher);
