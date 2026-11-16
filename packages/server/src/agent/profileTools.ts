@@ -2,6 +2,10 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { stylingGuide } from "@jobsearch/layout";
 import { defaultLayout, getLayout, listLayouts, updateLayout } from "../layout/store.js";
 import { measurePages } from "../layout/measure.js";
+import { renderPdf, pdfFilename } from "../layout/pdf.js";
+import { DATA_DIR } from "../config.js";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { browserEnabled } from "./browserFlag.js";
 import { z } from "zod";
 import * as profile from "../profile.js";
@@ -327,7 +331,31 @@ const previewLayoutTool = tool(
   { annotations: { readOnlyHint: true } },
 );
 
+
+const exportPdfTool = tool(
+  "export_resume_pdf",
+  "Write the resume to a PDF file and say where it is. Give resume_id to export a tailored draft; without one it exports the stored profile through the resume template. The file holds real text, not a picture, because an applicant tracking system reads it before a person does.",
+  { resume_id: z.number().optional() },
+  async (args) =>
+    guard(async () => {
+      const [pdf, me] = await Promise.all([
+        renderPdf({ resumeId: args.resume_id ?? null }),
+        profile.getProfile(),
+      ]);
+
+      // Beside the database rather than in the repository: a resume is
+      // personal, and the repository is public.
+      const directory = path.join(DATA_DIR, "resumes");
+      await fs.mkdir(directory, { recursive: true });
+      const file = path.join(directory, pdfFilename(me.name, args.resume_id ? `draft ${args.resume_id}` : null));
+      await fs.writeFile(file, pdf);
+
+      return { file, bytes: pdf.length };
+    }),
+);
+
 export const profileTools = [
+  exportPdfTool,
   stylingGuideTool,
   getLayoutTool,
   styleLayoutTool,
@@ -351,6 +379,7 @@ export const profileTools = [
 ];
 
 export const PROFILE_MUTATING = [
+  "export_resume_pdf",
   "style_layout",
   "arrange_layout",
   "update_profile",

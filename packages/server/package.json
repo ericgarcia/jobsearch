@@ -8,7 +8,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "JOBSEARCH_DATA_DIR=$(mktemp -d) tsx test/factcheck.test.mts && tsx test/location.test.mts && tsx test/location-sql.test.mts && tsx test/tokens.test.mts",
+    "test": "JOBSEARCH_DATA_DIR=$(mktemp -d) tsx test/factcheck.test.mts && tsx test/location.test.mts && tsx test/location-sql.test.mts && tsx test/tokens.test.mts && tsx test/pdf.test.mts",
     "build": "tsc -p tsconfig.build.json && node -e \"require('fs').copyFileSync('src/db/schema.sql','dist/db/schema.sql')\""
   },
   "dependencies": {
@@ -22,7 +22,8 @@
     "@playwright/mcp": "0.0.85",
     "fastify": "^5.4.0",
     "zod": "^4.1.5",
-    "@jobsearch/layout": "*"
+    "@jobsearch/layout": "*",
+    "playwright-core": "1.66.0-alpha-2026-11-09"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",

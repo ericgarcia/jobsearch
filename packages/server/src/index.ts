@@ -21,6 +21,7 @@ import { assessTopJobs, ASSESS_MODEL } from "./assess.js";
 import { browserEnabled, runAgent, verifyCredential } from "./agent/session.js";
 import { APP_URL, SPLIT_EXTENSION_ID } from "./config.js";
 import { openStageFor } from "./agent/split.js";
+import { pdfFilename, renderPdf } from "./layout/pdf.js";
 import { PAGE, TOKENS, DEFAULTS, SECTION_KINDS, SECTION_NOTES, renderDocument } from "@jobsearch/layout";
 import {
   createLayout,
@@ -342,6 +343,39 @@ app.get("/api/layouts/:id/render", async (request, reply) => {
     return reply.type("text/html; charset=utf-8").send(html);
   } catch (error) {
     return reply.code(404).send({ error: (error as Error).message });
+  }
+});
+
+/**
+ * The resume as a PDF.
+ *
+ * Chrome typesets it, so the file matches the preview rather than
+ * approximating it, and it holds real text — an applicant tracking system
+ * reads a resume before any person does.
+ */
+app.get("/api/resume.pdf", async (request, reply) => {
+  const query = request.query as { resume?: string; layout?: string };
+  try {
+    const [pdf, me] = await Promise.all([
+      renderPdf({
+        resumeId: query.resume ? Number(query.resume) : null,
+        layoutId: query.layout ? Number(query.layout) : undefined,
+      }),
+      profile.getProfile(),
+    ]);
+
+    const label = query.resume
+      ? ((await resume.getResume(Number(query.resume))).job?.company ?? null)
+      : null;
+
+    return reply
+      .type("application/pdf")
+      .header("content-disposition", `attachment; filename="${pdfFilename(me.name, label)}"`)
+      .send(pdf);
+  } catch (error) {
+    // 503, not 500: the usual cause is Chrome missing or busy, which is a
+    // condition of this machine rather than a fault in the request.
+    return reply.code(503).send({ error: (error as Error).message });
   }
 });
 

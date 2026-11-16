@@ -79,7 +79,25 @@ through `/api/layouts/:id`.
 GET  /api/layout/vocabulary     every token, what it accepts, what it does
 GET  /api/render/resume?paged=1 the resume, with page edges
 GET  /api/render/profile        the public page
+GET  /api/resume.pdf            the resume as a PDF
 ```
+
+### The PDF
+
+Chrome typesets it, headless, using the Chrome already installed — this app
+needs it anyway, because Split Pilot runs in it, so there is no browser to
+download. It is a separate instance; the windows you are looking at are not
+touched.
+
+The file holds real text in embedded fonts and contains no images. That is
+not a detail: an applicant tracking system reads a resume before a person
+does, and a rasterised one parses as nothing while looking perfect on screen.
+`test/pdf.test.mts` checks the letter paper, the fonts and the absence of
+images on every run.
+
+A PDF library instead of a browser would mean a second renderer with its own
+layout rules, drifting from the stylesheet until the file someone sends an
+employer stopped matching what they approved.
 
 Style the template once; the content changes under it. `?resume=<id>` renders
 a tailored draft through the same template, which is the point of keeping the

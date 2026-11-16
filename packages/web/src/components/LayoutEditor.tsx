@@ -228,6 +228,58 @@ function SectionRow({
 
 /* ---------------------------------------------------------------- editor */
 
+
+/**
+ * Download the resume as a PDF.
+ *
+ * A plain link would be simpler, but a failure would then replace the app
+ * with a page of JSON — and this fails for ordinary reasons, chiefly Chrome
+ * not being where the server expects it. Fetching lets the failure stay on
+ * this screen, next to the thing it is about.
+ */
+function ExportPdf() {
+  const [state, setState] = useState<"idle" | "working" | "failed">("idle");
+  const [why, setWhy] = useState<string | null>(null);
+
+  const download = async () => {
+    setState("working");
+    setWhy(null);
+    try {
+      const response = await fetch("/api/resume.pdf");
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `${response.status} ${response.statusText}`);
+      }
+
+      const blob = await response.blob();
+      const name =
+        /filename="([^"]+)"/.exec(response.headers.get("content-disposition") ?? "")?.[1] ?? "resume.pdf";
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = name;
+      link.click();
+      // Revoked on the next tick: Safari has not started reading the blob
+      // when click() returns, and revoking at once gives an empty file.
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+      setState("idle");
+    } catch (problem) {
+      setState("failed");
+      setWhy((problem as Error).message);
+    }
+  };
+
+  return (
+    <span className="export-pdf">
+      {why && <span className="warn" title={why}>{why.slice(0, 60)}</span>}
+      <button className="ghost" onClick={() => void download()} disabled={state === "working"}>
+        {state === "working" ? "making the PDF…" : state === "failed" ? "Try again" : "Download PDF ↓"}
+      </button>
+    </span>
+  );
+}
+
 export function LayoutEditor() {
   const [surface, setSurface] = useState<Surface>("resume");
   const [vocabulary, setVocabulary] = useState<Vocabulary | null>(null);
@@ -433,9 +485,13 @@ export function LayoutEditor() {
               </>
             )}
           </span>
-          <a href={`/api/render/${surface}`} target="_blank" rel="noreferrer" className="ghost">
-            Open to print →
-          </a>
+          {surface === "resume" ? (
+            <ExportPdf />
+          ) : (
+            <a href={`/api/render/${surface}`} target="_blank" rel="noreferrer" className="ghost">
+              Open the page →
+            </a>
+          )}
         </div>
         <iframe
           ref={frame}
