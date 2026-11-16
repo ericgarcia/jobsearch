@@ -203,17 +203,29 @@ async function stored(key) {
   return (await chrome.storage.session.get(key))[key] ?? {};
 }
 
-/** The thread the given tab is showing, if it has said. */
+/**
+ * Whether this tab is the app.
+ *
+ * Kept apart from which thread it is showing, because they are different
+ * questions and sharing one answer broke a link. The app registers itself
+ * whether or not a conversation is open; a tab on no thread stored nothing,
+ * so it looked like any other tab in the browser, and a posting opened from
+ * it became a stray tab instead of the pane beside it.
+ */
+async function isAppTab(tabId) {
+  return Object.hasOwn(await stored(CURRENT), tabId);
+}
+
+/** The thread the given tab is showing, or null when it is on none. */
 async function threadOf(tabId) {
   const current = await stored(CURRENT);
   return current[tabId] ?? null;
 }
 
-/** Say which thread a tab is showing. null when it is on none. */
+/** Say which thread a tab is showing. null is still an answer: see above. */
 async function setThread(tabId, thread) {
   const current = await stored(CURRENT);
-  if (thread === null || thread === undefined) delete current[tabId];
-  else current[tabId] = thread;
+  current[tabId] = thread ?? null;
   await chrome.storage.session.set({ [CURRENT]: current });
 }
 
@@ -660,11 +672,13 @@ chrome.tabs.onCreated.addListener(async (tab) => {
     This is the other half of "a split only while a site is open". The app
     sits in one tab with its own two columns until something is opened from
     it; then that page becomes the pane beside it, and the app's canvas
-    steps aside. An app tab is one that has told us which thread it is
-    showing — nothing else in the browser does that.
+    steps aside. An app tab is one that has registered itself — nothing else
+    in the browser does that. Whether a conversation is open in it is a
+    separate question, and not this one: a link from the app belongs beside
+    the app either way.
   */
   if (!found) {
-    if ((await threadOf(tab.openerTabId)) === null) return;
+    if (!(await isAppTab(tab.openerTabId))) return;
     if (!routable(tab.pendingUrl ?? tab.url)) return;
     const opener = await chrome.tabs.get(tab.openerTabId).catch(() => null);
     if (opener) await adopt(opener, tab);
