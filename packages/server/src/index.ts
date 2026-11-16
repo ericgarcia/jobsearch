@@ -20,7 +20,6 @@ import { getInterests, setInterests } from "./interests.js";
 import { assessTopJobs, ASSESS_MODEL } from "./assess.js";
 import { browserEnabled, runAgent, verifyCredential } from "./agent/session.js";
 import { APP_URL, SPLIT_EXTENSION_ID } from "./config.js";
-import { openStageFor } from "./agent/split.js";
 import { pdfFilename, renderPdf } from "./layout/pdf.js";
 import { changed, onChange } from "./notify.js";
 import { clearState, reportState } from "./appState.js";
@@ -249,32 +248,6 @@ app.post("/api/assess", async (request, reply) => {
 app.post("/api/sync", async (request) => {
   const body = (request.body ?? {}) as { companies?: string[] };
   return await syncBoards(body.companies);
-});
-
-/* ------------------------------------------------------------------- prefs */
-
-/** Where the person works, and so what the job list shows by default. */
-/**
- * Open the stage pane for the tab that is asking, when it needs one.
- *
- * The app calls this as it loads and then adopts the tab itself, through the
- * extension, which is the only party that knows which tab asked. Doing the
- * whole arrangement here meant guessing at that, and the guess was wrong the
- * moment a second app tab existed.
- *
- * There is no switch for it. The two panes are how the app is meant to be
- * used, and a setting whose only job is to turn the arrangement off is a
- * setting that leaves the assistant unable to reach half of it.
- */
-app.post("/api/split/stage", async (request, reply) => {
-  if (!browserEnabled) return reply.code(409).send({ error: "The browser is switched off." });
-  const body = (request.body ?? {}) as { role?: string | null };
-  try {
-    return await openStageFor(body.role ?? null);
-  } catch (error) {
-    // Never let this stop the app loading: it is an arrangement, not the work.
-    return reply.code(503).send({ error: (error as Error).message });
-  }
 });
 
 /* --------------------------------------------------------------- app state */

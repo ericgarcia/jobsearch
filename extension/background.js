@@ -173,6 +173,86 @@ async function sideOf(tabId) {
   return null;
 }
 
+/* ------------------------------------------------- tabs, and whose they are
+
+  A thread owns the tabs it opened.
+
+  The app is several conversations, and each one sends the person somewhere:
+  a posting, a company page, a form. Closing the conversation should take
+  those pages with it, or a day's work leaves a window nobody can read. The
+  app cannot do this itself — a page may not close a tab it did not open, and
+  it cannot see them at all — so the register lives here, where the tab ids
+  are.
+
+  Two maps, both in session storage, both thrown away with the browser:
+
+    threads  thread id  -> the tab ids it opened
+    current  left tab   -> the thread that tab is showing now
+
+  The second is what makes the first cheap. Rather than carrying a thread id
+  through every path that can open a page — a link click caught in the
+  content script, a routed URL, an adopted stage — the app says which thread
+  it is on when that changes, and everything opened from that tab afterwards
+  belongs to it.
+*/
+
+const THREADS = "threads";
+const CURRENT = "current";
+
+async function stored(key) {
+  return (await chrome.storage.session.get(key))[key] ?? {};
+}
+
+/** The thread the given tab is showing, if it has said. */
+async function threadOf(tabId) {
+  const current = await stored(CURRENT);
+  return current[tabId] ?? null;
+}
+
+/** Say which thread a tab is showing. null when it is on none. */
+async function setThread(tabId, thread) {
+  const current = await stored(CURRENT);
+  if (thread === null || thread === undefined) delete current[tabId];
+  else current[tabId] = thread;
+  await chrome.storage.session.set({ [CURRENT]: current });
+}
+
+/** Record that `tabId` was opened for whatever thread `leftTabId` is showing. */
+async function remember(leftTabId, tabId) {
+  const thread = await threadOf(leftTabId);
+  if (thread === null || tabId === undefined) return;
+  const threads = await stored(THREADS);
+  const had = threads[thread] ?? [];
+  if (!had.includes(tabId)) threads[thread] = [...had, tabId];
+  await chrome.storage.session.set({ [THREADS]: threads });
+}
+
+/**
+ * The tabs a thread still has open.
+ *
+ * A tab that has been navigated somewhere else is still the thread's tab.
+ * It was opened for this conversation, the person followed it onward, and
+ * the conversation is still what it belongs to — tracking the URL instead
+ * would mean a tab stops being anybody's the moment it is used.
+ */
+async function tabsOfThread(thread) {
+  const ids = (await stored(THREADS))[thread] ?? [];
+  const found = await Promise.all(ids.map((id) => chrome.tabs.get(id).catch(() => null)));
+  return found.filter((tab) => tab !== null);
+}
+
+/** Whether any thread claims this tab. */
+async function ownedByThread(tabId) {
+  return Object.values(await stored(THREADS)).some((ids) => ids.includes(tabId));
+}
+
+/** Forget a thread's tabs, whether or not they were closed from here. */
+async function forgetThread(thread) {
+  const threads = await stored(THREADS);
+  delete threads[thread];
+  await chrome.storage.session.set({ [THREADS]: threads });
+}
+
 /*
   Chrome grew tabs.createSplit in 155. Without it the pairing still works —
   links still land in the right tab — but the two tabs are ordinary neighbours
@@ -206,6 +286,21 @@ async function supersede(windowId) {
  */
 async function retire(superseded, ...keep) {
   if (superseded === undefined || keep.includes(superseded)) return;
+
+  /*
+    A page a conversation opened is not litter.
+
+    This used to close whatever stage the last arrangement had, which was
+    right when there was one permanent stage per window: the old one was a
+    tab nothing would navigate again. Now a stage is a page somebody asked
+    for, belonging to the thread that asked, and it closes with that thread
+    rather than with the next arrangement. An empty stage is still litter,
+    and still goes.
+  */
+  const tab = await chrome.tabs.get(superseded).catch(() => null);
+  if (!tab) return;
+  if (routable(tab.url ?? tab.pendingUrl) && (await ownedByThread(superseded))) return;
+
   await chrome.tabs.remove(superseded).catch(() => {
     // Already gone. That is the outcome we wanted.
   });
@@ -242,6 +337,7 @@ async function startPair(leftTab, url = "about:blank") {
 
   // After the new pair is stored, so a failure here cannot lose the pairing.
   await retire(superseded, leftTab.id, right.id);
+  await remember(leftTab.id, right.id);
   return pair;
 }
 
@@ -300,6 +396,7 @@ async function adopt(leftTab, stage) {
 
   // After the new pair is stored, so a failure here cannot lose the pairing.
   await retire(superseded, leftTab.id, stage.id);
+  await remember(leftTab.id, stage.id);
   return pair;
 }
 
@@ -329,6 +426,7 @@ async function sendToRight(fromTabId, url) {
 
   try {
     await chrome.tabs.update(found.pair.right, { url });
+    await remember(found.pair.left, found.pair.right);
     return true;
   } catch {
     // The right tab is gone. Drop the pair rather than silently swallowing
@@ -469,6 +567,49 @@ chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
         return { ok: true };
       });
 
+    /* The app saying which thread it is showing. See the register above. */
+    case "split-pilot:thread":
+      return answer(respond, async () => {
+        await setThread(tab.id, message.thread ?? null);
+        return { ok: true };
+      });
+
+    /*
+      What closing a thread would close.
+
+      Asked before doing it, so the app can warn about a tab the person is
+      looking at. Closing the page someone is reading, with no word, is the
+      kind of help that makes people stop trusting a feature — and the app
+      cannot see the tabs to warn by itself.
+    */
+    case "split-pilot:thread-tabs":
+      return answer(respond, async () => ({
+        tabs: (await tabsOfThread(message.thread)).map((other) => ({
+          id: other.id,
+          title: other.title ?? "",
+          url: other.url ?? "",
+          /*
+            In view means on screen now: the active tab of its window, and
+            that window the one in front. A tab active in a window behind
+            another is not being read.
+          */
+          active: other.active === true,
+        })),
+      }));
+
+    /* And doing it. The app asks only after the person has agreed. */
+    case "split-pilot:close-thread":
+      return answer(respond, async () => {
+        const open = await tabsOfThread(message.thread);
+        await forgetThread(message.thread);
+        for (const other of open) {
+          await chrome.tabs.remove(other.id).catch(() => {
+            // Gone already, which is where we were heading.
+          });
+        }
+        return { closed: open.length };
+      });
+
     case "split-pilot:open":
       return answer(respond, async () => ({ routed: await sendToRight(tab.id, message.url) }));
 
@@ -507,7 +648,25 @@ chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
 chrome.tabs.onCreated.addListener(async (tab) => {
   if (tab.openerTabId === undefined) return;
   const found = await sideOf(tab.openerTabId);
-  if (!found || found.side !== "left") return;
+
+  /*
+    No pair yet, and the app opened this: make it the split.
+
+    This is the other half of "a split only while a site is open". The app
+    sits in one tab with its own two columns until something is opened from
+    it; then that page becomes the pane beside it, and the app's canvas
+    steps aside. An app tab is one that has told us which thread it is
+    showing — nothing else in the browser does that.
+  */
+  if (!found) {
+    if ((await threadOf(tab.openerTabId)) === null) return;
+    if (!routable(tab.pendingUrl ?? tab.url)) return;
+    const opener = await chrome.tabs.get(tab.openerTabId).catch(() => null);
+    if (opener) await adopt(opener, tab);
+    return;
+  }
+
+  if (found.side !== "left") return;
   if (tab.id === found.pair.right) return;
 
   /*
@@ -538,11 +697,38 @@ chrome.tabs.onCreated.addListener(async (tab) => {
   }
 });
 
-/** A pair with a missing half is not a pair. */
+/*
+  A pair with a missing half is not a pair.
+
+  This is also how the split comes apart when the person closes the page
+  themselves: the pair goes, every tab is told its role again, and the app
+  gets its canvas back without anyone asking it to.
+*/
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   const found = await sideOf(tabId);
   if (found) await putPair(found.windowId, null);
+  await forget(tabId);
 });
+
+/** Drop a closed tab from the register, and from any thread that owned it. */
+async function forget(tabId) {
+  const current = await stored(CURRENT);
+  if (current[tabId] !== undefined) {
+    delete current[tabId];
+    await chrome.storage.session.set({ [CURRENT]: current });
+  }
+
+  const threads = await stored(THREADS);
+  let changed = false;
+  for (const [thread, ids] of Object.entries(threads)) {
+    if (!ids.includes(tabId)) continue;
+    const left = ids.filter((id) => id !== tabId);
+    if (left.length > 0) threads[thread] = left;
+    else delete threads[thread];
+    changed = true;
+  }
+  if (changed) await chrome.storage.session.set({ [THREADS]: threads });
+}
 
 chrome.windows.onRemoved.addListener(async (windowId) => {
   await putPair(windowId, null);

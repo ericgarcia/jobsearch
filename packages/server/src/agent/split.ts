@@ -1,5 +1,5 @@
 import { callBrowser } from "./browserClient.js";
-import { SPLIT_EXTENSION_ID } from "../config.js";
+import { APP_URL, SPLIT_EXTENSION_ID } from "../config.js";
 
 /**
  * Put the app and a driven page side by side, and keep them that way.
@@ -151,66 +151,40 @@ export async function openSplit(appUrl: string, stageUrl = "about:blank"): Promi
   return command({ type: "split-pilot:adopt" });
 }
 
-/**
- * Open a stage tab for a page that is about to adopt it, if one is needed.
- *
- * The adopting is done by the page, not here, because only the extension can
- * tell which tab is asking — a page cannot know its own tab id, and two tabs
- * showing the app are indistinguishable from the outside. Picking "a tab
- * showing localhost" is what left a second app tab unsplit while the window
- * reported itself arranged.
- *
- * So this does the one part the page cannot: have Playwright open the tab, so
- * the stage is one the bridge knows and the assistant can address.
- */
-let opening: Promise<{ needed: boolean }> | null = null;
-let openedAt = 0;
-
-/** A stage opened this recently is the one everybody should be adopting. */
-const STAGE_IS_FRESH_MS = 5000;
-
-export async function openStageFor(role: string | null): Promise<{ needed: boolean }> {
-  // Already the left pane, and the bridge can still reach the other one.
-  if (role === "left" && (await bridgeKnowsBothPanes())) return { needed: false };
-
-  /*
-    One stage at a time, however many tabs ask.
-
-    Every open app tab asks for itself, and each throttles only its own
-    asking, because a page cannot see what another tab is doing. Four requests
-    arrived in five seconds during testing and each opened a tab — which is
-    where the stray about:blank tabs came from. The server is the only place
-    that can see all of them, so the limit belongs here.
-
-    A request that arrives while one is in flight gets the same answer, and
-    one that arrives just after is told a stage is ready: the tab just opened
-    is the one its adopt will pick up anyway.
-  */
-  if (opening) return opening;
-  if (Date.now() - openedAt < STAGE_IS_FRESH_MS) return { needed: true };
-
-  opening = (async () => {
-    await closeOrphanedStages();
-    const opened = await callBrowser("browser_tabs", { action: "new", url: "about:blank" });
-    if (opened.isError === true) throw new Error(text(opened));
-    return { needed: true };
-  })();
-
-  try {
-    return await opening;
-  } finally {
-    opening = null;
-    openedAt = Date.now();
-  }
-}
-
 /** Where the two tabs are, as the extension sees them. */
 export async function splitState(): Promise<string> {
   return command({ type: "split-pilot:state" });
 }
 
-/** Send a URL to the stage without touching the tab in view. */
+/**
+ * What the extension answered, out of Playwright's report of the call.
+ *
+ * The reply is a JSON object inside a block of prose about running the code.
+ * Reading it back is worth the awkwardness: the alternative is deciding
+ * whether the panes are arranged by looking for a phrase in that prose,
+ * which changes whenever the tool's output format does.
+ */
+function parse<T>(report: string): T | null {
+  const start = report.indexOf("{");
+  const end = report.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  try {
+    return JSON.parse(report.slice(start, end + 1)) as T;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Show a URL on the stage, making the arrangement if there is none.
+ *
+ * The app no longer opens a split as it loads, so most of the time there is
+ * nothing to send to: the window is one tab with the app in it. Opening a
+ * page is what makes the split, and this is the path that opens pages.
+ */
 export async function openOnStage(url: string): Promise<string> {
+  const state = parse<{ paired?: boolean }>(await splitState());
+  if (state?.paired !== true) return await openSplit(APP_URL, url);
   return command({ type: "split-pilot:open", url });
 }
 

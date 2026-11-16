@@ -11,6 +11,7 @@
     "dev:server": "npm run build --workspace=@jobsearch/layout && JOBSEARCH_APP_URL=http://localhost:5173/ npm run dev --workspace=@jobsearch/server",
     "dev:web": "npm run dev --workspace=@jobsearch/web",
     "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present && node extension/test/register.test.mjs",
     "postinstall": "node scripts/point-playwright-at-split-pilot.mjs",
     "build": "npm run build --workspace=@jobsearch/layout && npm run build --workspace=@jobsearch/server && npm run build --workspace=@jobsearch/web",
     "start": "node bin/jobsearch.mjs"

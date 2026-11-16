@@ -17,7 +17,7 @@ import { LayoutEditor } from "./components/LayoutEditor.tsx";
 import { Projects } from "./components/Projects.tsx";
 import { useReportState } from "./reportState.ts";
 import { Boards } from "./components/Boards.tsx";
-import { adoptStage, myRole, splitInstalled, syncToken } from "./split.ts";
+import { splitInstalled, syncToken } from "./split.ts";
 import { ResumeView } from "./components/ResumeView.tsx";
 import { CoverLetter } from "./components/CoverLetter.tsx";
 
@@ -114,109 +114,17 @@ export function App() {
     setOpenLetter(null);
   }
 
-  /*
-    Arrange the panes from the server, not from here.
-
-    The app could pair the two tabs itself, and the result would look the same
-    and be half as useful: a stage this page creates is a tab Playwright never
-    opened, so the assistant could watch it and not touch it. The server has
-    Playwright open the stage and the extension adopt it, which is the only
-    order that leaves both panes drivable.
-
-    Failure is silent on purpose. The browser may be off, or the extension not
-    answering; neither is a reason to put an error in front of someone who
-    came here to look at jobs.
-  */
-  const arrangedAt = useRef(0);
-
-  const arrange = async (id: string) => {
-    // Several things can ask at once — a load, a return to the tab, the
-    // extension reporting the pair gone. They all want the same one call.
-    if (Date.now() - arrangedAt.current < 3000) return;
-    arrangedAt.current = Date.now();
-    try {
-      /*
-        Two steps, and the order is forced. Only the server can have
-        Playwright open the stage, so the assistant can address it. Only this
-        page can adopt it, because the extension makes the asking tab the
-        driver and nothing else can identify which tab that is.
-      */
-      const { needed } = await api.openStage(await myRole(id));
-      if (needed) await adoptStage(id);
-    } catch {
-      // An arrangement failing is not a reason for the app to fail.
-    }
-  };
 
   /*
-    Put the panes back as soon as the extension says they are gone.
+    Nothing here puts the panes back.
 
-    The content script tells this page its role whenever the pairing changes,
-    and role becoming null means the pair has dissolved. That is the only
-    signal that arrives for the likeliest way to lose the arrangement — the
-    extension's own popup — because the tab never stops being visible and so
-    no focus or visibility event ever fires.
+    Two effects used to: one on the extension saying the pair was gone, one
+    on returning to the tab. Both existed because the arrangement was meant
+    to be permanent, so losing it was a fault to repair. It is not permanent
+    any more — no pair is the resting state — and an effect that rebuilds it
+    would reopen a blank pane every time the person closed one.
   */
-  useEffect(() => {
-    if (!splitId || !hasSplit) return;
 
-    const onMessage = (event: MessageEvent) => {
-      if (event.source !== window) return;
-      const data = event.data as { type?: string; role?: string | null } | null;
-      if (data?.type !== "split-pilot:role") return;
-      if (data.role !== null) return;
-
-      /*
-        Only react to losing the pair while this tab is the one being looked
-        at.
-
-        Every open app tab hears this. When one of them takes the split the
-        others are told their pair is gone, so they take it back, and are told
-        again: three app tabs left two stages behind and were still trading
-        the split between them. A tab nobody is looking at has no business
-        grabbing the window back.
-
-        This guard is here rather than inside arrange() because a page load
-        must still arrange even when the tab is in the background — opening
-        the app in a background tab is ordinary, and a load happens once, so
-        it cannot start a fight.
-      */
-      if (document.visibilityState !== "visible") return;
-      void arrange(splitId);
-    };
-
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, [splitId, hasSplit]);
-
-  /*
-    And when you come back to the tab, as a backstop.
-
-    The arrangement can be taken apart from outside the app — the extension's
-    own popup, or closing the stage — and without this it would stay broken
-    until the next reload, with the assistant quietly unable to reach half of
-    what it is being asked about. Checking on return rather than on a timer
-    means it costs nothing while you are reading, and the check is a no-op
-    when the panes are already good.
-  */
-  useEffect(() => {
-    if (!splitId || !hasSplit) return;
-    let last = 0;
-
-    const check = () => {
-      if (document.visibilityState !== "visible") return;
-      if (Date.now() - last < 60_000) return;
-      last = Date.now();
-      void arrange(splitId);
-    };
-
-    document.addEventListener("visibilitychange", check);
-    window.addEventListener("focus", check);
-    return () => {
-      document.removeEventListener("visibilitychange", check);
-      window.removeEventListener("focus", check);
-    };
-  }, [splitId, hasSplit]);
 
   const loadSetup = useCallback(() => {
     void api.setup().then(setSetupInfo);
@@ -237,7 +145,15 @@ export function App() {
       // connects through it without anyone copying a string.
       if (setup.browser_token) await syncToken(id, setup.browser_token);
 
-      if (setup.browser) void arrange(id);
+      /*
+        No split at rest.
+
+        The app used to arrange one as it loaded and keep it for the session,
+        which meant half the window held a blank page whenever nobody was
+        reading anything. The arrangement is now made when a page is opened —
+        by the agent, or by a link from here — and comes apart when that page
+        is closed.
+      */
     });
   }, []);
 
@@ -337,7 +253,7 @@ export function App() {
         <div className="brand">
           job<span>search</span>
         </div>
-        <Chat onDataChanged={loadData} />
+          <Chat onDataChanged={loadData} splitId={hasSplit ? splitId : null} />
       </aside>
 
       <div className="canvas" aria-hidden={inSplit || undefined}>

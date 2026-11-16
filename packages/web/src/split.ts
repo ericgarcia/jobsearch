@@ -98,3 +98,40 @@ export async function myRole(id: string): Promise<"left" | "right" | null> {
 export async function adoptStage(id: string): Promise<void> {
   await ask(id, { type: "split-pilot:adopt" });
 }
+
+/* -------------------------------------------------------------- threads */
+
+/**
+ * Say which thread this tab is showing.
+ *
+ * Everything opened from this tab afterwards belongs to that thread. The
+ * alternative was carrying a thread id through every path that can open a
+ * page — a click caught in the content script, a URL routed by the agent, an
+ * adopted stage — and a path that forgot would quietly leak tabs.
+ */
+export async function tellThread(id: string | null, thread: number | null): Promise<void> {
+  if (!id) return;
+  await ask(id, { type: "split-pilot:thread", thread });
+}
+
+export interface ThreadTab {
+  id: number;
+  title: string;
+  url: string;
+  /** On screen now, so closing it would take a page away as it is read. */
+  active: boolean;
+}
+
+/** What closing this thread would close. Asked before it is done. */
+export async function threadTabs(id: string | null, thread: number): Promise<ThreadTab[]> {
+  if (!id) return [];
+  const reply = await ask<{ tabs: ThreadTab[] }>(id, { type: "split-pilot:thread-tabs", thread });
+  return reply?.tabs ?? [];
+}
+
+/** Close them. The app asks only once the person has agreed. */
+export async function closeThreadTabs(id: string | null, thread: number): Promise<number> {
+  if (!id) return 0;
+  const reply = await ask<{ closed: number }>(id, { type: "split-pilot:close-thread", thread });
+  return reply?.closed ?? 0;
+}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, chat, type ChatEvent, type Thread } from "../api.ts";
 import { useChanges } from "../changes.ts";
+import { closeThreadTabs, tellThread, threadTabs } from "../split.ts";
 
 interface Entry {
   kind: "user" | "assistant" | "tool" | "error";
@@ -39,7 +40,14 @@ function label(thread: Thread): string {
   return thread.title?.trim() || thread.preview?.trim() || "New thread";
 }
 
-export function Chat({ onDataChanged }: { onDataChanged: () => void }) {
+export function Chat({
+  onDataChanged,
+  splitId,
+}: {
+  onDataChanged: () => void;
+  /** Split Pilot's id, or null when it is not installed. */
+  splitId: string | null;
+}) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [draft, setDraft] = useState("");
   const [running, setRunning] = useState(false);
@@ -87,6 +95,15 @@ export function Chat({ onDataChanged }: { onDataChanged: () => void }) {
     };
   }, [threadId]);
 
+  /*
+    Tell the extension which thread is open, so pages opened from here are
+    recorded against it. Said on every change, including the first, because
+    the worker may have been asleep and forgotten.
+  */
+  useEffect(() => {
+    void tellThread(splitId, threadId);
+  }, [splitId, threadId]);
+
   function open(id: number | null): void {
     if (id === threadId) {
       setListOpen(false);
@@ -111,13 +128,36 @@ export function Chat({ onDataChanged }: { onDataChanged: () => void }) {
     setEntries((prior) => [...prior, { kind: "error", text: (error as Error).message }]);
   }
 
+  /*
+    Closing a thread closes the pages it opened.
+
+    A tab the person has since navigated somewhere else still goes: it was
+    opened for this conversation, and following a link onward does not make
+    it someone else's. But a tab in view is a page being read, so that one is
+    asked about first — taking it away mid-sentence is the kind of help that
+    makes a feature untrustworthy.
+  */
   async function remove(id: number): Promise<void> {
+    const theirs = await threadTabs(splitId, id).catch(() => []);
+    const watched = theirs.filter((tab) => tab.active);
+    if (watched.length > 0) {
+      const names = watched.map((tab) => tab.title || tab.url).join(", ");
+      const rest = theirs.length - watched.length;
+      const also = rest > 0 ? ` and ${rest} other ${rest === 1 ? "tab" : "tabs"}` : "";
+      if (!window.confirm(`Close this thread and the page you are looking at (${names})${also}?`)) {
+        return;
+      }
+    }
+
     try {
       await api.deleteThread(id);
     } catch (error) {
       report(error);
       return;
     }
+
+    // After the thread is gone, so a refusal above leaves the tabs alone.
+    await closeThreadTabs(splitId, id).catch(() => 0);
     // Deleting what you are reading has to leave you somewhere, and a blank
     // thread is the one place that is certainly still there.
     if (id === threadId) open(null);

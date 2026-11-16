@@ -373,19 +373,6 @@ export const api = {
 
   prefs: () => json<{ home_location: string | null }>("/api/prefs"),
 
-  /**
-   * Ask the server to open a stage pane for this tab, if it needs one.
-   *
-   * Send the pane this tab currently is, so the server can tell "already
-   * arranged" from "a different tab is arranged". It answers whether it
-   * opened anything; if it did, the page adopts it through the extension.
-   */
-  openStage: (role: "left" | "right" | null) =>
-    json<{ needed: boolean }>("/api/split/stage", {
-      method: "POST",
-      body: JSON.stringify({ role }),
-    }),
-
 
   setHomeLocation: (place: string) =>
     json<{ home_location: string | null }>("/api/prefs", {
