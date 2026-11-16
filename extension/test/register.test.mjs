@@ -71,6 +71,8 @@ globalThis.chrome = {
       tabs.delete(id);
       await onRemoved(id);
     },
+    createSplit: async () => 7,
+    unsplit: async () => {},
     sendMessage: async (tabId, message) => {
       pushes.push({ tabId, message });
     },
@@ -308,6 +310,24 @@ assert.deepEqual(
 );
 assert.equal(listed.find((x) => x.shown)?.id, first.id, "and knows which one is in the pane");
 ok("showing a page records it without reordering the strip");
+
+console.log("\n14b. Showing the page already in the pane leaves the split alone");
+
+let splits = 0;
+const madeSplit = chrome.tabs.createSplit;
+chrome.tabs.createSplit = async (...args) => {
+  splits += 1;
+  return madeSplit(...args);
+};
+await say({ type: "split-pilot:show", tabId: first.id }, deskA);
+chrome.tabs.createSplit = madeSplit;
+/*
+  Chrome starts every new split at half the window and createSplit takes no
+  width, so re-arranging a pair that is already right silently undoes a
+  divider the person dragged.
+*/
+assert.equal(splits, 0, "it re-split a pair that was already correct");
+ok("a dragged divider survives being shown the page it is already showing");
 
 console.log("\n15. And falls back when that page is closed");
 

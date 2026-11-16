@@ -700,8 +700,25 @@ chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
       return answer(respond, async () => {
         const wanted = await chrome.tabs.get(message.tabId).catch(() => null);
         if (!wanted) return { error: "that page is not open any more" };
-        const arranged = await adopt(tab, wanted);
         const thread = await threadOf(tab.id);
+
+        /*
+          Already there: say so and stop.
+
+          adopt() unsplits and splits again, and Chrome starts every new
+          split at half the window — there is no width on createSplit, it
+          takes two tab ids and nothing else. So re-arranging a pair that is
+          already right would throw away a divider the person had dragged,
+          and switching to a conversation and back did exactly that.
+        */
+        const pair = await pairForWindow(tab.windowId);
+        if (pair && pair.left === tab.id && pair.right === message.tabId && pair.split) {
+          await setShown(thread, message.tabId);
+          await announce(thread);
+          return pair;
+        }
+
+        const arranged = await adopt(tab, wanted);
         await setShown(thread, message.tabId);
         await announce(thread);
         return arranged;

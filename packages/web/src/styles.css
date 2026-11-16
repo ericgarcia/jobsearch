@@ -94,6 +94,19 @@ a { color: var(--accent); }
 /* Only clickable when it does something: in a split, it gives the app back. */
 .messaging > .brand:not(:disabled):hover { background: var(--bg); }
 
+/*
+  The handle between the two. Four pixels of hit area over a one-pixel
+  line: a border you can actually catch without it looking like furniture.
+*/
+.resizer {
+  flex: none; width: 5px; margin-left: -5px; z-index: 2;
+  cursor: col-resize; background: transparent;
+  transition: background 120ms ease;
+}
+.resizer:hover,
+.resizer:active,
+.resizer:focus-visible { background: var(--accent); outline: none; }
+
 .canvas { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
 /*

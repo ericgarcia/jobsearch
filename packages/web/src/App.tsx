@@ -72,6 +72,42 @@ interface Workspace {
 
 const TABS: Tab[] = ["jobs", "applications", "drafts", "profile", "projects", "design", "boards"];
 
+/*
+  How wide the assistant's column is.
+
+  Kept in the browser rather than with the person's data: it describes this
+  screen, and the same account on a laptop and a large monitor wants two
+  different answers. Chrome's own split cannot be sized by an extension at
+  all — createSplit takes two tab ids and nothing else — so this is the one
+  width there is any point in remembering.
+*/
+const WIDTH_KEY = "jobsearch:messaging-width";
+const WIDTH_DEFAULT = 340;
+const WIDTH_MIN = 260;
+
+/** Never past half the window, and never wider than a column of prose needs. */
+function sensibleWidth(px: number): number {
+  const most = Math.max(WIDTH_MIN, Math.min(760, Math.round(window.innerWidth * 0.6)));
+  return Math.round(Math.min(most, Math.max(WIDTH_MIN, px)));
+}
+
+function rememberWidth(px: number): void {
+  try {
+    window.localStorage.setItem(WIDTH_KEY, String(px));
+  } catch {
+    // The column is the width they dragged it to until the next reload.
+  }
+}
+
+function storedWidth(): number {
+  try {
+    const kept = Number(window.localStorage.getItem(WIDTH_KEY));
+    return Number.isFinite(kept) && kept > 0 ? sensibleWidth(kept) : WIDTH_DEFAULT;
+  } catch {
+    return WIDTH_DEFAULT;
+  }
+}
+
 /** Where a conversation starts: the job list, nothing open. */
 const FRESH: Workspace = {
   tab: "jobs",
@@ -139,6 +175,26 @@ export function App() {
     nothing else announces that the arrangement changed.
   */
   const [inSplit, setInSplit] = useState(false);
+
+  const [width, setWidth] = useState(storedWidth);
+
+  /*
+    A drag reads its own state, not React's.
+
+    Both of these were state, and both were wrong by one event: the handler
+    for a pointermove closes over the render that was current when it was
+    attached, so the first move after pressing saw dragging still false,
+    and the width written down at the end of a drag was the one before the
+    last move. A drag is a stream of events in a single gesture; it needs
+    the value as it is now, not as it was at the last paint.
+  */
+  const dragging = useRef(false);
+  const widthNow = useRef(width);
+
+  const resize = (px: number) => {
+    widthNow.current = px;
+    setWidth(px);
+  };
 
   /** The open conversation. The workspace below belongs to it. */
   const [threadId, setThreadId] = useState<number | null>(threadFromUrl);
@@ -494,7 +550,7 @@ export function App() {
         The assistant is the left column and stays put. Everything else is
         the canvas, which gives way when a site opens beside it.
       */}
-      <aside className="messaging">
+      <aside className="messaging" style={inSplit ? undefined : { width }}>
         {/*
           The logo gives the window back to the app.
 
@@ -524,6 +580,68 @@ export function App() {
           }}
         />
       </aside>
+
+      {/*
+        Dragging the edge of the assistant's column.
+
+        Pointer events rather than mouse ones, so a trackpad, a touchscreen
+        and a pen all work, and with the pointer captured so the drag
+        survives the cursor crossing into the canvas — without that, moving
+        faster than React re-renders drops the drag.
+
+        The width is written down when the drag ends rather than as it
+        moves: sixty writes a second to say what one write at the end says
+        just as well.
+      */}
+      {!inSplit && (
+        <div
+          className="resizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Width of the assistant"
+          tabIndex={0}
+          onPointerDown={(event) => {
+            /*
+              Capture is an optimisation, not the mechanism. It keeps the
+              drag alive while the cursor is over the canvas; if the browser
+              refuses it, dragging inside the handle still works, whereas a
+              throw here would leave the handle dead and say nothing.
+            */
+            try {
+              event.currentTarget.setPointerCapture(event.pointerId);
+            } catch {
+              // No capture. The drag is narrower, not broken.
+            }
+            dragging.current = true;
+          }}
+          onPointerMove={(event) => {
+            if (!dragging.current) return;
+            // The column starts at the left edge, so the pointer's x is it.
+            resize(sensibleWidth(event.clientX));
+          }}
+          onPointerUp={(event) => {
+            try {
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            } catch {
+              // It was never captured.
+            }
+            dragging.current = false;
+            rememberWidth(widthNow.current);
+          }}
+          onKeyDown={(event) => {
+            const step = event.shiftKey ? 48 : 12;
+            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+            event.preventDefault();
+            const next = sensibleWidth(widthNow.current + (event.key === "ArrowLeft" ? -step : step));
+            resize(next);
+            rememberWidth(next);
+          }}
+          onDoubleClick={() => {
+            resize(WIDTH_DEFAULT);
+            rememberWidth(WIDTH_DEFAULT);
+          }}
+        />
+      )}
 
       <div className="canvas" aria-hidden={inSplit || undefined}>
       <header className="header">
