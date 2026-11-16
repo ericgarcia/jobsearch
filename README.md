@@ -71,10 +71,40 @@ npm test --workspace=@jobsearch/server
 
 ```bash
 npm install
+npm run build
+npm start
+```
+
+That starts one server on <http://127.0.0.1:5179> and opens it. The same
+process serves the interface and the API, so there is one port to remember.
+
+To work on the code, run the two dev servers instead and open
+<http://localhost:5173>:
+
+```bash
 npm run dev
 ```
 
-Then open <http://localhost:5173>. The server runs on port 5179.
+### What comes with it
+
+Everything the app runs comes down from npm with it. Nothing else to install:
+
+| Part | Where it comes from |
+| --- | --- |
+| The agent's model runtime | `@anthropic-ai/claude-code`, pinned, one native binary per platform |
+| The browser driver | `@playwright/mcp`, pinned |
+| The interface | built into `packages/web/dist` |
+
+The one exception is Split Pilot, the Chrome extension for the side-by-side
+view. A browser extension has to be added by you, from `chrome://extensions`.
+See [extension/README.md](extension/README.md). The app works without it; you
+lose the split view and the agent drives a tab you do not see beside you.
+
+`@anthropic-ai/claude-code` is Anthropic's, under their terms, not an open
+source licence. Depending on it is ordinary use — npm fetches it onto your
+machine under those terms. Putting a copy of it inside an installer you
+distribute is a different question, and one to ask Anthropic before building
+one.
 
 On first run the app asks for a Claude credential, because the Agent SDK does
 not read the Claude Code desktop app's keychain entry. Choose one:

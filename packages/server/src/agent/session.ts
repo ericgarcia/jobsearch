@@ -1,3 +1,5 @@
+import { createRequire } from "node:module";
+import path from "node:path";
 import { query, type McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { DATA_DIR, MODEL } from "../config.js";
 import { jobsearchServer, MUTATING_TOOLS } from "./tools.js";
@@ -25,14 +27,40 @@ export interface RunOptions {
 export const browserEnabled = flag;
 
 /**
- * Playwright MCP, attached to the user's own Chrome through the Playwright MCP
- * Bridge extension. `--extension` makes Playwright drive an existing tab in the
- * running browser instead of launching one, so the agent works in a session the
- * user is already signed in to, and the user can watch it in Chrome split view.
+ * The Claude Code executable the Agent SDK runs.
  *
- * Set PLAYWRIGHT_MCP_EXTENSION_TOKEN to the token the extension's status page
- * shows, or Chrome asks for approval on every connection.
+ * The SDK ships no binary. It looks for `claude` and fails with "Claude Code
+ * executable not found" if the machine has none — so until now this app had an
+ * undeclared dependency on a tool the developer happened to have installed,
+ * and anyone cloning the repo would have hit that wall.
+ *
+ * @anthropic-ai/claude-code is a normal dependency instead. It carries one
+ * native binary per platform as optional dependencies, so npm installs the one
+ * that matches and nothing else: no separate install step, no setup script,
+ * and `npx` brings it down with everything else. Pinned exactly, for the same
+ * reason @playwright/mcp is — this is a binary that runs on the user's machine.
+ *
+ * JOBSEARCH_CLAUDE_PATH overrides it, for trying a different build.
  */
+function claudeExecutable(): string {
+  if (process.env.JOBSEARCH_CLAUDE_PATH) return process.env.JOBSEARCH_CLAUDE_PATH;
+  const require = createRequire(import.meta.url);
+  const manifest = require.resolve("@anthropic-ai/claude-code/package.json");
+  const bin = (require(manifest) as { bin: Record<string, string> }).bin;
+  return path.join(path.dirname(manifest), bin.claude ?? "bin/claude.exe");
+}
+
+/*
+  The browser the agent drives is the user's own Chrome, reached through Split
+  Pilot (see extension/). `--extension` makes Playwright take over a tab in the
+  running browser instead of launching one, so the agent works in a session the
+  user is already signed in to and can watch in the split view.
+
+  This said "the Playwright MCP Bridge extension" until now, which was the
+  second extension Split Pilot replaced. The token it told you to set by hand
+  is also gone: the app and the server read the same .env, so the app tells the
+  extension the token itself.
+*/
 
 /**
  * Run one turn of the agent and yield events as they arrive.
@@ -78,6 +106,7 @@ export async function* runAgent(options: RunOptions): AsyncGenerator<AgentEvent>
         settingSources: [],
         maxTurns: 30,
         env: credentialEnv(credential),
+        pathToClaudeCodeExecutable: claudeExecutable(),
         ...(options.resume ? { resume: options.resume } : {}),
       },
     });

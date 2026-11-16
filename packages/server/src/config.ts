@@ -43,8 +43,16 @@ export const PORT = Number(process.env.PORT ?? 5179);
   on the machine this was built on; set JOBSEARCH_SPLIT_EXTENSION_ID to yours,
   which chrome://extensions shows under the extension's name.
 */
-/** Where the web app is served. The left pane of the split view. */
-export const APP_URL = process.env.JOBSEARCH_APP_URL ?? "http://localhost:5173/";
+/**
+ * Where the web app is served. The left pane of the split view.
+ *
+ * Installed, this server serves the app too, so its own port is the answer.
+ * In development Vite serves it on 5173 and this is wrong, which is why the
+ * dev script sets JOBSEARCH_APP_URL. Nothing breaks when it is: the split
+ * looks for a tab on any localhost port and only falls back to this when it
+ * has to open one itself.
+ */
+export const APP_URL = process.env.JOBSEARCH_APP_URL ?? `http://localhost:${PORT}/`;
 
 export const SPLIT_EXTENSION_ID =
   process.env.JOBSEARCH_SPLIT_EXTENSION_ID ?? "nckkffcpdbfdbpjnkkkdbjagdmoepdee";

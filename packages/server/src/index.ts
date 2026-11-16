@@ -1,5 +1,9 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import fastifyStatic from "@fastify/static";
 import { PORT, DB_PATH, MODEL } from "./config.js";
 import "./db/client.js";
 import { seedIfEmpty } from "./seed.js";
@@ -523,6 +527,33 @@ app.post("/api/chat", async (request, reply) => {
   send({ type: "end" });
   reply.raw.end();
 });
+
+/*
+  Serve the built web app from the same origin as the API.
+
+  In development that is Vite's job, on its own port, and this does nothing
+  because packages/web/dist does not exist. Installed, there is no Vite: one
+  process has to answer both, or `npx jobsearch` would mean starting two
+  servers and telling the person which one to open.
+
+  One origin also removes the CORS exception above from the installed path,
+  and keeps the app on a port Split Pilot already accepts — its manifest
+  matches any localhost port, not a particular one.
+*/
+const webRoot = fileURLToPath(new URL("../../web/dist", import.meta.url));
+if (fs.existsSync(path.join(webRoot, "index.html"))) {
+  await app.register(fastifyStatic, { root: webRoot });
+
+  // A single-page app owns its own routing, so anything that is not a file
+  // and not an API call is a route inside it, not a 404.
+  app.setNotFoundHandler((request, reply) => {
+    if (request.url.startsWith("/api/")) return reply.code(404).send({ error: "No such route." });
+    return reply.sendFile("index.html");
+  });
+  app.log.info(`serving the web app from ${webRoot}`);
+} else {
+  app.log.info("no built web app; run the Vite dev server for the interface");
+}
 
 await app.listen({ port: PORT, host: "127.0.0.1" });
 app.log.info(`jobsearch server on http://127.0.0.1:${PORT} — database ${DB_PATH}`);

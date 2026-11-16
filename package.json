@@ -7,10 +7,23 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run dev --workspace=@jobsearch/server & npm run dev --workspace=@jobsearch/web",
-    "dev:server": "npm run dev --workspace=@jobsearch/server",
+    "dev": "JOBSEARCH_APP_URL=http://localhost:5173/ npm run dev --workspace=@jobsearch/server & npm run dev --workspace=@jobsearch/web",
+    "dev:server": "JOBSEARCH_APP_URL=http://localhost:5173/ npm run dev --workspace=@jobsearch/server",
     "dev:web": "npm run dev --workspace=@jobsearch/web",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "postinstall": "node scripts/point-playwright-at-split-pilot.mjs"
-  }
+    "postinstall": "node scripts/point-playwright-at-split-pilot.mjs",
+    "build": "npm run build --workspace=@jobsearch/server && npm run build --workspace=@jobsearch/web",
+    "start": "node bin/jobsearch.mjs"
+  },
+  "bin": {
+    "jobsearch": "bin/jobsearch.mjs"
+  },
+  "files": [
+    "bin/",
+    "extension/",
+    "scripts/",
+    "packages/server/dist/",
+    "packages/server/package.json",
+    "packages/web/dist/"
+  ]
 }
