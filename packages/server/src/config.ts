@@ -35,6 +35,17 @@ export const DATA_DIR =
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 export const DB_PATH = path.join(DATA_DIR, "jobsearch.db");
+
+/**
+ * Which database to use, as a libSQL URL.
+ *
+ * The default is the same local file this app has always written. Point
+ * JOBSEARCH_DB_URL at a `libsql://` host to use a database somewhere else,
+ * which is how a hosted copy reaches the one belonging to its user. Nothing
+ * in the code above the driver knows the difference.
+ */
+export const DB_URL = process.env.JOBSEARCH_DB_URL ?? `file:${DB_PATH}`;
+export const DB_TOKEN = process.env.JOBSEARCH_DB_TOKEN;
 export const PORT = Number(process.env.PORT ?? 5179);
 
 /*

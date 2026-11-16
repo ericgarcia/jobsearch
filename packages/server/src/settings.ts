@@ -1,22 +1,22 @@
-import { db } from "./db/client.js";
+import { get as dbGet, run } from "./db/client.js";
 
 export type CredentialKind = "oauth-token" | "api-key";
 
 const CREDENTIAL = "agent_credential";
 const CREDENTIAL_KIND = "agent_credential_kind";
 
-function get(key: string): string | null {
-  const row = db.prepare(`SELECT value FROM settings WHERE key = ?`).get(key) as
-    | { value: string }
-    | undefined;
+async function get(key: string): Promise<string | null> {
+  const row = await dbGet<{ value: string }>(`SELECT value FROM settings WHERE key = ?`, key);
   return row?.value ?? null;
 }
 
-function put(key: string, value: string): void {
-  db.prepare(
+async function put(key: string, value: string): Promise<void> {
+  await run(
     `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
      ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-  ).run(key, value);
+    key,
+    value,
+  );
 }
 
 export interface Credential {
@@ -28,9 +28,8 @@ export interface Credential {
  * The agent credential, from the database first and the environment second.
  * Callers pass it to the Agent SDK subprocess. It is never sent to the client.
  */
-export function readCredential(): Credential | null {
-  const stored = get(CREDENTIAL);
-  const storedKind = get(CREDENTIAL_KIND);
+export async function readCredential(): Promise<Credential | null> {
+  const [stored, storedKind] = await Promise.all([get(CREDENTIAL), get(CREDENTIAL_KIND)]);
   if (stored && (storedKind === "oauth-token" || storedKind === "api-key")) {
     return { kind: storedKind, token: stored };
   }
@@ -43,13 +42,13 @@ export function readCredential(): Credential | null {
   return null;
 }
 
-export function saveCredential(kind: CredentialKind, token: string): void {
+export async function saveCredential(kind: CredentialKind, token: string): Promise<void> {
   put(CREDENTIAL, token.trim());
   put(CREDENTIAL_KIND, kind);
 }
 
-export function clearCredential(): void {
-  db.prepare(`DELETE FROM settings WHERE key IN (?, ?)`).run(CREDENTIAL, CREDENTIAL_KIND);
+export async function clearCredential(): Promise<void> {
+  await run(`DELETE FROM settings WHERE key IN (?, ?)`, CREDENTIAL, CREDENTIAL_KIND);
 }
 
 /** The last four characters, so the user can tell which credential is stored. */
@@ -58,9 +57,9 @@ function maskOf(token: string): string {
 }
 
 /** Everything the client may know about the credential. Never the value. */
-export function credentialStatus() {
-  const credential = readCredential();
-  const fromEnv = get(CREDENTIAL) == null && credential != null;
+export async function credentialStatus() {
+  const credential = await readCredential();
+  const fromEnv = (await get(CREDENTIAL)) == null && credential != null;
   return {
     set: credential != null,
     kind: credential?.kind ?? null,
@@ -93,18 +92,18 @@ const HOME_LOCATION = "home_location";
  * Where the person is. Defaults to the city in their profile, so the job list
  * is local out of the box rather than showing every city the boards cover.
  */
-export function homeLocation(): string | null {
-  const stored = get(HOME_LOCATION);
+export async function homeLocation(): Promise<string | null> {
+  const stored = await get(HOME_LOCATION);
   if (stored !== null) return stored.trim() === "" ? null : stored;
 
-  const row = db.prepare(`SELECT location FROM profile WHERE id = 1`).get() as
-    | { location: string | null }
-    | undefined;
+  const row = await dbGet<{ location: string | null }>(
+    `SELECT location FROM profile WHERE id = 1`,
+  );
   const city = row?.location?.split(",")[0]?.trim();
   return city && city.length > 0 ? city : null;
 }
 
 /** Pass an empty string to search everywhere. */
-export function setHomeLocation(place: string): void {
+export async function setHomeLocation(place: string): Promise<void> {
   put(HOME_LOCATION, place.trim());
 }

@@ -1,4 +1,4 @@
-import { db } from "./db/client.js";
+import { all as dbAll, get as dbGet, run as dbRun, tx } from "./db/client.js";
 import * as profile from "./profile.js";
 import { getInterests } from "./interests.js";
 
@@ -40,8 +40,8 @@ const SENIOR_TITLE =
  * Does the profile show someone past junior roles? Either a senior title, or
  * enough years since the earliest recorded role.
  */
-export function profileIsSenior(): boolean {
-  const roles = profile.listRoles();
+export async function profileIsSenior(): Promise<boolean> {
+  const roles = await profile.listRoles();
   if (roles.some((role) => SENIOR_TITLE.test(role.title))) return true;
 
   const starts = roles
@@ -58,7 +58,7 @@ export interface Keyword {
 }
 
 /** Build the term list from the profile: skills, bullet skills, role titles. */
-export function profileKeywords(): Keyword[] {
+export async function profileKeywords(): Promise<Keyword[]> {
   const weights = new Map<string, number>();
 
   const add = (raw: string, weight: number) => {
@@ -72,22 +72,22 @@ export function profileKeywords(): Keyword[] {
     better evidence than what their last job happened to involve, and without
     this a career move is ranked against the career being left.
   */
-  const interests = getInterests();
+  const interests = await getInterests();
   for (const title of interests.titles) {
     for (const word of title.split(/[^A-Za-z0-9+#.]+/)) add(word, 5);
   }
   for (const topic of interests.include) add(topic, 4);
 
   // Skills the person listed by hand.
-  for (const skill of profile.listSkills()) add(skill.name, 3);
+  for (const skill of await profile.listSkills()) add(skill.name, 3);
 
   // Skills tagged on individual achievements.
-  for (const bullet of profile.listBullets()) {
+  for (const bullet of await profile.listBullets()) {
     for (const skill of JSON.parse(bullet.skills) as string[]) add(skill, 2);
   }
 
   // Words from role titles, which carry seniority and discipline.
-  for (const role of profile.listRoles()) {
+  for (const role of await profile.listRoles()) {
     for (const word of role.title.split(/[^A-Za-z+#.]+/)) add(word, 2);
   }
 
@@ -109,15 +109,13 @@ export interface MatchResult {
  * Score every posting and store the result.
  * A term found in the title counts for three times a term found in the body.
  */
-export function rankAllJobs(): MatchResult {
-  const scorer = buildScorer();
+export async function rankAllJobs(): Promise<MatchResult> {
+  const scorer = await buildScorer();
   if (scorer.keywords.length === 0) {
     throw new Error("The profile is empty, so there is nothing to match against.");
   }
 
-  const jobs = db
-    .prepare(`SELECT id, company, title, COALESCE(description, '') AS description FROM jobs`)
-    .all() as { id: number; company: string; title: string; description: string }[];
+  const jobs = (await dbAll(`SELECT id, company, title, COALESCE(description, '') AS description FROM jobs`)) as { id: number; company: string; title: string; description: string }[];
 
   /*
     Scores are normalised against the best match in this corpus, not against a
@@ -139,40 +137,31 @@ export function rankAllJobs(): MatchResult {
   const best = Math.max(1, ...[...raw.values()].map((entry) => entry.total));
 
   // Remembered so a company being evaluated is scaled against the same bar.
-  db.prepare(
-    `INSERT INTO settings (key, value, updated_at) VALUES ('match_best_raw', ?, datetime('now'))
-     ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-  ).run(String(best));
+  (await dbRun(`INSERT INTO settings (key, value, updated_at) VALUES ('match_best_raw', ?, datetime('now'))
+     ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`, String(best)));
 
-  const upsert = db.prepare(
-    `INSERT INTO job_match (job_id, score, matched, scored_at)
+  const UPSERT = `INSERT INTO job_match (job_id, score, matched, scored_at)
      VALUES (?, ?, ?, datetime('now'))
      ON CONFLICT (job_id) DO UPDATE SET
-       score = excluded.score, matched = excluded.matched, scored_at = excluded.scored_at`,
-  );
+       score = excluded.score, matched = excluded.matched, scored_at = excluded.scored_at`;
 
-  const write = db.transaction(() => {
+  await tx(async () => {
     for (const job of jobs) {
       const entry = raw.get(job.id)!;
       const score = finalScore(scorer, entry.total, best, job.title, job.description);
-      upsert.run(job.id, score, JSON.stringify(entry.matched.slice(0, 20)));
+      await dbRun(UPSERT, job.id, score, JSON.stringify(entry.matched.slice(0, 20)));
     }
   });
-  write();
 
-  const top = db
-    .prepare(
-      `SELECT j.id, j.company, j.title, m.score
+  const top = (await dbAll(`SELECT j.id, j.company, j.title, m.score
          FROM job_match m JOIN jobs j ON j.id = m.job_id
-        ORDER BY m.score DESC, j.posted_at DESC LIMIT 10`,
-    )
-    .all() as MatchResult["top"];
+        ORDER BY m.score DESC, j.posted_at DESC LIMIT 10`)) as MatchResult["top"];
 
   return { scored: jobs.length, top };
 }
 
-export function matchFor(jobId: number) {
-  const row = db.prepare(`SELECT score, matched, scored_at FROM job_match WHERE job_id = ?`).get(jobId) as
+export async function matchFor(jobId: number) {
+  const row = (await dbGet(`SELECT score, matched, scored_at FROM job_match WHERE job_id = ?`, jobId)) as
     | { score: number; matched: string; scored_at: string }
     | undefined;
   return row ? { ...row, matched: JSON.parse(row.matched) as string[] } : null;
@@ -185,13 +174,17 @@ export interface Scorer {
   avoid: string[];
 }
 
-export function buildScorer(): Scorer {
+export async function buildScorer(): Promise<Scorer> {
+  const [keywords, senior, interests] = await Promise.all([
+    profileKeywords(),
+    profileIsSenior(),
+    getInterests(),
+  ]);
+
   return {
-    keywords: profileKeywords(),
-    senior: profileIsSenior(),
-    avoid: getInterests()
-      .exclude.map((term) => term.trim().toLowerCase())
-      .filter(Boolean),
+    keywords,
+    senior,
+    avoid: interests.exclude.map((term) => term.trim().toLowerCase()).filter(Boolean),
   };
 }
 
@@ -240,8 +233,8 @@ export function finalScore(
  * each batch would be normalised against itself and always look like a
  * perfect match.
  */
-export function corpusBest(): number {
-  const row = db.prepare(`SELECT value FROM settings WHERE key = 'match_best_raw'`).get() as
+export async function corpusBest(): Promise<number> {
+  const row = (await dbGet(`SELECT value FROM settings WHERE key = 'match_best_raw'`)) as
     | { value: string }
     | undefined;
   return row ? Number(row.value) : 0;

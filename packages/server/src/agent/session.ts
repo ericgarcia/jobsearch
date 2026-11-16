@@ -70,7 +70,7 @@ function claudeExecutable(): string {
  * user's own Claude Code settings and CLAUDE.md files out of this app.
  */
 export async function* runAgent(options: RunOptions): AsyncGenerator<AgentEvent> {
-  const credential = readCredential();
+  const credential = await readCredential();
   if (!credential) {
     yield {
       type: "error",

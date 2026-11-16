@@ -14,7 +14,7 @@ async function syncCompany(company: CompanyRow): Promise<SyncReport> {
   try {
     const source = getSource(company.ats);
     const jobs = await source.fetchBoard(company.board_token, company.name);
-    const { seen, inserted } = upsertJobs(jobs);
+    const { seen, inserted } = await upsertJobs(jobs);
     return { company: company.name, ats: company.ats, seen, inserted };
   } catch (error) {
     return {
@@ -32,7 +32,7 @@ async function syncCompany(company: CompanyRow): Promise<SyncReport> {
  * stop the rest.
  */
 export async function syncBoards(filterNames?: string[]): Promise<SyncReport[]> {
-  let companies = listCompanies().filter((c) => c.active === 1);
+  let companies = (await listCompanies()).filter((c) => c.active === 1);
 
   if (filterNames && filterNames.length > 0) {
     const wanted = filterNames.map((n) => n.toLowerCase());

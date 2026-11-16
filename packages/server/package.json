@@ -8,7 +8,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "JOBSEARCH_DATA_DIR=$(mktemp -d) tsx test/factcheck.test.mts && tsx test/location.test.mts",
+    "test": "JOBSEARCH_DATA_DIR=$(mktemp -d) tsx test/factcheck.test.mts && tsx test/location.test.mts && tsx test/location-sql.test.mts",
     "build": "tsc -p tsconfig.build.json && node -e \"require('fs').copyFileSync('src/db/schema.sql','dist/db/schema.sql')\""
   },
   "dependencies": {
@@ -17,14 +17,13 @@
     "@anthropic-ai/sdk": "^1.8.0",
     "@fastify/cors": "^11.0.1",
     "@fastify/static": "^10.1.11",
+    "@libsql/client": "^0.18.0",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@playwright/mcp": "0.0.85",
-    "better-sqlite3": "^12.2.0",
     "fastify": "^5.4.0",
     "zod": "^4.1.5"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.3.0",
     "tsx": "^4.20.3",
     "typescript": "^5.9.2"

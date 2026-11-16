@@ -1,4 +1,5 @@
-import { db } from "./db/client.js";
+import type { InValue } from "@libsql/client";
+import { all as dbAll, get as dbGet, run as dbRun } from "./db/client.js";
 
 export interface ProfileRow {
   id: number;
@@ -49,76 +50,81 @@ export interface SkillRow {
 
 /* ----------------------------------------------------------------- reading */
 
-export function getProfile(): ProfileRow {
-  db.prepare(`INSERT OR IGNORE INTO profile (id) VALUES (1)`).run();
-  return db.prepare(`SELECT * FROM profile WHERE id = 1`).get() as ProfileRow;
+export async function getProfile(): Promise<ProfileRow> {
+  (await dbRun(`INSERT OR IGNORE INTO profile (id) VALUES (1)`));
+  return (await dbGet(`SELECT * FROM profile WHERE id = 1`)) as ProfileRow;
 }
 
-export function listRoles(): RoleRow[] {
-  return db
-    .prepare(`SELECT * FROM profile_roles ORDER BY sort_order, COALESCE(end_date, '9999') DESC`)
-    .all() as RoleRow[];
+export async function listRoles(): Promise<RoleRow[]> {
+  return (await dbAll(`SELECT * FROM profile_roles ORDER BY sort_order, COALESCE(end_date, '9999') DESC`)) as RoleRow[];
 }
 
-export function listBullets(roleId?: number): BulletRow[] {
+export async function listBullets(roleId?: number): Promise<BulletRow[]> {
   return roleId == null
-    ? (db.prepare(`SELECT * FROM profile_bullets ORDER BY role_id, sort_order`).all() as BulletRow[])
-    : (db
-        .prepare(`SELECT * FROM profile_bullets WHERE role_id = ? ORDER BY sort_order`)
-        .all(roleId) as BulletRow[]);
+    ? ((await dbAll(`SELECT * FROM profile_bullets ORDER BY role_id, sort_order`)) as BulletRow[])
+    : ((await dbAll(`SELECT * FROM profile_bullets WHERE role_id = ? ORDER BY sort_order`, roleId)) as BulletRow[]);
 }
 
-export function listEducation(): EducationRow[] {
-  return db.prepare(`SELECT * FROM profile_education ORDER BY sort_order`).all() as EducationRow[];
+export async function listEducation(): Promise<EducationRow[]> {
+  return (await dbAll(`SELECT * FROM profile_education ORDER BY sort_order`)) as EducationRow[];
 }
 
-export function listSkills(): SkillRow[] {
-  return db.prepare(`SELECT * FROM profile_skills ORDER BY category, name`).all() as SkillRow[];
+export async function listSkills(): Promise<SkillRow[]> {
+  return (await dbAll(`SELECT * FROM profile_skills ORDER BY category, name`)) as SkillRow[];
 }
 
 /** The whole profile, as the agent and the UI both read it. */
-export function fullProfile() {
-  const roles = listRoles();
-  const bullets = listBullets();
+export async function fullProfile() {
+  const roles = await listRoles();
+  const bullets = await listBullets();
   return {
-    profile: getProfile(),
+    profile: await getProfile(),
     roles: roles.map((role) => ({
       ...role,
       links: undefined,
       bullets: bullets.filter((bullet) => bullet.role_id === role.id),
     })),
     unassigned_bullets: bullets.filter((bullet) => bullet.role_id == null),
-    education: listEducation(),
-    skills: listSkills(),
+    education: await listEducation(),
+    skills: await listSkills(),
   };
 }
 
 /** Every stored fact as one block of text, for checking generated prose. */
-export function profileCorpus(): string {
-  const profile = getProfile();
+export async function profileCorpus(): Promise<string> {
+  // One round trip each, in parallel: they do not depend on each other, and
+  // a remote database makes the difference between five waits and one.
+  const [profile, roles, bullets, education, skills] = await Promise.all([
+    getProfile(),
+    listRoles(),
+    listBullets(),
+    listEducation(),
+    listSkills(),
+  ]);
+
   return [
     profile.headline,
     profile.summary,
-    ...listRoles().map((role) => `${role.title} ${role.company} ${role.summary ?? ""}`),
-    ...listBullets().map((bullet) => bullet.text),
-    ...listEducation().map((item) => `${item.school} ${item.degree ?? ""} ${item.field ?? ""}`),
-    ...listSkills().map((skill) => `${skill.name} ${skill.years ?? ""}`),
+    ...roles.map((role) => `${role.title} ${role.company} ${role.summary ?? ""}`),
+    ...bullets.map((bullet) => bullet.text),
+    ...education.map((item) => `${item.school} ${item.degree ?? ""} ${item.field ?? ""}`),
+    ...skills.map((skill) => `${skill.name} ${skill.years ?? ""}`),
   ]
     .filter(Boolean)
     .join("\n");
 }
 
-export function isEmpty(): boolean {
-  return listRoles().length === 0 && listBullets().length === 0;
+export async function isEmpty(): Promise<boolean> {
+  return (await listRoles()).length === 0 && (await listBullets()).length === 0;
 }
 
 /* ----------------------------------------------------------------- writing */
 
-export function updateProfile(patch: Partial<Omit<ProfileRow, "id">>): ProfileRow {
-  getProfile();
+export async function updateProfile(patch: Partial<Omit<ProfileRow, "id">>): Promise<ProfileRow> {
+  await getProfile();
   const fields = ["name", "headline", "email", "phone", "location", "links", "summary"] as const;
   const set: string[] = [];
-  const params: unknown[] = [];
+  const params: InValue[] = [];
 
   for (const field of fields) {
     if (patch[field] !== undefined) {
@@ -127,35 +133,29 @@ export function updateProfile(patch: Partial<Omit<ProfileRow, "id">>): ProfileRo
     }
   }
   if (set.length > 0) {
-    db.prepare(
-      `UPDATE profile SET ${set.join(", ")}, updated_at = datetime('now') WHERE id = 1`,
-    ).run(...params);
+    (await dbRun(`UPDATE profile SET ${set.join(", ")}, updated_at = datetime('now') WHERE id = 1`, ...params));
   }
-  return getProfile();
+  return await getProfile();
 }
 
-export function addRole(role: Omit<RoleRow, "id" | "sort_order"> & { sort_order?: number }): RoleRow {
-  const info = db
-    .prepare(
-      `INSERT INTO profile_roles (company, title, location, start_date, end_date, summary, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      role.company,
+export async function addRole(
+  role: Omit<RoleRow, "id" | "sort_order"> & { sort_order?: number },
+): Promise<RoleRow> {
+  const info = (await dbRun(`INSERT INTO profile_roles (company, title, location, start_date, end_date, summary, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`, role.company,
       role.title,
       role.location ?? null,
       role.start_date ?? null,
       role.end_date ?? null,
       role.summary ?? null,
-      role.sort_order ?? 0,
-    );
-  return db.prepare(`SELECT * FROM profile_roles WHERE id = ?`).get(info.lastInsertRowid) as RoleRow;
+      role.sort_order ?? 0));
+  return (await dbGet(`SELECT * FROM profile_roles WHERE id = ?`, info.lastInsertRowid)) as RoleRow;
 }
 
-export function updateRole(id: number, patch: Partial<RoleRow>): RoleRow {
+export async function updateRole(id: number, patch: Partial<RoleRow>): Promise<RoleRow> {
   const fields = ["company", "title", "location", "start_date", "end_date", "summary", "sort_order"] as const;
   const set: string[] = [];
-  const params: unknown[] = [];
+  const params: InValue[] = [];
   for (const field of fields) {
     if (patch[field] !== undefined) {
       set.push(`${field} = ?`);
@@ -163,78 +163,62 @@ export function updateRole(id: number, patch: Partial<RoleRow>): RoleRow {
     }
   }
   if (set.length > 0) {
-    db.prepare(`UPDATE profile_roles SET ${set.join(", ")} WHERE id = ?`).run(...params, id);
+    (await dbRun(`UPDATE profile_roles SET ${set.join(", ")} WHERE id = ?`, ...params, id));
   }
-  const row = db.prepare(`SELECT * FROM profile_roles WHERE id = ?`).get(id) as RoleRow | undefined;
+  const row = (await dbGet(`SELECT * FROM profile_roles WHERE id = ?`, id)) as RoleRow | undefined;
   if (!row) throw new Error(`No role with id ${id}`);
   return row;
 }
 
-export function deleteRole(id: number): boolean {
-  return db.prepare(`DELETE FROM profile_roles WHERE id = ?`).run(id).changes > 0;
+export async function deleteRole(id: number): Promise<boolean> {
+  return (await dbRun(`DELETE FROM profile_roles WHERE id = ?`, id)).changes > 0;
 }
 
-export function addBullet(roleId: number | null, text: string, skills: string[] = []): BulletRow {
+export async function addBullet(roleId: number | null, text: string, skills: string[] = []): Promise<BulletRow> {
   if (roleId != null) {
-    const role = db.prepare(`SELECT 1 FROM profile_roles WHERE id = ?`).get(roleId);
+    const role = (await dbGet(`SELECT 1 FROM profile_roles WHERE id = ?`, roleId));
     if (!role) throw new Error(`No role with id ${roleId}`);
   }
-  const next = db
-    .prepare(`SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM profile_bullets WHERE role_id IS ?`)
-    .get(roleId) as { n: number };
-  const info = db
-    .prepare(`INSERT INTO profile_bullets (role_id, text, skills, sort_order) VALUES (?, ?, ?, ?)`)
-    .run(roleId, text, JSON.stringify(skills), next.n);
-  return db
-    .prepare(`SELECT * FROM profile_bullets WHERE id = ?`)
-    .get(info.lastInsertRowid) as BulletRow;
+  const next = (await dbGet(`SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM profile_bullets WHERE role_id IS ?`, roleId)) as { n: number };
+  const info = (await dbRun(`INSERT INTO profile_bullets (role_id, text, skills, sort_order) VALUES (?, ?, ?, ?)`, roleId, text, JSON.stringify(skills), next.n));
+  return (await dbGet(`SELECT * FROM profile_bullets WHERE id = ?`, info.lastInsertRowid)) as BulletRow;
 }
 
-export function updateBullet(id: number, text?: string, skills?: string[]): BulletRow {
-  if (text !== undefined) db.prepare(`UPDATE profile_bullets SET text = ? WHERE id = ?`).run(text, id);
+export async function updateBullet(id: number, text?: string, skills?: string[]): Promise<BulletRow> {
+  if (text !== undefined) (await dbRun(`UPDATE profile_bullets SET text = ? WHERE id = ?`, text, id));
   if (skills !== undefined) {
-    db.prepare(`UPDATE profile_bullets SET skills = ? WHERE id = ?`).run(JSON.stringify(skills), id);
+    (await dbRun(`UPDATE profile_bullets SET skills = ? WHERE id = ?`, JSON.stringify(skills), id));
   }
-  const row = db.prepare(`SELECT * FROM profile_bullets WHERE id = ?`).get(id) as BulletRow | undefined;
+  const row = (await dbGet(`SELECT * FROM profile_bullets WHERE id = ?`, id)) as BulletRow | undefined;
   if (!row) throw new Error(`No bullet with id ${id}`);
   return row;
 }
 
-export function deleteBullet(id: number): boolean {
-  return db.prepare(`DELETE FROM profile_bullets WHERE id = ?`).run(id).changes > 0;
+export async function deleteBullet(id: number): Promise<boolean> {
+  return (await dbRun(`DELETE FROM profile_bullets WHERE id = ?`, id)).changes > 0;
 }
 
-export function addEducation(item: Omit<EducationRow, "id">): EducationRow {
-  const info = db
-    .prepare(
-      `INSERT INTO profile_education (school, degree, field, start_date, end_date, note)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      item.school,
+export async function addEducation(item: Omit<EducationRow, "id">): Promise<EducationRow> {
+  const info = (await dbRun(`INSERT INTO profile_education (school, degree, field, start_date, end_date, note)
+       VALUES (?, ?, ?, ?, ?, ?)`, item.school,
       item.degree ?? null,
       item.field ?? null,
       item.start_date ?? null,
       item.end_date ?? null,
-      item.note ?? null,
-    );
-  return db
-    .prepare(`SELECT * FROM profile_education WHERE id = ?`)
-    .get(info.lastInsertRowid) as EducationRow;
+      item.note ?? null));
+  return (await dbGet(`SELECT * FROM profile_education WHERE id = ?`, info.lastInsertRowid)) as EducationRow;
 }
 
-export function deleteEducation(id: number): boolean {
-  return db.prepare(`DELETE FROM profile_education WHERE id = ?`).run(id).changes > 0;
+export async function deleteEducation(id: number): Promise<boolean> {
+  return (await dbRun(`DELETE FROM profile_education WHERE id = ?`, id)).changes > 0;
 }
 
-export function addSkill(name: string, category?: string, years?: number): SkillRow {
-  db.prepare(
-    `INSERT INTO profile_skills (name, category, years) VALUES (?, ?, ?)
-     ON CONFLICT (name) DO UPDATE SET category = excluded.category, years = excluded.years`,
-  ).run(name, category ?? null, years ?? null);
-  return db.prepare(`SELECT * FROM profile_skills WHERE name = ?`).get(name) as SkillRow;
+export async function addSkill(name: string, category?: string, years?: number): Promise<SkillRow> {
+  (await dbRun(`INSERT INTO profile_skills (name, category, years) VALUES (?, ?, ?)
+     ON CONFLICT (name) DO UPDATE SET category = excluded.category, years = excluded.years`, name, category ?? null, years ?? null));
+  return (await dbGet(`SELECT * FROM profile_skills WHERE name = ?`, name)) as SkillRow;
 }
 
-export function deleteSkill(id: number): boolean {
-  return db.prepare(`DELETE FROM profile_skills WHERE id = ?`).run(id).changes > 0;
+export async function deleteSkill(id: number): Promise<boolean> {
+  return (await dbRun(`DELETE FROM profile_skills WHERE id = ?`, id)).changes > 0;
 }

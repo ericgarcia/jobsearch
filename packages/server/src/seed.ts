@@ -14,7 +14,7 @@ const STARTER_BOARDS: [name: string, ats: string, token: string][] = [
 ];
 
 /** Insert the starter boards, but only into an empty database. */
-export function seedIfEmpty(): void {
-  if (listCompanies().length > 0) return;
-  for (const [name, ats, token] of STARTER_BOARDS) addCompany(name, ats, token);
+export async function seedIfEmpty(): Promise<void> {
+  if ((await listCompanies()).length > 0) return;
+  for (const [name, ats, token] of STARTER_BOARDS) await addCompany(name, ats, token);
 }

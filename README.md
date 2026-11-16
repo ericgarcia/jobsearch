@@ -62,6 +62,27 @@ with:
 npm test --workspace=@jobsearch/server
 ```
 
+## Where the data lives
+
+`~/.jobsearch/jobsearch.db`, a SQLite file, read through libSQL. Set
+`JOBSEARCH_DB_URL` to a `libsql://` address and `JOBSEARCH_DB_TOKEN` to its
+token to use a database somewhere else instead — a Turso one, say. Nothing
+above the driver knows the difference.
+
+The driver used to be better-sqlite3, which is a better local driver:
+synchronous, so none of the code above it had to be async. It only speaks to a
+file, though. One driver that does both means a hosted copy differs from a
+local one by a URL rather than by a second code path nobody exercises.
+
+Two things changed with it, neither visible from outside:
+
+- Every query is async. That is most of the diff.
+- Matching a place no longer calls JavaScript from inside SQLite. libSQL runs
+  the query on a server this process cannot reach into, so a posting's
+  location is split into tokens when it is written and matched with an
+  ordinary `LIKE`. `packages/server/test/location-sql.test.mts` holds the two
+  forms to the same answers.
+
 ## Requirements
 
 - Node 22 or later.

@@ -5,7 +5,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import { PORT, DB_PATH, MODEL } from "./config.js";
-import "./db/client.js";
+import { migrate } from "./db/client.js";
 import { seedIfEmpty } from "./seed.js";
 import * as repo from "./repo.js";
 import { syncBoards } from "./sync.js";
@@ -30,7 +30,17 @@ import {
   type CredentialKind,
 } from "./settings.js";
 
-seedIfEmpty();
+/*
+  Explicitly, and before anything else touches the database.
+
+  better-sqlite3 was synchronous, so this file could run the migration as an
+  import side effect and every module below it found its tables already there.
+  An async migration cannot work that way: the import would return a promise
+  nobody awaited, and the first query would race it. So it is a statement, at
+  the top, where the order is visible.
+*/
+await migrate();
+await seedIfEmpty();
 
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
 await app.register(cors, { origin: true });
@@ -43,14 +53,14 @@ app.get("/api/health", async () => ({
   model: MODEL,
   assess_model: ASSESS_MODEL,
   browser: browserEnabled,
-  credential: credentialStatus(),
+  credential: await credentialStatus(),
   statuses: STATUSES,
 }));
 
 /* --------------------------------------------------------------------- setup */
 
 app.get("/api/setup", async () => ({
-  credential: credentialStatus(),
+  credential: await credentialStatus(),
   browser: browserEnabled,
   /*
     Split Pilot's id, so the page can talk to it. An unpacked extension's id
@@ -93,25 +103,25 @@ app.post("/api/setup/credential", async (request, reply) => {
     return reply.code(400).send({ error: verdict.error });
   }
 
-  saveCredential(kind, token);
-  return { credential: credentialStatus() };
+  await saveCredential(kind, token);
+  return { credential: await credentialStatus() };
 });
 
 app.delete("/api/setup/credential", async () => {
-  clearCredential();
-  return { credential: credentialStatus() };
+  await clearCredential();
+  return { credential: await credentialStatus() };
 });
 
-app.get("/api/stats", async () => repo.stats());
+app.get("/api/stats", async () => await repo.stats());
 
-app.get("/api/companies", async () => repo.listCompanies());
+app.get("/api/companies", async () => await repo.listCompanies());
 
 app.post("/api/companies", async (request, reply) => {
   const body = request.body as { name?: string; ats?: string; board_token?: string };
   if (!body?.name || !body?.ats || !body?.board_token) {
     return reply.code(400).send({ error: "name, ats and board_token are required" });
   }
-  return repo.addCompany(body.name, body.ats, body.board_token);
+  return await repo.addCompany(body.name, body.ats, body.board_token);
 });
 
 /**
@@ -129,7 +139,7 @@ app.post("/api/companies/detect", async (request, reply) => {
 
   if (body.add) {
     for (const row of found) {
-      if (row.found) repo.addCompany(row.name, row.found.ats, row.found.board_token);
+      if (row.found) await repo.addCompany(row.name, row.found.ats, row.found.board_token);
     }
   }
 
@@ -143,11 +153,11 @@ app.post("/api/companies/detect", async (request, reply) => {
 /* --------------------------------------------------------------- interests */
 
 /** What the person wants next, which matching weights above their history. */
-app.get("/api/interests", async () => getInterests());
+app.get("/api/interests", async () => await getInterests());
 
 app.put("/api/interests", async (request) => {
   const body = (request.body ?? {}) as Record<string, unknown>;
-  return setInterests(body as never);
+  return await setInterests(body as never);
 });
 
 /**
@@ -177,7 +187,7 @@ app.post("/api/companies/evaluate", async (request, reply) => {
 
 /** What un-following this board would leave behind, asked before doing it. */
 app.get("/api/companies/:id/postings", async (request) =>
-  repo.companyPostings(Number((request.params as { id: string }).id)),
+  await repo.companyPostings(Number((request.params as { id: string }).id)),
 );
 
 /**
@@ -186,7 +196,7 @@ app.get("/api/companies/:id/postings", async (request) =>
  */
 app.delete("/api/companies/:id", async (request) => {
   const query = request.query as { postings?: string };
-  return repo.removeCompany(
+  return await repo.removeCompany(
     Number((request.params as { id: string }).id),
     query.postings === "delete",
   );
@@ -195,7 +205,7 @@ app.delete("/api/companies/:id", async (request) => {
 /** Re-score every posting against the profile. Cheap; run after a sync. */
 app.post("/api/rank", async (_request, reply) => {
   try {
-    return rankAllJobs();
+    return await rankAllJobs();
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }
@@ -224,7 +234,7 @@ app.post("/api/assess", async (request, reply) => {
 
 app.post("/api/sync", async (request) => {
   const body = (request.body ?? {}) as { companies?: string[] };
-  return syncBoards(body.companies);
+  return await syncBoards(body.companies);
 });
 
 /* ------------------------------------------------------------------- prefs */
@@ -253,12 +263,12 @@ app.post("/api/split/stage", async (request, reply) => {
   }
 });
 
-app.get("/api/prefs", async () => ({ home_location: homeLocation() }));
+app.get("/api/prefs", async () => ({ home_location: await homeLocation() }));
 
 app.put("/api/prefs", async (request) => {
   const body = (request.body ?? {}) as { home_location?: string };
-  if (body.home_location !== undefined) setHomeLocation(body.home_location);
-  return { home_location: homeLocation() };
+  if (body.home_location !== undefined) await setHomeLocation(body.home_location);
+  return { home_location: await homeLocation() };
 });
 
 app.get("/api/jobs", async (request) => {
@@ -269,7 +279,7 @@ app.get("/api/jobs", async (request) => {
   // An empty `location` means everywhere, which is different from the
   // parameter being absent — absent falls back to where the person lives.
   const places =
-    q.location === undefined ? (homeLocation() ?? "") : q.location;
+    q.location === undefined ? (await homeLocation() ?? "") : q.location;
   const locationAny = places
     .split(",")
     .map((place) => place.trim())
@@ -289,14 +299,14 @@ app.get("/api/jobs", async (request) => {
     limit: q.limit ? Number(q.limit) : 100,
   };
 
-  const jobs = repo.searchJobs(criteria);
+  const jobs = await repo.searchJobs(criteria);
   // The total ignores the limit, so the UI can say how much it is not showing.
-  return { count: jobs.length, total: repo.countJobs(criteria), jobs };
+  return { count: jobs.length, total: await repo.countJobs(criteria), jobs };
 });
 
 app.get("/api/jobs/:id", async (request, reply) => {
   const id = Number((request.params as { id: string }).id);
-  const job = repo.getJob(id);
+  const job = await repo.getJob(id);
   if (!job) return reply.code(404).send({ error: `No job with id ${id}` });
   return { ...job, history: repo.applicationHistory(id) };
 });
@@ -304,13 +314,13 @@ app.get("/api/jobs/:id", async (request, reply) => {
 app.get("/api/applications", async (request) => {
   const q = request.query as { status?: string };
   const statuses = q.status ? q.status.split(",") : undefined;
-  return repo.listApplications(statuses);
+  return await repo.listApplications(statuses);
 });
 
 app.post("/api/jobs/:id/track", async (request, reply) => {
   try {
     const body = (request.body ?? {}) as { note?: string };
-    return repo.trackJob(Number((request.params as { id: string }).id), body.note);
+    return await repo.trackJob(Number((request.params as { id: string }).id), body.note);
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }
@@ -320,7 +330,7 @@ app.post("/api/jobs/:id/status", async (request, reply) => {
   const body = (request.body ?? {}) as { status?: string; note?: string };
   if (!body.status) return reply.code(400).send({ error: "status is required" });
   try {
-    return repo.setStatus(Number((request.params as { id: string }).id), body.status, body.note);
+    return await repo.setStatus(Number((request.params as { id: string }).id), body.status, body.note);
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }
@@ -332,13 +342,13 @@ app.post("/api/jobs/:id/status", async (request, reply) => {
 const bad = (reply: { code: (n: number) => { send: (b: unknown) => unknown } }, error: unknown) =>
   reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
 
-app.get("/api/profile", async () => ({ ...profile.fullProfile(), empty: profile.isEmpty() }));
+app.get("/api/profile", async () => ({ ...profile.fullProfile(), empty: await profile.isEmpty() }));
 
 app.patch("/api/profile", async (request, reply) => {
   try {
     const body = (request.body ?? {}) as Record<string, unknown>;
     const links = Array.isArray(body.links) ? JSON.stringify(body.links) : undefined;
-    return profile.updateProfile({ ...(body as object), links } as never);
+    return await profile.updateProfile({ ...(body as object), links } as never);
   } catch (error) {
     return bad(reply, error);
   }
@@ -354,21 +364,21 @@ app.post("/api/profile/roles", async (request, reply) => {
 
 app.patch("/api/profile/roles/:id", async (request, reply) => {
   try {
-    return profile.updateRole(Number((request.params as { id: string }).id), request.body as never);
+    return await profile.updateRole(Number((request.params as { id: string }).id), request.body as never);
   } catch (error) {
     return bad(reply, error);
   }
 });
 
 app.delete("/api/profile/roles/:id", async (request) => ({
-  removed: profile.deleteRole(Number((request.params as { id: string }).id)),
+  removed: await profile.deleteRole(Number((request.params as { id: string }).id)),
 }));
 
 app.post("/api/profile/bullets", async (request, reply) => {
   try {
     const body = (request.body ?? {}) as { role_id?: number | null; text?: string; skills?: string[] };
     if (!body.text?.trim()) return reply.code(400).send({ error: "text is required" });
-    return profile.addBullet(body.role_id ?? null, body.text, body.skills ?? []);
+    return await profile.addBullet(body.role_id ?? null, body.text, body.skills ?? []);
   } catch (error) {
     return bad(reply, error);
   }
@@ -377,52 +387,52 @@ app.post("/api/profile/bullets", async (request, reply) => {
 app.patch("/api/profile/bullets/:id", async (request, reply) => {
   try {
     const body = (request.body ?? {}) as { text?: string; skills?: string[] };
-    return profile.updateBullet(Number((request.params as { id: string }).id), body.text, body.skills);
+    return await profile.updateBullet(Number((request.params as { id: string }).id), body.text, body.skills);
   } catch (error) {
     return bad(reply, error);
   }
 });
 
 app.delete("/api/profile/bullets/:id", async (request) => ({
-  removed: profile.deleteBullet(Number((request.params as { id: string }).id)),
+  removed: await profile.deleteBullet(Number((request.params as { id: string }).id)),
 }));
 
 app.post("/api/profile/education", async (request, reply) => {
   try {
-    return profile.addEducation(request.body as never);
+    return await profile.addEducation(request.body as never);
   } catch (error) {
     return bad(reply, error);
   }
 });
 
 app.delete("/api/profile/education/:id", async (request) => ({
-  removed: profile.deleteEducation(Number((request.params as { id: string }).id)),
+  removed: await profile.deleteEducation(Number((request.params as { id: string }).id)),
 }));
 
 app.post("/api/profile/skills", async (request, reply) => {
   try {
     const body = (request.body ?? {}) as { name?: string; category?: string; years?: number };
     if (!body.name?.trim()) return reply.code(400).send({ error: "name is required" });
-    return profile.addSkill(body.name, body.category, body.years);
+    return await profile.addSkill(body.name, body.category, body.years);
   } catch (error) {
     return bad(reply, error);
   }
 });
 
 app.delete("/api/profile/skills/:id", async (request) => ({
-  removed: profile.deleteSkill(Number((request.params as { id: string }).id)),
+  removed: await profile.deleteSkill(Number((request.params as { id: string }).id)),
 }));
 
 /* ------------------------------------------------------------------ resumes */
 
 app.get("/api/resumes", async (request) => {
   const q = request.query as { job_id?: string };
-  return resume.listResumes(q.job_id ? Number(q.job_id) : undefined);
+  return await resume.listResumes(q.job_id ? Number(q.job_id) : undefined);
 });
 
 app.get("/api/resumes/:id", async (request, reply) => {
   try {
-    return resume.getResume(Number((request.params as { id: string }).id));
+    return await resume.getResume(Number((request.params as { id: string }).id));
   } catch (error) {
     return reply.code(404).send({ error: (error as Error).message });
   }
@@ -430,32 +440,32 @@ app.get("/api/resumes/:id", async (request, reply) => {
 
 app.get("/api/resumes/:id/markdown", async (request, reply) => {
   try {
-    return { markdown: resume.renderMarkdown(Number((request.params as { id: string }).id)) };
+    return { markdown: await resume.renderMarkdown(Number((request.params as { id: string }).id)) };
   } catch (error) {
     return reply.code(404).send({ error: (error as Error).message });
   }
 });
 
 app.delete("/api/resumes/:id", async (request) => ({
-  removed: resume.deleteResume(Number((request.params as { id: string }).id)),
+  removed: await resume.deleteResume(Number((request.params as { id: string }).id)),
 }));
 
 app.get("/api/jobs/:id/cover-letters", async (request) =>
-  resume.listCoverLetters(Number((request.params as { id: string }).id)),
+  await resume.listCoverLetters(Number((request.params as { id: string }).id)),
 );
 
-app.get("/api/cover-letters", async () => resume.listAllCoverLetters());
+app.get("/api/cover-letters", async () => await resume.listAllCoverLetters());
 
 app.get("/api/cover-letters/:id", async (request, reply) => {
   try {
-    return resume.getCoverLetter(Number((request.params as { id: string }).id));
+    return await resume.getCoverLetter(Number((request.params as { id: string }).id));
   } catch (error) {
     return reply.code(404).send({ error: (error as Error).message });
   }
 });
 
 app.delete("/api/cover-letters/:id", async (request) => ({
-  removed: resume.deleteCoverLetter(Number((request.params as { id: string }).id)),
+  removed: await resume.deleteCoverLetter(Number((request.params as { id: string }).id)),
 }));
 
 /* ---------------------------------------------------------------------- chat */
@@ -463,11 +473,11 @@ app.delete("/api/cover-letters/:id", async (request) => ({
 
 app.post("/api/conversations", async (request) => {
   const body = (request.body ?? {}) as { title?: string };
-  return { id: repo.createConversation(body.title) };
+  return { id: await repo.createConversation(body.title) };
 });
 
 app.get("/api/conversations/:id/messages", async (request) =>
-  repo.listMessages(Number((request.params as { id: string }).id)),
+  await repo.listMessages(Number((request.params as { id: string }).id)),
 );
 
 /**
@@ -480,8 +490,8 @@ app.post("/api/chat", async (request, reply) => {
     return reply.code(400).send({ error: "message is required" });
   }
 
-  const conversationId = body.conversationId ?? repo.createConversation(body.message.slice(0, 80));
-  repo.addMessage(conversationId, "user", body.message);
+  const conversationId = body.conversationId ?? await repo.createConversation(body.message.slice(0, 80));
+  await repo.addMessage(conversationId, "user", body.message);
 
   reply.raw.writeHead(200, {
     "content-type": "text/event-stream",
@@ -509,10 +519,10 @@ app.post("/api/chat", async (request, reply) => {
   try {
     for await (const event of runAgent({
       prompt: body.message,
-      resume: repo.getSdkSessionId(conversationId),
+      resume: await repo.getSdkSessionId(conversationId),
       signal: controller.signal,
     })) {
-      if (event.type === "session") repo.setSdkSessionId(conversationId, event.sessionId);
+      if (event.type === "session") await repo.setSdkSessionId(conversationId, event.sessionId);
       if (event.type === "text") replyText.push(event.text);
       send(event);
     }
@@ -521,7 +531,7 @@ app.post("/api/chat", async (request, reply) => {
   }
 
   if (replyText.length > 0) {
-    repo.addMessage(conversationId, "assistant", replyText.join("\n\n"));
+    await repo.addMessage(conversationId, "assistant", replyText.join("\n\n"));
   }
   finished = true;
   send({ type: "end" });
@@ -557,6 +567,6 @@ if (fs.existsSync(path.join(webRoot, "index.html"))) {
 
 await app.listen({ port: PORT, host: "127.0.0.1" });
 app.log.info(`jobsearch server on http://127.0.0.1:${PORT} — database ${DB_PATH}`);
-if (!credentialStatus().set) {
+if (!(await credentialStatus()).set) {
   app.log.warn("No Claude credential yet. Open the app and finish Setup.");
 }

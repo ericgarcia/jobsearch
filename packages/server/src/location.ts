@@ -46,6 +46,35 @@ export function locationMatches(location: string | null, needle: string): boolea
 }
 
 /**
+ * The parts of a location, in a form SQL can match against.
+ *
+ * `locationMatches` used to run inside SQLite, as a function registered on the
+ * connection. libSQL cannot do that: the query runs on Turso's server, where
+ * this process's JavaScript does not exist. So the same split is done once,
+ * when a job is written, and stored.
+ *
+ * Delimiters at both ends and between every part, so `LIKE '%|ny|%'` means the
+ * part "ny" and never the "ny" inside "germany". That is the short-needle rule
+ * from `locationMatches`, expressed in SQL; the long-needle rule needs no
+ * tokens, because matching the whole string is what LIKE already does.
+ */
+export const TOKEN_EDGE = "|";
+
+export function locationTokens(location: string | null): string {
+  if (!location) return TOKEN_EDGE;
+  return TOKEN_EDGE + parts(location).join(TOKEN_EDGE) + TOKEN_EDGE;
+}
+
+/** The SQL fragment and parameter that match one needle. Mirrors locationMatches. */
+export function locationClause(needle: string): { sql: string; param: string } | null {
+  const want = needle.trim().toLowerCase();
+  if (!want) return null;
+  return want.length >= 4
+    ? { sql: "LOWER(COALESCE(j.location, '')) LIKE ?", param: `%${want}%` }
+    : { sql: "COALESCE(j.location_tokens, '') LIKE ?", param: `%${TOKEN_EDGE}${want}${TOKEN_EDGE}%` };
+}
+
+/**
  * Short forms that boards use for the same place. Only the ones that are
  * genuinely ambiguous to a substring test are worth listing; anything else is
  * already handled by matching the full name.

@@ -1,4 +1,4 @@
-import { db } from "./db/client.js";
+import { all as dbAll, get as dbGet, run as dbRun, tx } from "./db/client.js";
 import { checkAgainstCorpus, checkRendering } from "./factcheck.js";
 import * as profile from "./profile.js";
 
@@ -27,18 +27,18 @@ export interface ResumeLineView {
  * recorded. Rewording is allowed, and each reworded line is checked against the
  * fact it came from.
  */
-export const draftResume = db.transaction(
-  (input: {
-    jobId: number | null;
-    label?: string;
-    summary?: string;
-    lines: DraftLine[];
-  }): { resumeId: number; warnings: string[] } => {
+export async function draftResume(input: {
+  jobId: number | null;
+  label?: string;
+  summary?: string;
+  lines: DraftLine[];
+}): Promise<{ resumeId: number; warnings: string[] }> {
+  return tx(async () => {
     if (input.lines.length === 0) {
       throw new Error("A resume needs at least one line.");
     }
 
-    const bullets = new Map(profile.listBullets().map((bullet) => [bullet.id, bullet]));
+    const bullets = new Map((await profile.listBullets()).map((bullet) => [bullet.id, bullet]));
     const unknown = input.lines
       .map((line) => line.bullet_id)
       .filter((id) => !bullets.has(id));
@@ -51,47 +51,50 @@ export const draftResume = db.transaction(
     }
 
     if (input.jobId != null) {
-      const job = db.prepare(`SELECT 1 FROM jobs WHERE id = ?`).get(input.jobId);
+      const job = (await dbGet(`SELECT 1 FROM jobs WHERE id = ?`, input.jobId));
       if (!job) throw new Error(`No job with id ${input.jobId}`);
     }
 
     // The summary is free prose, so check it against every stored fact.
     const summaryWarnings = input.summary
-      ? checkAgainstCorpus(profile.profileCorpus(), input.summary)
+      ? checkAgainstCorpus(await profile.profileCorpus(), input.summary)
       : [];
 
     const resumeId = Number(
-      db
-        .prepare(`INSERT INTO resumes (job_id, label, summary, warnings) VALUES (?, ?, ?, ?)`)
-        .run(
-          input.jobId,
+      (await dbRun(`INSERT INTO resumes (job_id, label, summary, warnings) VALUES (?, ?, ?, ?)`, input.jobId,
           input.label ?? null,
           input.summary ?? null,
-          JSON.stringify(summaryWarnings),
-        ).lastInsertRowid,
+          JSON.stringify(summaryWarnings))).lastInsertRowid,
     );
 
     const allWarnings: string[] = [...summaryWarnings];
-    const insert = db.prepare(
-      `INSERT INTO resume_lines (resume_id, source_bullet_id, rendered_text, warnings, sort_order)
-       VALUES (?, ?, ?, ?, ?)`,
-    );
+    const INSERT_LINE = `INSERT INTO resume_lines (resume_id, source_bullet_id, rendered_text, warnings, sort_order)
+       VALUES (?, ?, ?, ?, ?)`;
 
-    input.lines.forEach((line, index) => {
+    // Sequential, not Promise.all: sort_order is the line's position, and the
+    // rows should go in holding it.
+    for (const [index, line] of input.lines.entries()) {
       const source = bullets.get(line.bullet_id)!;
       const warnings = line.rendered_text
         ? checkRendering(source.text, line.rendered_text)
         : [];
       allWarnings.push(...warnings);
-      insert.run(resumeId, line.bullet_id, line.rendered_text ?? null, JSON.stringify(warnings), index);
-    });
+      await dbRun(
+        INSERT_LINE,
+        resumeId,
+        line.bullet_id,
+        line.rendered_text ?? null,
+        JSON.stringify(warnings),
+        index,
+      );
+    }
 
     return { resumeId, warnings: allWarnings };
-  },
-);
+  });
+}
 
-export function getResume(id: number) {
-  const resume = db.prepare(`SELECT * FROM resumes WHERE id = ?`).get(id) as
+export async function getResume(id: number) {
+  const resume = (await dbGet(`SELECT * FROM resumes WHERE id = ?`, id)) as
     | {
         id: number;
         job_id: number | null;
@@ -103,15 +106,11 @@ export function getResume(id: number) {
     | undefined;
   if (!resume) throw new Error(`No resume with id ${id}`);
 
-  const lines = db
-    .prepare(
-      `SELECT l.id, l.source_bullet_id, l.rendered_text, l.warnings, b.text AS source_text, b.role_id
+  const lines = (await dbAll(`SELECT l.id, l.source_bullet_id, l.rendered_text, l.warnings, b.text AS source_text, b.role_id
          FROM resume_lines l
          JOIN profile_bullets b ON b.id = l.source_bullet_id
         WHERE l.resume_id = ?
-        ORDER BY l.sort_order`,
-    )
-    .all(id) as {
+        ORDER BY l.sort_order`, id)) as {
     id: number;
     source_bullet_id: number;
     rendered_text: string | null;
@@ -121,9 +120,7 @@ export function getResume(id: number) {
   }[];
 
   const job = resume.job_id
-    ? (db
-        .prepare(`SELECT id, company, title, url FROM jobs WHERE id = ?`)
-        .get(resume.job_id) as { id: number; company: string; title: string; url: string } | undefined)
+    ? ((await dbGet(`SELECT id, company, title, url FROM jobs WHERE id = ?`, resume.job_id)) as { id: number; company: string; title: string; url: string } | undefined)
     : undefined;
 
   const view: ResumeLineView[] = lines.map((line) => ({
@@ -146,27 +143,23 @@ export function getResume(id: number) {
   };
 }
 
-export function listResumes(jobId?: number) {
+export async function listResumes(jobId?: number) {
   const where = jobId == null ? "" : "WHERE r.job_id = ?";
-  return db
-    .prepare(
-      `SELECT r.id, r.job_id, r.label, r.created_at, j.company, j.title,
+  return (await dbAll(`SELECT r.id, r.job_id, r.label, r.created_at, j.company, j.title,
               (SELECT COUNT(*) FROM resume_lines l WHERE l.resume_id = r.id) AS lines
          FROM resumes r LEFT JOIN jobs j ON j.id = r.job_id
-        ${where} ORDER BY r.created_at DESC`,
-    )
-    .all(...(jobId == null ? [] : [jobId]));
+        ${where} ORDER BY r.created_at DESC`, ...(jobId == null ? [] : [jobId])));
 }
 
-export function deleteResume(id: number): boolean {
-  return db.prepare(`DELETE FROM resumes WHERE id = ?`).run(id).changes > 0;
+export async function deleteResume(id: number): Promise<boolean> {
+  return (await dbRun(`DELETE FROM resumes WHERE id = ?`, id)).changes > 0;
 }
 
 /** Render a resume as Markdown, grouped by role in profile order. */
-export function renderMarkdown(id: number): string {
-  const resume = getResume(id);
-  const me = profile.getProfile();
-  const roles = new Map(profile.listRoles().map((role) => [role.id, role]));
+export async function renderMarkdown(id: number): Promise<string> {
+  const resume = await getResume(id);
+  const me = await profile.getProfile();
+  const roles = new Map((await profile.listRoles()).map((role) => [role.id, role]));
 
   const header = [
     me.name ? `# ${me.name}` : "# Resume",
@@ -208,7 +201,7 @@ export function renderMarkdown(id: number): string {
     }
   }
 
-  const education = profile.listEducation();
+  const education = await profile.listEducation();
   if (education.length > 0) {
     out.push("## Education", "");
     for (const item of education) {
@@ -221,7 +214,7 @@ export function renderMarkdown(id: number): string {
     out.push("");
   }
 
-  const skills = profile.listSkills();
+  const skills = await profile.listSkills();
   if (skills.length > 0) {
     out.push("## Skills", "", skills.map((skill) => skill.name).join(" · "), "");
   }
@@ -231,24 +224,20 @@ export function renderMarkdown(id: number): string {
 
 /* ----------------------------------------------------------- cover letters */
 
-export function saveCoverLetter(jobId: number, body: string) {
-  const job = db.prepare(`SELECT 1 FROM jobs WHERE id = ?`).get(jobId);
+export async function saveCoverLetter(jobId: number, body: string) {
+  const job = (await dbGet(`SELECT 1 FROM jobs WHERE id = ?`, jobId));
   if (!job) throw new Error(`No job with id ${jobId}`);
 
-  const warnings = checkAgainstCorpus(profile.profileCorpus(), body);
+  const warnings = checkAgainstCorpus(await profile.profileCorpus(), body);
   const id = Number(
-    db
-      .prepare(`INSERT INTO cover_letters (job_id, body, warnings) VALUES (?, ?, ?)`)
-      .run(jobId, body, JSON.stringify(warnings)).lastInsertRowid,
+    (await dbRun(`INSERT INTO cover_letters (job_id, body, warnings) VALUES (?, ?, ?)`, jobId, body, JSON.stringify(warnings))).lastInsertRowid,
   );
   return { id, job_id: jobId, warnings };
 }
 
-export function listCoverLetters(jobId: number) {
+export async function listCoverLetters(jobId: number) {
   return (
-    db
-      .prepare(`SELECT * FROM cover_letters WHERE job_id = ? ORDER BY created_at DESC`)
-      .all(jobId) as { id: number; job_id: number; body: string; warnings: string; created_at: string }[]
+    (await dbAll(`SELECT * FROM cover_letters WHERE job_id = ? ORDER BY created_at DESC`, jobId)) as { id: number; job_id: number; body: string; warnings: string; created_at: string }[]
   ).map((row) => ({ ...row, warnings: JSON.parse(row.warnings) as string[] }));
 }
 
@@ -264,26 +253,22 @@ export interface CoverLetterRow {
 }
 
 /** Every cover letter, newest first, with the posting each one targets. */
-export function listAllCoverLetters(): CoverLetterRow[] {
-  const rows = db
-    .prepare(
-      `SELECT c.id, c.job_id, c.body, c.warnings, c.created_at,
+export async function listAllCoverLetters(): Promise<CoverLetterRow[]> {
+  const rows = (await dbAll(`SELECT c.id, c.job_id, c.body, c.warnings, c.created_at,
               j.company, j.title, j.url
          FROM cover_letters c
          LEFT JOIN jobs j ON j.id = c.job_id
-        ORDER BY c.created_at DESC`,
-    )
-    .all() as (Omit<CoverLetterRow, "warnings"> & { warnings: string })[];
+        ORDER BY c.created_at DESC`)) as (Omit<CoverLetterRow, "warnings"> & { warnings: string })[];
 
   return rows.map((row) => ({ ...row, warnings: JSON.parse(row.warnings) as string[] }));
 }
 
-export function getCoverLetter(id: number): CoverLetterRow {
-  const letter = listAllCoverLetters().find((row) => row.id === id);
+export async function getCoverLetter(id: number): Promise<CoverLetterRow> {
+  const letter = (await listAllCoverLetters()).find((row) => row.id === id);
   if (!letter) throw new Error(`No cover letter with id ${id}`);
   return letter;
 }
 
-export function deleteCoverLetter(id: number): boolean {
-  return db.prepare(`DELETE FROM cover_letters WHERE id = ?`).run(id).changes > 0;
+export async function deleteCoverLetter(id: number): Promise<boolean> {
+  return (await dbRun(`DELETE FROM cover_letters WHERE id = ?`, id)).changes > 0;
 }

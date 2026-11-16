@@ -1,6 +1,6 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { DATA_DIR } from "./config.js";
-import { db } from "./db/client.js";
+import { all as dbAll, get as dbGet, run as dbRun, tx } from "./db/client.js";
 import { credentialEnv, homeLocation, readCredential } from "./settings.js";
 import { expandPlace } from "./location.js";
 import * as profile from "./profile.js";
@@ -24,12 +24,16 @@ export const ASSESS_MODEL = process.env.JOBSEARCH_ASSESS_MODEL ?? "claude-haiku-
 const CONCURRENCY = Number(process.env.JOBSEARCH_ASSESS_CONCURRENCY ?? 4);
 
 /** The profile as compact prose, built once and reused for the whole batch. */
-function profileBrief(): string {
-  const me = profile.getProfile();
-  const bullets = profile.listBullets();
+async function profileBrief(): Promise<string> {
+  const [me, bullets, roleRows, educationRows, skillRows] = await Promise.all([
+    profile.getProfile(),
+    profile.listBullets(),
+    profile.listRoles(),
+    profile.listEducation(),
+    profile.listSkills(),
+  ]);
 
-  const roles = profile
-    .listRoles()
+  const roles = roleRows
     .map((role) => {
       const dates = [role.start_date, role.end_date ?? "present"].filter(Boolean).join("–");
       const lines = bullets
@@ -40,8 +44,7 @@ function profileBrief(): string {
     })
     .join("\n\n");
 
-  const education = profile
-    .listEducation()
+  const education = educationRows
     .map((item) => `${item.degree ?? ""} ${item.field ?? ""}, ${item.school} ${item.end_date ?? ""}`)
     .join("; ");
 
@@ -54,7 +57,7 @@ function profileBrief(): string {
     roles,
     "",
     `EDUCATION: ${education}`,
-    `SKILLS: ${profile.listSkills().map((s) => s.name).join(", ")}`,
+    `SKILLS: ${skillRows.map((s) => s.name).join(", ")}`,
   ]
     .filter(Boolean)
     .join("\n");
@@ -155,13 +158,11 @@ async function assessOne(
     ? `${verdict.reasoning} Biggest gap: ${verdict.biggest_gap}`
     : verdict.reasoning;
 
-  db.prepare(
-    `INSERT INTO job_assessments (job_id, fit_score, reasoning, model, assessed_at)
+  (await dbRun(`INSERT INTO job_assessments (job_id, fit_score, reasoning, model, assessed_at)
      VALUES (?, ?, ?, ?, datetime('now'))
      ON CONFLICT (job_id) DO UPDATE SET
        fit_score = excluded.fit_score, reasoning = excluded.reasoning,
-       model = excluded.model, assessed_at = excluded.assessed_at`,
-  ).run(job.id, verdict.fit_score, reasoning, ASSESS_MODEL);
+       model = excluded.model, assessed_at = excluded.assessed_at`, job.id, verdict.fit_score, reasoning, ASSESS_MODEL));
 
   return { id: job.id, score: verdict.fit_score, cost };
 }
@@ -189,13 +190,13 @@ export interface AssessOptions {
 
 export async function assessTopJobs(options: AssessOptions = {}): Promise<AssessReport> {
   const limit = options.limit ?? 20;
-  const credential = readCredential();
+  const credential = await readCredential();
   if (!credential) throw new Error("No Claude credential is set up yet.");
-  if (profile.isEmpty()) throw new Error("The profile is empty, so there is nothing to judge against.");
+  if (await profile.isEmpty()) throw new Error("The profile is empty, so there is nothing to judge against.");
 
   // Judge what the person is actually looking at. Scoring postings that their
   // location filter excludes spends money on jobs they will never see.
-  const places = options.location === undefined ? (homeLocation() ?? "") : options.location;
+  const places = options.location === undefined ? (await homeLocation() ?? "") : options.location;
   const locationAny = places
     .split(",")
     .map((place) => place.trim())
@@ -204,7 +205,7 @@ export async function assessTopJobs(options: AssessOptions = {}): Promise<Assess
 
   // Filter in the query, not afterwards: taking the top N and then dropping
   // the ones already judged returns fewer than asked for.
-  const jobs = repo.searchJobs({
+  const jobs = await repo.searchJobs({
     unassessedOnly: true,
     locationAny: locationAny.length > 0 ? locationAny : undefined,
     includeRemote: options.includeRemote ?? false,
@@ -215,7 +216,7 @@ export async function assessTopJobs(options: AssessOptions = {}): Promise<Assess
     return { model: ASSESS_MODEL, places: locationAny, assessed: 0, failed: 0, cost_usd: 0, results: [] };
   }
 
-  const brief = profileBrief();
+  const brief = await profileBrief();
   const env = credentialEnv(credential);
   const byId = new Map(jobs.map((job) => [job.id, job]));
   const results: AssessReport["results"] = [];

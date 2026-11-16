@@ -1,4 +1,4 @@
-import { db } from "./db/client.js";
+import { all as dbAll, get as dbGet, run as dbRun, tx } from "./db/client.js";
 
 /**
  * What the person is looking for, in their own words.
@@ -18,9 +18,9 @@ export interface Interests {
   note: string | null;
 }
 
-export function getInterests(): Interests {
-  db.prepare(`INSERT OR IGNORE INTO interests (id) VALUES (1)`).run();
-  const row = db.prepare(`SELECT * FROM interests WHERE id = 1`).get() as {
+export async function getInterests(): Promise<Interests> {
+  (await dbRun(`INSERT OR IGNORE INTO interests (id) VALUES (1)`));
+  const row = (await dbGet(`SELECT * FROM interests WHERE id = 1`)) as {
     titles: string;
     include: string;
     exclude: string;
@@ -34,23 +34,19 @@ export function getInterests(): Interests {
   };
 }
 
-export function setInterests(patch: Partial<Interests>): Interests {
-  const current = getInterests();
+export async function setInterests(patch: Partial<Interests>): Promise<Interests> {
+  const current = await getInterests();
   const next = { ...current, ...patch };
-  db.prepare(
-    `UPDATE interests
+  (await dbRun(`UPDATE interests
         SET titles = ?, include = ?, exclude = ?, note = ?, updated_at = datetime('now')
-      WHERE id = 1`,
-  ).run(
-    JSON.stringify(next.titles),
+      WHERE id = 1`, JSON.stringify(next.titles),
     JSON.stringify(next.include),
     JSON.stringify(next.exclude),
-    next.note,
-  );
-  return getInterests();
+    next.note));
+  return await getInterests();
 }
 
-export function interestsAreEmpty(): boolean {
-  const i = getInterests();
+export async function interestsAreEmpty(): Promise<boolean> {
+  const i = await getInterests();
   return i.titles.length === 0 && i.include.length === 0;
 }

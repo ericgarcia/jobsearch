@@ -55,7 +55,7 @@ export interface EvaluateOptions {
 async function evaluateOne(
   name: string,
   options: EvaluateOptions,
-  scorer: ReturnType<typeof buildScorer>,
+  scorer: Awaited<ReturnType<typeof buildScorer>>,
   best: number,
   followed: Set<string>,
 ): Promise<Evaluation> {
@@ -88,7 +88,7 @@ async function evaluateOne(
   }
 
   const places =
-    options.location === undefined ? (homeLocation() ?? "") : options.location;
+    options.location === undefined ? (await homeLocation() ?? "") : options.location;
   const wanted = places
     .split(",")
     .map((place) => place.trim())
@@ -136,20 +136,20 @@ export async function evaluateCompanies(
   names: string[],
   options: EvaluateOptions = {},
 ): Promise<Evaluation[]> {
-  const scorer = buildScorer();
+  const scorer = await buildScorer();
   if (scorer.keywords.length === 0) {
     throw new Error(
       "There is nothing to match against. Add roles to the profile, or say what you are looking for under interests.",
     );
   }
 
-  const best = corpusBest();
+  const best = await corpusBest();
   if (best === 0) {
     throw new Error("Rank the stored postings first, so there is a scale to measure against.");
   }
 
   const followed = new Set(
-    repo.listCompanies().map((company) => `${company.ats}:${company.board_token}`),
+    (await repo.listCompanies()).map((company) => `${company.ats}:${company.board_token}`),
   );
 
   const results: Evaluation[] = [];

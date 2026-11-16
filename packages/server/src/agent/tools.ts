@@ -59,10 +59,11 @@ function summarise(job: repo.JobWithStatus) {
  * Turn what the agent asked for into the forms boards actually write.
  * No places named means the person's own city; "anywhere" means no filter.
  */
-function resolvePlaces(places?: string[]): string[] | undefined {
+async function resolvePlaces(places?: string[]): Promise<string[] | undefined> {
   if (places?.some((place) => place.trim().toLowerCase() === "anywhere")) return undefined;
 
-  const wanted = places && places.length > 0 ? places : [homeLocation() ?? ""].filter(Boolean);
+  const wanted =
+    places && places.length > 0 ? places : [(await homeLocation()) ?? ""].filter(Boolean);
   if (wanted.length === 0) return undefined;
   return wanted.flatMap(expandPlace);
 }
@@ -71,7 +72,7 @@ const getInterestsTool = tool(
   "get_interests",
   "Read what the person says they are looking for: the role titles they want, subjects to seek out, and subjects to avoid. This is what they want next, as opposed to the profile, which is what they have done. Matching weights these above anything read from their history.",
   {},
-  async () => guard(() => getInterests()),
+  async () => guard(async () => await getInterests()),
   { annotations: { readOnlyHint: true } },
 );
 
@@ -85,8 +86,8 @@ const setInterestsTool = tool(
     note: z.string().optional().describe("Anything else about what they want, in their words"),
   },
   async (args) =>
-    guard(() => ({
-      interests: setInterests(args),
+    guard(async () => ({
+      interests: await setInterests(args),
       note: "Run rank_jobs so the change takes effect on the stored postings.",
     })),
 );
@@ -102,8 +103,8 @@ const evaluateCompaniesTool = tool(
   },
   async (args) =>
     guard(async () => {
-      const places = resolvePlaces(args.location_any);
-      return evaluateCompanies(args.names, {
+      const places = await resolvePlaces(args.location_any);
+      return await evaluateCompanies(args.names, {
         location: places === undefined ? "" : places.join(","),
         includeRemote: args.include_remote ?? false,
         threshold: args.threshold,
@@ -121,14 +122,14 @@ const removeCompanyTool = tool(
       .boolean()
       .describe("True to delete its stored postings. Ask the person before sending true."),
   },
-  async (args) => guard(() => repo.removeCompany(args.id, args.delete_postings)),
+  async (args) => guard(async () => await repo.removeCompany(args.id, args.delete_postings)),
 );
 
 const listCompanies = tool(
   "list_companies",
   "List the company job boards this app polls.",
   {},
-  async () => guard(() => repo.listCompanies()),
+  async () => guard(async () => await repo.listCompanies()),
   { annotations: { readOnlyHint: true } },
 );
 
@@ -140,7 +141,7 @@ const addCompany = tool(
     ats: z.enum(["greenhouse", "lever", "ashby"]).describe("Which applicant tracking system hosts the board"),
     board_token: z.string().describe("The board identifier in the ATS URL"),
   },
-  async (args) => guard(() => repo.addCompany(args.name, args.ats, args.board_token)),
+  async (args) => guard(async () => await repo.addCompany(args.name, args.ats, args.board_token)),
 );
 
 const addCompaniesByName = tool(
@@ -153,7 +154,7 @@ const addCompaniesByName = tool(
     guard(async () => {
       const found = await detectMany(args.names);
       for (const row of found) {
-        if (row.found) repo.addCompany(row.name, row.found.ats, row.found.board_token);
+        if (row.found) await repo.addCompany(row.name, row.found.ats, row.found.board_token);
       }
       return {
         added: found.filter((row) => row.found).map((row) => ({
@@ -177,14 +178,14 @@ const syncBoardsTool = tool(
       .optional()
       .describe("Limit the sync to these company names. Omit to sync every active board."),
   },
-  async (args) => guard(() => syncBoards(args.companies)),
+  async (args) => guard(async () => await syncBoards(args.companies)),
 );
 
 const rankJobs = tool(
   "rank_jobs",
   "Score every stored posting against the profile by keyword overlap, so the list has an order that means something. This is arithmetic, not judgement: use it to decide which postings are worth reading, then read them and use assess_job for a real opinion. Run it after a sync, or after the profile changes.",
   {},
-  async () => guard(() => rankAllJobs()),
+  async () => guard(async () => await rankAllJobs()),
 );
 
 const assessTop = tool(
@@ -199,9 +200,9 @@ const assessTop = tool(
     include_remote: z.boolean().optional().describe("Also judge remote postings based elsewhere"),
   },
   async (args) =>
-    guard(() => {
-      const places = resolvePlaces(args.location_any);
-      return assessTopJobs({
+    guard(async () => {
+      const places = await resolvePlaces(args.location_any);
+      return await assessTopJobs({
         limit: args.limit ?? 20,
         location: places === undefined ? "" : places.join(","),
         includeRemote: args.include_remote ?? false,
@@ -259,14 +260,14 @@ const searchJobs = tool(
     limit: z.number().int().min(1).max(200).optional().describe("How many to return. Default 50."),
   },
   async (args) =>
-    guard(() => {
-      const jobs = repo.searchJobs({
+    guard(async () => {
+      const jobs = await repo.searchJobs({
         titleAny: args.title_any,
         titleNone: args.title_none,
         textAny: args.text_any,
         textNone: args.text_none,
         companyAny: args.company_any,
-        locationAny: resolvePlaces(args.location_any),
+        locationAny: await resolvePlaces(args.location_any),
         includeRemote: args.include_remote ?? false,
         remoteOnly: args.remote_only,
         statusAny: args.status_any,
@@ -288,8 +289,8 @@ const getJob = tool(
   "Read one posting in full, including the body text and any status history.",
   { job_id: z.number().int().describe("The job id from search_jobs") },
   async (args) =>
-    guard(() => {
-      const job = repo.getJob(args.job_id);
+    guard(async () => {
+      const job = await repo.getJob(args.job_id);
       if (!job) throw new Error(`No job with id ${args.job_id}`);
       return {
         ...summarise(job),
@@ -310,8 +311,8 @@ const assessJob = tool(
     reasoning: z.string().describe("Two or three sentences on why, naming the concrete evidence"),
   },
   async (args) =>
-    guard(() => {
-      repo.saveAssessment(args.job_id, args.fit_score, args.reasoning);
+    guard(async () => {
+      await repo.saveAssessment(args.job_id, args.fit_score, args.reasoning);
       return { job_id: args.job_id, fit_score: args.fit_score };
     }),
 );
@@ -320,7 +321,7 @@ const trackJob = tool(
   "track_job",
   "Start tracking a job as an application, at status 'interested'. Idempotent.",
   { job_id: z.number().int(), note: z.string().optional() },
-  async (args) => guard(() => repo.trackJob(args.job_id, args.note)),
+  async (args) => guard(async () => await repo.trackJob(args.job_id, args.note)),
 );
 
 const setStatus = tool(
@@ -331,7 +332,7 @@ const setStatus = tool(
     status: z.enum(STATUSES),
     note: z.string().optional().describe("Why the status changed. Stored in the history."),
   },
-  async (args) => guard(() => repo.setStatus(args.job_id, args.status, args.note)),
+  async (args) => guard(async () => await repo.setStatus(args.job_id, args.status, args.note)),
   { annotations: { destructiveHint: true } },
 );
 
@@ -339,7 +340,7 @@ const listApplications = tool(
   "list_applications",
   "List tracked applications, newest change first.",
   { status_any: z.array(z.enum(STATUSES)).optional().describe("Limit to these statuses") },
-  async (args) => guard(() => repo.listApplications(args.status_any)),
+  async (args) => guard(async () => await repo.listApplications(args.status_any)),
   { annotations: { readOnlyHint: true } },
 );
 
@@ -348,7 +349,7 @@ const getStats = tool(
   "Count the stored postings and the applications at each status.",
   {},
   async () =>
-    guard(() => ({ ...repo.stats(), sources: Object.keys(SOURCES) })),
+    guard(async () => ({ ...(await repo.stats()), sources: Object.keys(SOURCES) })),
   { annotations: { readOnlyHint: true } },
 );
 

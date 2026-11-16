@@ -1,4 +1,6 @@
-import { db } from "./db/client.js";
+import type { InValue } from "@libsql/client";
+import { all as dbAll, get as dbGet, run as dbRun, tx } from "./db/client.js";
+import { locationClause, locationTokens } from "./location.js";
 import { allowedNext, canTransition, isStatus, type Status } from "./status.js";
 import type { SourceJob } from "./sources/types.js";
 
@@ -38,24 +40,16 @@ export interface CompanyRow {
   jobs?: number;
 }
 
-export function listCompanies(): CompanyRow[] {
-  return db
-    .prepare(
-      `SELECT c.id, c.name, c.ats, c.board_token, c.active,
+export async function listCompanies(): Promise<CompanyRow[]> {
+  return (await dbAll(`SELECT c.id, c.name, c.ats, c.board_token, c.active,
               (SELECT COUNT(*) FROM jobs j WHERE j.company = c.name) AS jobs
-         FROM companies c ORDER BY c.name`,
-    )
-    .all() as CompanyRow[];
+         FROM companies c ORDER BY c.name`)) as CompanyRow[];
 }
 
-export function addCompany(name: string, ats: string, boardToken: string): CompanyRow {
-  db.prepare(
-    `INSERT INTO companies (name, ats, board_token) VALUES (?, ?, ?)
-     ON CONFLICT (ats, board_token) DO UPDATE SET name = excluded.name, active = 1`,
-  ).run(name, ats, boardToken);
-  return db
-    .prepare(`SELECT id, name, ats, board_token, active FROM companies WHERE ats = ? AND board_token = ?`)
-    .get(ats, boardToken) as CompanyRow;
+export async function addCompany(name: string, ats: string, boardToken: string): Promise<CompanyRow> {
+  (await dbRun(`INSERT INTO companies (name, ats, board_token) VALUES (?, ?, ?)
+     ON CONFLICT (ats, board_token) DO UPDATE SET name = excluded.name, active = 1`, name, ats, boardToken));
+  return (await dbGet(`SELECT id, name, ats, board_token, active FROM companies WHERE ats = ? AND board_token = ?`, ats, boardToken)) as CompanyRow;
 }
 
 /*
@@ -83,14 +77,10 @@ export interface PostingCount {
  * the adapters write. Both are compared, so two companies sharing a name on
  * different systems stay apart.
  */
-export function companyPostings(id: number): PostingCount {
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) AS total, SUM(CASE WHEN ${TRACKED} THEN 1 ELSE 0 END) AS tracked
+export async function companyPostings(id: number): Promise<PostingCount> {
+  const row = (await dbGet(`SELECT COUNT(*) AS total, SUM(CASE WHEN ${TRACKED} THEN 1 ELSE 0 END) AS tracked
          FROM jobs j JOIN companies c ON c.name = j.company AND c.ats = j.source
-        WHERE c.id = ?`,
-    )
-    .get(id) as { total: number; tracked: number | null };
+        WHERE c.id = ?`, id)) as { total: number; tracked: number | null };
   return { total: row.total, tracked: row.tracked ?? 0 };
 }
 
@@ -115,42 +105,48 @@ export interface RemovalReport {
  * and drafts cascade, and losing those to a tidy-up is not a trade worth
  * making. They are counted in `kept` so the caller can say so.
  */
-export function removeCompany(id: number, withPostings = false): RemovalReport {
-  const before = companyPostings(id);
+export async function removeCompany(id: number, withPostings = false): Promise<RemovalReport> {
+  const before = await companyPostings(id);
 
-  const run = db.transaction(() => {
+  return tx(async () => {
     let deleted = 0;
     if (withPostings) {
-      deleted = db
-        .prepare(
-          `DELETE FROM jobs WHERE id IN (
+      deleted = (await dbRun(`DELETE FROM jobs WHERE id IN (
              SELECT j.id FROM jobs j JOIN companies c ON c.name = j.company AND c.ats = j.source
-              WHERE c.id = ? AND NOT (${TRACKED}))`,
-        )
-        .run(id).changes;
+              WHERE c.id = ? AND NOT (${TRACKED}))`, id)).changes;
     }
-    const removed = db.prepare(`DELETE FROM companies WHERE id = ?`).run(id).changes > 0;
+    const removed = (await dbRun(`DELETE FROM companies WHERE id = ?`, id)).changes > 0;
     return { removed, deleted, kept: before.total - deleted };
   });
-
-  return run();
 }
 
 /* ----------------------------------------------------------------------- jobs */
 
-const upsertJob = db.prepare(`
-  INSERT INTO jobs (source, source_job_id, company, title, location, remote, url, description, posted_at)
-  VALUES (@source, @sourceJobId, @company, @title, @location, @remote, @url, @description, @postedAt)
+/*
+  location_tokens is written here, beside the location it comes from.
+
+  Matching a place used to call JavaScript from inside SQLite. libSQL runs the
+  query on a server this process cannot reach into, so the parts a match needs
+  are worked out on the way in and matched with an ordinary LIKE. Any other
+  path that writes a job has to set this column too, or that job stops
+  matching any short place name.
+*/
+const UPSERT_JOB = `
+  INSERT INTO jobs (source, source_job_id, company, title, location, location_tokens,
+                    remote, url, description, posted_at)
+  VALUES (@source, @sourceJobId, @company, @title, @location, @locationTokens,
+          @remote, @url, @description, @postedAt)
   ON CONFLICT (source, source_job_id) DO UPDATE SET
-    company      = excluded.company,
-    title        = excluded.title,
-    location     = excluded.location,
-    remote       = excluded.remote,
-    url          = excluded.url,
-    description  = excluded.description,
-    posted_at    = excluded.posted_at,
-    last_seen_at = datetime('now')
-`);
+    company         = excluded.company,
+    title           = excluded.title,
+    location        = excluded.location,
+    location_tokens = excluded.location_tokens,
+    remote          = excluded.remote,
+    url             = excluded.url,
+    description     = excluded.description,
+    posted_at       = excluded.posted_at,
+    last_seen_at    = datetime('now')
+`;
 
 export interface UpsertResult {
   seen: number;
@@ -158,27 +154,32 @@ export interface UpsertResult {
 }
 
 /** Write postings to the database. Returns how many were new. */
-export const upsertJobs = db.transaction((jobs: SourceJob[]): UpsertResult => {
-  let inserted = 0;
-  for (const job of jobs) {
-    const before = db
-      .prepare(`SELECT 1 FROM jobs WHERE source = ? AND source_job_id = ?`)
-      .get(job.source, job.sourceJobId);
-    upsertJob.run({
-      source: job.source,
-      sourceJobId: job.sourceJobId,
-      company: job.company,
-      title: job.title,
-      location: job.location,
-      remote: job.remote ? 1 : 0,
-      url: job.url,
-      description: job.description,
-      postedAt: job.postedAt,
-    });
-    if (!before) inserted += 1;
-  }
-  return { seen: jobs.length, inserted };
-});
+export async function upsertJobs(jobs: SourceJob[]): Promise<UpsertResult> {
+  return tx(async () => {
+    let inserted = 0;
+    for (const job of jobs) {
+      const before = await dbGet(
+        `SELECT 1 FROM jobs WHERE source = ? AND source_job_id = ?`,
+        job.source,
+        job.sourceJobId,
+      );
+      await dbRun(UPSERT_JOB, {
+        source: job.source,
+        sourceJobId: job.sourceJobId,
+        company: job.company,
+        title: job.title,
+        location: job.location,
+        locationTokens: locationTokens(job.location),
+        remote: job.remote ? 1 : 0,
+        url: job.url,
+        description: job.description,
+        postedAt: job.postedAt,
+      });
+      if (!before) inserted += 1;
+    }
+    return { seen: jobs.length, inserted };
+  });
+}
 
 export interface JobFilter {
   titleAny?: string[];
@@ -202,9 +203,9 @@ export interface JobFilter {
 }
 
 /** Build the WHERE clause shared by searchJobs and countJobs. */
-function buildWhere(filter: JobFilter): { where: string[]; params: unknown[] } {
+function buildWhere(filter: JobFilter): { where: string[]; params: InValue[] } {
   const where: string[] = [];
-  const params: unknown[] = [];
+  const params: InValue[] = [];
 
   const anyLike = (column: string, needles: string[] | undefined, negate: boolean) => {
     if (!needles || needles.length === 0) return;
@@ -222,9 +223,25 @@ function buildWhere(filter: JobFilter): { where: string[]; params: unknown[] } {
   // it is in a place the person will work, or — when they are open to it — if
   // it is remote wherever it is based.
   if (filter.locationAny && filter.locationAny.length > 0) {
-    const clause = filter.locationAny.map(() => `loc_matches(j.location, ?) = 1`).join(" OR ");
-    for (const place of filter.locationAny) params.push(place);
-    where.push(filter.includeRemote ? `((${clause}) OR j.remote = 1)` : `(${clause})`);
+    /*
+      This was `loc_matches(j.location, ?) = 1`, a JavaScript function
+      registered on the SQLite connection. libSQL runs the query on a server
+      that cannot call into this process, so the same rule is expressed in SQL
+      instead: a long place name matches the location text, a short one
+      matches a stored token. `location-sql.test.mts` holds the two forms to
+      the same answers.
+    */
+    const clauses: string[] = [];
+    for (const place of filter.locationAny) {
+      const clause = locationClause(place);
+      if (!clause) continue;
+      clauses.push(clause.sql);
+      params.push(clause.param);
+    }
+    if (clauses.length > 0) {
+      const joined = clauses.join(" OR ");
+      where.push(filter.includeRemote ? `((${joined}) OR j.remote = 1)` : `(${joined})`);
+    }
   }
   // includeRemote only ever widens a place filter. With no place named the
   // search is already everywhere, and remote postings belong in it.
@@ -254,31 +271,26 @@ function buildWhere(filter: JobFilter): { where: string[]; params: unknown[] } {
 }
 
 /** How many postings match, ignoring the limit. */
-export function countJobs(filter: JobFilter = {}): number {
+export async function countJobs(filter: JobFilter = {}): Promise<number> {
   const { where, params } = buildWhere(filter);
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) AS n
+  const row = (await dbGet(`SELECT COUNT(*) AS n
          FROM jobs j
          LEFT JOIN applications a ON a.job_id = j.id
          LEFT JOIN job_assessments s ON s.job_id = j.id
          LEFT JOIN job_match m ON m.job_id = j.id
-        ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`,
-    )
-    .get(...params) as { n: number };
+        ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`, ...params)) as { n: number };
   return row.n;
 }
 
-export function searchJobs(filter: JobFilter = {}): JobWithStatus[] {
+export async function searchJobs(filter: JobFilter = {}): Promise<JobWithStatus[]> {
   const { where, params } = buildWhere(filter);
   const limit = Math.min(Math.max(filter.limit ?? 50, 1), 500);
 
-  return db
-    .prepare(
-      // The agent's own judgement wins where it exists; the keyword match
-      // orders the rest. Ties break on when the company posted the job, not on
-      // when this app happened to fetch it — fetch order is an artifact of the
-      // sync, and sorting by it looks like relevance while meaning nothing.
+  // The agent's own judgement wins where it exists; the keyword match orders
+  // the rest. Ties break on when the company posted the job, not on when this
+  // app happened to fetch it — fetch order is an artifact of the sync, and
+  // sorting by it looks like relevance while meaning nothing.
+  return (await dbAll(
       `SELECT j.*, a.status, s.fit_score, s.reasoning, s.model, m.score AS match_score
          FROM jobs j
          LEFT JOIN applications a ON a.job_id = j.id
@@ -288,33 +300,28 @@ export function searchJobs(filter: JobFilter = {}): JobWithStatus[] {
         ORDER BY COALESCE(s.fit_score, m.score, -1) DESC,
                  COALESCE(j.posted_at, j.first_seen_at) DESC
         LIMIT ?`,
-    )
-    .all(...params, limit) as JobWithStatus[];
+    ...(params as InValue[]),
+    limit,
+  )) as JobWithStatus[];
 }
 
-export function getJob(id: number): JobWithStatus | undefined {
-  return db
-    .prepare(
-      `SELECT j.*, a.status, s.fit_score, s.reasoning, s.model, m.score AS match_score
+export async function getJob(id: number): Promise<JobWithStatus | undefined> {
+  return (await dbGet(`SELECT j.*, a.status, s.fit_score, s.reasoning, s.model, m.score AS match_score
          FROM jobs j
          LEFT JOIN applications a ON a.job_id = j.id
          LEFT JOIN job_assessments s ON s.job_id = j.id
          LEFT JOIN job_match m ON m.job_id = j.id
-        WHERE j.id = ?`,
-    )
-    .get(id) as JobWithStatus | undefined;
+        WHERE j.id = ?`, id)) as JobWithStatus | undefined;
 }
 
-export function saveAssessment(jobId: number, fitScore: number, reasoning: string): void {
-  if (!getJob(jobId)) throw new Error(`No job with id ${jobId}`);
-  db.prepare(
-    `INSERT INTO job_assessments (job_id, fit_score, reasoning, assessed_at)
+export async function saveAssessment(jobId: number, fitScore: number, reasoning: string): Promise<void> {
+  if (!await getJob(jobId)) throw new Error(`No job with id ${jobId}`);
+  (await dbRun(`INSERT INTO job_assessments (job_id, fit_score, reasoning, assessed_at)
      VALUES (?, ?, ?, datetime('now'))
      ON CONFLICT (job_id) DO UPDATE SET
        fit_score = excluded.fit_score,
        reasoning = excluded.reasoning,
-       assessed_at = excluded.assessed_at`,
-  ).run(jobId, fitScore, reasoning);
+       assessed_at = excluded.assessed_at`, jobId, fitScore, reasoning));
 }
 
 /* --------------------------------------------------------------- applications */
@@ -332,59 +339,51 @@ export interface ApplicationRow {
   location: string | null;
 }
 
-export function listApplications(statuses?: string[]): ApplicationRow[] {
+export async function listApplications(statuses?: string[]): Promise<ApplicationRow[]> {
   const where =
     statuses && statuses.length > 0
       ? `WHERE a.status IN (${statuses.map(() => "?").join(", ")})`
       : "";
-  return db
-    .prepare(
-      `SELECT a.id, a.job_id, a.status, a.notes, a.applied_at, a.updated_at,
+  return (await dbAll(`SELECT a.id, a.job_id, a.status, a.notes, a.applied_at, a.updated_at,
               j.title, j.company, j.url, j.location
          FROM applications a
          JOIN jobs j ON j.id = a.job_id
         ${where}
-        ORDER BY a.updated_at DESC`,
-    )
-    .all(...(statuses ?? [])) as ApplicationRow[];
+        ORDER BY a.updated_at DESC`, ...(statuses ?? []))) as ApplicationRow[];
 }
 
 /** Start tracking a job. Idempotent: an existing application is returned unchanged. */
-export const trackJob = db.transaction((jobId: number, note?: string): ApplicationRow => {
-  if (!getJob(jobId)) throw new Error(`No job with id ${jobId}`);
-  const existing = db.prepare(`SELECT id FROM applications WHERE job_id = ?`).get(jobId) as
+export async function trackJob(jobId: number, note?: string): Promise<ApplicationRow> {
+  return tx(async () => {
+  if (!await getJob(jobId)) throw new Error(`No job with id ${jobId}`);
+  const existing = (await dbGet(`SELECT id FROM applications WHERE job_id = ?`, jobId)) as
     | { id: number }
     | undefined;
 
   if (!existing) {
-    const info = db
-      .prepare(`INSERT INTO applications (job_id, status, notes) VALUES (?, 'interested', ?)`)
-      .run(jobId, note ?? null);
-    db.prepare(
-      `INSERT INTO application_events (application_id, from_status, to_status, note)
-       VALUES (?, NULL, 'interested', ?)`,
-    ).run(info.lastInsertRowid, note ?? null);
+    const info = (await dbRun(`INSERT INTO applications (job_id, status, notes) VALUES (?, 'interested', ?)`, jobId, note ?? null));
+    (await dbRun(`INSERT INTO application_events (application_id, from_status, to_status, note)
+       VALUES (?, NULL, 'interested', ?)`, info.lastInsertRowid, note ?? null));
   }
-  return db
-    .prepare(
-      `SELECT a.id, a.job_id, a.status, a.notes, a.applied_at, a.updated_at,
+  return (await dbGet(`SELECT a.id, a.job_id, a.status, a.notes, a.applied_at, a.updated_at,
               j.title, j.company, j.url, j.location
-         FROM applications a JOIN jobs j ON j.id = a.job_id WHERE a.job_id = ?`,
-    )
-    .get(jobId) as ApplicationRow;
-});
+         FROM applications a JOIN jobs j ON j.id = a.job_id WHERE a.job_id = ?`, jobId)) as ApplicationRow;
+  });
+}
 
 /**
  * Move an application to a new status. Rejects a transition the status machine
  * does not allow, and records every accepted move in application_events.
  */
-export const setStatus = db.transaction(
-  (jobId: number, to: string, note?: string): ApplicationRow => {
+export async function setStatus(
+  jobId: number,
+  to: string,
+  note?: string,
+): Promise<ApplicationRow> {
+  return tx(async () => {
     if (!isStatus(to)) throw new Error(`"${to}" is not a known status`);
 
-    const current = db
-      .prepare(`SELECT id, status FROM applications WHERE job_id = ?`)
-      .get(jobId) as { id: number; status: Status } | undefined;
+    const current = (await dbGet(`SELECT id, status FROM applications WHERE job_id = ?`, jobId)) as { id: number; status: Status } | undefined;
 
     if (!current) {
       throw new Error(`Job ${jobId} is not tracked yet. Call track_job first.`);
@@ -400,83 +399,61 @@ export const setStatus = db.transaction(
       );
     }
 
-    db.prepare(
-      `UPDATE applications
+    (await dbRun(`UPDATE applications
           SET status = ?, updated_at = datetime('now'),
               applied_at = CASE WHEN ? = 'applied' AND applied_at IS NULL
                                 THEN datetime('now') ELSE applied_at END
-        WHERE id = ?`,
-    ).run(to, to, current.id);
+        WHERE id = ?`, to, to, current.id));
 
-    db.prepare(
-      `INSERT INTO application_events (application_id, from_status, to_status, note)
-       VALUES (?, ?, ?, ?)`,
-    ).run(current.id, current.status, to, note ?? null);
+    (await dbRun(`INSERT INTO application_events (application_id, from_status, to_status, note)
+       VALUES (?, ?, ?, ?)`, current.id, current.status, to, note ?? null));
 
     return listApplicationByJob(jobId);
-  },
-);
-
-function listApplicationByJob(jobId: number): ApplicationRow {
-  return db
-    .prepare(
-      `SELECT a.id, a.job_id, a.status, a.notes, a.applied_at, a.updated_at,
-              j.title, j.company, j.url, j.location
-         FROM applications a JOIN jobs j ON j.id = a.job_id WHERE a.job_id = ?`,
-    )
-    .get(jobId) as ApplicationRow;
+  });
 }
 
-export function applicationHistory(jobId: number) {
-  return db
-    .prepare(
-      `SELECT e.from_status, e.to_status, e.note, e.at
+async function listApplicationByJob(jobId: number): Promise<ApplicationRow> {
+  return (await dbGet(`SELECT a.id, a.job_id, a.status, a.notes, a.applied_at, a.updated_at,
+              j.title, j.company, j.url, j.location
+         FROM applications a JOIN jobs j ON j.id = a.job_id WHERE a.job_id = ?`, jobId)) as ApplicationRow;
+}
+
+export async function applicationHistory(jobId: number) {
+  return (await dbAll(`SELECT e.from_status, e.to_status, e.note, e.at
          FROM application_events e
          JOIN applications a ON a.id = e.application_id
-        WHERE a.job_id = ? ORDER BY e.at`,
-    )
-    .all(jobId);
+        WHERE a.job_id = ? ORDER BY e.at`, jobId));
 }
 
 /* -------------------------------------------------------------- conversations */
 
-export function createConversation(title?: string): number {
+export async function createConversation(title?: string): Promise<number> {
   return Number(
-    db.prepare(`INSERT INTO conversations (title) VALUES (?)`).run(title ?? null).lastInsertRowid,
+    (await dbRun(`INSERT INTO conversations (title) VALUES (?)`, title ?? null)).lastInsertRowid,
   );
 }
 
-export function getSdkSessionId(conversationId: number): string | null {
-  const row = db
-    .prepare(`SELECT sdk_session_id FROM conversations WHERE id = ?`)
-    .get(conversationId) as { sdk_session_id: string | null } | undefined;
+export async function getSdkSessionId(conversationId: number): Promise<string | null> {
+  const row = (await dbGet(`SELECT sdk_session_id FROM conversations WHERE id = ?`, conversationId)) as { sdk_session_id: string | null } | undefined;
   return row?.sdk_session_id ?? null;
 }
 
-export function setSdkSessionId(conversationId: number, sessionId: string): void {
-  db.prepare(
-    `UPDATE conversations SET sdk_session_id = ?, updated_at = datetime('now') WHERE id = ?`,
-  ).run(sessionId, conversationId);
+export async function setSdkSessionId(conversationId: number, sessionId: string): Promise<void> {
+  (await dbRun(`UPDATE conversations SET sdk_session_id = ?, updated_at = datetime('now') WHERE id = ?`, sessionId, conversationId));
 }
 
-export function addMessage(conversationId: number, role: "user" | "assistant", content: string) {
-  db.prepare(`INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)`).run(
-    conversationId,
+export async function addMessage(conversationId: number, role: "user" | "assistant", content: string) {
+  (await dbRun(`INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)`, conversationId,
     role,
-    content,
-  );
+    content));
 }
 
-export function listMessages(conversationId: number) {
-  return db
-    .prepare(`SELECT role, content, at FROM messages WHERE conversation_id = ? ORDER BY id`)
-    .all(conversationId);
+export async function listMessages(conversationId: number) {
+  return (await dbAll(`SELECT role, content, at FROM messages WHERE conversation_id = ? ORDER BY id`, conversationId));
 }
 
-export function stats() {
-  const jobs = db.prepare(`SELECT COUNT(*) AS n FROM jobs`).get() as { n: number };
-  const byStatus = db
-    .prepare(`SELECT status, COUNT(*) AS n FROM applications GROUP BY status`)
-    .all() as { status: string; n: number }[];
+export async function stats() {
+  const jobs = (await dbGet(`SELECT COUNT(*) AS n FROM jobs`)) as { n: number };
+  const byStatus = (await dbAll(`SELECT status, COUNT(*) AS n FROM applications GROUP BY status`)) as { status: string; n: number }[];
   return { jobs: jobs.n, byStatus };
 }

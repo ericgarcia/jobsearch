@@ -26,7 +26,7 @@ const getProfile = tool(
   "get_profile",
   "Read the whole stored profile: contact details, roles, the bullets under each role, education and skills. Every bullet carries the id you need to put it on a resume.",
   {},
-  async () => guard(() => profile.fullProfile()),
+  async () => guard(async () => await profile.fullProfile()),
   { annotations: { readOnlyHint: true } },
 );
 
@@ -45,8 +45,8 @@ const updateProfile = tool(
     links: z.array(z.string()).optional().describe("Profile URLs, for example GitHub or a site"),
   },
   async (args) =>
-    guard(() =>
-      profile.updateProfile({
+    guard(async () =>
+      await profile.updateProfile({
         ...args,
         links: args.links ? JSON.stringify(args.links) : undefined,
       }),
@@ -65,7 +65,7 @@ const addRole = tool(
     summary: z.string().optional().describe("One line on what the role was"),
     sort_order: z.number().int().optional().describe("0 is the most recent role"),
   },
-  async (args) => guard(() => profile.addRole(args as never)),
+  async (args) => guard(async () => profile.addRole(args as never)),
 );
 
 const updateRole = tool(
@@ -81,14 +81,14 @@ const updateRole = tool(
     summary: z.string().optional(),
     sort_order: z.number().int().optional(),
   },
-  async ({ role_id, ...patch }) => guard(() => profile.updateRole(role_id, patch)),
+  async ({ role_id, ...patch }) => guard(async () => await profile.updateRole(role_id, patch)),
 );
 
 const deleteRole = tool(
   "delete_role",
   "Remove a role and every bullet under it. Ask the person before calling this.",
   { role_id: z.number().int() },
-  async (args) => guard(() => ({ removed: profile.deleteRole(args.role_id) })),
+  async (args) => guard(async () => ({ removed: await profile.deleteRole(args.role_id) })),
   { annotations: { destructiveHint: true } },
 );
 
@@ -100,7 +100,7 @@ const addBullet = tool(
     text: z.string().describe("One concrete achievement, in the person's own terms"),
     skills: z.array(z.string()).optional().describe("Skills this evidences, for matching later"),
   },
-  async (args) => guard(() => profile.addBullet(args.role_id, args.text, args.skills ?? [])),
+  async (args) => guard(async () => await profile.addBullet(args.role_id, args.text, args.skills ?? [])),
 );
 
 const updateBullet = tool(
@@ -111,14 +111,14 @@ const updateBullet = tool(
     text: z.string().optional(),
     skills: z.array(z.string()).optional(),
   },
-  async (args) => guard(() => profile.updateBullet(args.bullet_id, args.text, args.skills)),
+  async (args) => guard(async () => await profile.updateBullet(args.bullet_id, args.text, args.skills)),
 );
 
 const deleteBullet = tool(
   "delete_bullet",
   "Remove a stored fact. Ask the person before calling this.",
   { bullet_id: z.number().int() },
-  async (args) => guard(() => ({ removed: profile.deleteBullet(args.bullet_id) })),
+  async (args) => guard(async () => ({ removed: await profile.deleteBullet(args.bullet_id) })),
   { annotations: { destructiveHint: true } },
 );
 
@@ -133,7 +133,7 @@ const addEducation = tool(
     end_date: z.string().optional(),
     note: z.string().optional(),
   },
-  async (args) => guard(() => profile.addEducation(args as never)),
+  async (args) => guard(async () => await profile.addEducation(args as never)),
 );
 
 const addSkill = tool(
@@ -144,7 +144,7 @@ const addSkill = tool(
     category: z.string().optional().describe("For example 'languages' or 'infrastructure'"),
     years: z.number().int().optional(),
   },
-  async (args) => guard(() => profile.addSkill(args.name, args.category, args.years)),
+  async (args) => guard(async () => await profile.addSkill(args.name, args.category, args.years)),
 );
 
 /* ---------------------------------------------------------------- tailoring */
@@ -172,8 +172,8 @@ const draftResume = tool(
       .describe("The lines, in the order they should appear"),
   },
   async (args) =>
-    guard(() => {
-      const result = resume.draftResume({
+    guard(async () => {
+      const result = await resume.draftResume({
         jobId: args.job_id,
         label: args.label,
         summary: args.summary,
@@ -193,7 +193,7 @@ const getResume = tool(
   "get_resume",
   "Read a drafted resume: every line, the fact it came from, and any warning.",
   { resume_id: z.number().int() },
-  async (args) => guard(() => resume.getResume(args.resume_id)),
+  async (args) => guard(async () => await resume.getResume(args.resume_id)),
   { annotations: { readOnlyHint: true } },
 );
 
@@ -201,7 +201,7 @@ const listResumes = tool(
   "list_resumes",
   "List drafted resumes, newest first.",
   { job_id: z.number().int().optional().describe("Limit to drafts for this posting") },
-  async (args) => guard(() => resume.listResumes(args.job_id)),
+  async (args) => guard(async () => await resume.listResumes(args.job_id)),
   { annotations: { readOnlyHint: true } },
 );
 
@@ -209,7 +209,7 @@ const renderResume = tool(
   "render_resume",
   "Render a drafted resume as Markdown, ready to show the person or export.",
   { resume_id: z.number().int() },
-  async (args) => guard(() => ({ markdown: resume.renderMarkdown(args.resume_id) })),
+  async (args) => guard(async () => ({ markdown: await resume.renderMarkdown(args.resume_id) })),
   { annotations: { readOnlyHint: true } },
 );
 
@@ -220,7 +220,7 @@ const draftCoverLetter = tool(
     job_id: z.number().int(),
     body: z.string().describe("The letter itself, ready to send"),
   },
-  async (args) => guard(() => resume.saveCoverLetter(args.job_id, args.body)),
+  async (args) => guard(async () => await resume.saveCoverLetter(args.job_id, args.body)),
 );
 
 export const profileTools = [
