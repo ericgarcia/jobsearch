@@ -151,6 +151,49 @@ export async function openSplit(appUrl: string, stageUrl = "about:blank"): Promi
   return command({ type: "split-pilot:adopt" });
 }
 
+/**
+ * Open a tab showing `url`, for the app to adopt as its pane.
+ *
+ * Playwright opens it, not the extension and not the browser, and that is
+ * the whole point of the round trip: a tab the bridge did not open is one
+ * the assistant can watch and never touch, so "open this posting" would
+ * give a pane it cannot read. The adopting is left to the page, because
+ * only the extension can tell which tab is asking and a page cannot know
+ * its own tab id.
+ */
+let opening: Promise<{ opened: boolean }> | null = null;
+let openedAt = 0;
+
+/** A stage opened this recently is the one everybody should be adopting. */
+const STAGE_IS_FRESH_MS = 5000;
+
+export async function openStageAt(url: string): Promise<{ opened: boolean }> {
+  /*
+    One stage at a time, however many tabs ask.
+
+    Each app tab throttles only its own asking, because a page cannot see
+    what another tab is doing. Four requests arrived in five seconds during
+    testing and each opened a tab — which is where the stray about:blank
+    tabs came from. The server is the only place that can see all of them.
+  */
+  if (opening) return opening;
+  if (Date.now() - openedAt < STAGE_IS_FRESH_MS) return { opened: true };
+
+  opening = (async () => {
+    await closeOrphanedStages();
+    const opened = await callBrowser("browser_tabs", { action: "new", url });
+    if (opened.isError === true) throw new Error(text(opened));
+    return { opened: true };
+  })();
+
+  try {
+    return await opening;
+  } finally {
+    opening = null;
+    openedAt = Date.now();
+  }
+}
+
 /** Where the two tabs are, as the extension sees them. */
 export async function splitState(): Promise<string> {
   return command({ type: "split-pilot:state" });

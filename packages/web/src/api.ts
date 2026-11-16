@@ -373,6 +373,18 @@ export const api = {
 
   prefs: () => json<{ home_location: string | null }>("/api/prefs"),
 
+  /**
+   * Have the server open a page for this tab to adopt as its pane.
+   *
+   * Playwright opens it rather than the browser or the extension, so the
+   * assistant can drive what it shows. The page adopts it afterwards.
+   */
+  openStage: (url: string) =>
+    json<{ opened: boolean }>("/api/split/open", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    }),
+
 
   setHomeLocation: (place: string) =>
     json<{ home_location: string | null }>("/api/prefs", {

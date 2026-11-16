@@ -20,6 +20,7 @@ import { getInterests, setInterests } from "./interests.js";
 import { assessTopJobs, ASSESS_MODEL } from "./assess.js";
 import { browserEnabled, runAgent, verifyCredential } from "./agent/session.js";
 import { APP_URL, SPLIT_EXTENSION_ID } from "./config.js";
+import { openStageAt } from "./agent/split.js";
 import { pdfFilename, renderPdf } from "./layout/pdf.js";
 import { changed, onChange } from "./notify.js";
 import { clearState, reportState } from "./appState.js";
@@ -248,6 +249,30 @@ app.post("/api/assess", async (request, reply) => {
 app.post("/api/sync", async (request) => {
   const body = (request.body ?? {}) as { companies?: string[] };
   return await syncBoards(body.companies);
+});
+
+/* ------------------------------------------------------------------- split */
+
+/**
+ * Open a page as the pane beside the app.
+ *
+ * The app asks when someone clicks a link in it and there is no pane yet.
+ * Playwright opens the tab, here, so the assistant can drive what it shows;
+ * the app then adopts it through the extension, which is the only party that
+ * can tell which tab asked.
+ */
+app.post("/api/split/open", async (request, reply) => {
+  if (!browserEnabled) return reply.code(409).send({ error: "The browser is switched off." });
+  const url = ((request.body ?? {}) as { url?: string }).url;
+  if (typeof url !== "string" || !/^https?:\/\//.test(url)) {
+    return reply.code(400).send({ error: "an http or https url is required" });
+  }
+  try {
+    return await openStageAt(url);
+  } catch (error) {
+    // A link that cannot be arranged still has to open. The page falls back.
+    return reply.code(503).send({ error: (error as Error).message });
+  }
 });
 
 /* --------------------------------------------------------------- app state */

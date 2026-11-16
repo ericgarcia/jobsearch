@@ -17,7 +17,7 @@ import { LayoutEditor } from "./components/LayoutEditor.tsx";
 import { Projects } from "./components/Projects.tsx";
 import { useReportState } from "./reportState.ts";
 import { Boards } from "./components/Boards.tsx";
-import { splitInstalled, syncToken } from "./split.ts";
+import { adoptStage, routeToPane, splitInstalled, syncToken } from "./split.ts";
 import { ResumeView } from "./components/ResumeView.tsx";
 import { CoverLetter } from "./components/CoverLetter.tsx";
 
@@ -114,6 +114,68 @@ export function App() {
     setOpenLetter(null);
   }
 
+
+  /*
+    The app's own links go in the pane beside it.
+
+    This used to be left to the extension, which catches a click in any page
+    and routes it — but only in a tab it already knows as the left of a pair,
+    and there is no pair until something opens. The fallback for that, a new
+    tab arriving with an opener, does not fire either: these links carry
+    rel="noreferrer", which implies noopener, so Chrome gives the new tab no
+    opener at all and the posting landed in a tab of its own. A link's
+    privacy attribute is not something to drop to make an arrangement work,
+    so the app routes its own links and depends on neither.
+
+    Only links leaving this origin. The app's own routes — a rendered resume,
+    say — behave as they always did.
+  */
+  useEffect(() => {
+    if (!splitId || !hasSplit) return;
+
+    const onClick = (event: MouseEvent) => {
+      /*
+        Modifier clicks included, to match what the extension does once a
+        pane exists. Otherwise cmd-click would open a tab before the pane
+        was there and land in the pane afterwards, which is the kind of
+        inconsistency nobody can learn.
+      */
+      if (event.defaultPrevented || event.button !== 0) return;
+      const anchor = (event.target as Element | null)?.closest?.("a[href]");
+      if (!(anchor instanceof HTMLAnchorElement)) return;
+
+      let href: URL;
+      try {
+        href = new URL(anchor.href, window.location.href);
+      } catch {
+        return;
+      }
+      if (href.origin === window.location.origin) return;
+      if (href.protocol !== "http:" && href.protocol !== "https:") return;
+
+      event.preventDefault();
+      void (async () => {
+        /*
+          The pane first, because that is the usual case and it is one
+          message. Only when there is no pane does this cost a round trip to
+          the server, which is the only party that can open a tab the
+          assistant will also be able to drive.
+        */
+        if (await routeToPane(splitId, href.href)) return;
+        try {
+          await api.openStage(href.href);
+          await adoptStage(splitId);
+        } catch {
+          // No arrangement to be had — the browser is off, or Playwright is
+          // not there. Open it the ordinary way rather than losing the click.
+          window.open(href.href, "_blank", "noreferrer");
+        }
+      })();
+    };
+
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
+  }, [splitId, hasSplit]);
 
   /*
     Nothing here puts the panes back.

@@ -99,6 +99,18 @@ export async function adoptStage(id: string): Promise<void> {
   await ask(id, { type: "split-pilot:adopt" });
 }
 
+/**
+ * Show a URL in the pane beside the app.
+ *
+ * Answers false when there is no pane yet, which is the app's cue to have
+ * one opened and adopt it.
+ */
+export async function routeToPane(id: string | null, url: string): Promise<boolean> {
+  if (!id) return false;
+  const reply = await ask<{ routed: boolean }>(id, { type: "split-pilot:open", url });
+  return reply?.routed === true;
+}
+
 /* -------------------------------------------------------------- threads */
 
 /**
