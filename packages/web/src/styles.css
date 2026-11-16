@@ -81,8 +81,16 @@ a { color: var(--accent); }
 */
 .app { display: flex; height: 100%; min-width: 0; }
 
+/*
+  Half the window by default, matching Chrome's split, which is always half
+  and cannot be told otherwise. The app and the split then look like the
+  same app rather than two layouts.
+
+  min and max in CSS rather than in the drag: they then hold when the window
+  is resized too, which is the case no drag handler ever sees.
+*/
 .messaging {
-  flex: none; width: 340px; min-width: 0;
+  flex: none; width: 50%; min-width: 240px; max-width: 75%;
   display: flex; flex-direction: column;
   border-right: 1px solid var(--line); background: var(--bg-raised);
 }
@@ -115,7 +123,7 @@ a { color: var(--accent); }
   display:none, not unmounted: see App.tsx.
 */
 .app.split .canvas { display: none; }
-.app.split .messaging { flex: 1; width: auto; border-right: 0; }
+.app.split .messaging { flex: 1; width: auto; min-width: 0; max-width: none; border-right: 0; }
 /*
   A full window of prose is a bad read. The column stays a column; in a real
   split there is rarely slack to take, and this only matters when there is.

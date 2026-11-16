@@ -81,38 +81,47 @@ interface Workspace {
 const TABS: Tab[] = ["jobs", "applications", "drafts", "profile", "projects", "design", "boards"];
 
 /*
-  How wide the assistant's column is.
+  How wide the assistant's column is, as a share of the window.
 
-  Kept in the browser rather than with the person's data: it describes this
-  screen, and the same account on a laptop and a large monitor wants two
-  different answers. Chrome's own split cannot be sized by an extension at
-  all — createSplit takes two tab ids and nothing else — so this is the one
-  width there is any point in remembering.
+  A proportion rather than a number of pixels, for two reasons. Chrome's
+  split is always half the window and cannot be told otherwise — createSplit
+  takes two tab ids and nothing else, and a dragged divider snaps back to
+  half on the next split — so half is what the app matches by default, and
+  the two views look like the same app. And a share survives a window being
+  resized: a column pinned at 340px is a third of a laptop and a tenth of a
+  large monitor, which is not one layout but two.
+
+  Kept in the browser, because it describes this screen rather than the
+  person.
 */
-const WIDTH_KEY = "jobsearch:messaging-width";
-const WIDTH_DEFAULT = 340;
-const WIDTH_MIN = 260;
+const SHARE_KEY = "jobsearch:messaging-share";
+const SHARE_DEFAULT = 0.5;
+const SHARE_MIN = 0.2;
+const SHARE_MAX = 0.75;
 
-/** Never past half the window, and never wider than a column of prose needs. */
-function sensibleWidth(px: number): number {
-  const most = Math.max(WIDTH_MIN, Math.min(760, Math.round(window.innerWidth * 0.6)));
-  return Math.round(Math.min(most, Math.max(WIDTH_MIN, px)));
+function sensibleShare(share: number): number {
+  return Math.min(SHARE_MAX, Math.max(SHARE_MIN, share));
 }
 
-function rememberWidth(px: number): void {
+/** What a drag to this x means, as a share of the window. */
+function shareAt(x: number): number {
+  return sensibleShare(x / Math.max(1, window.innerWidth));
+}
+
+function rememberShare(share: number): void {
   try {
-    window.localStorage.setItem(WIDTH_KEY, String(px));
+    window.localStorage.setItem(SHARE_KEY, share.toFixed(4));
   } catch {
     // The column is the width they dragged it to until the next reload.
   }
 }
 
-function storedWidth(): number {
+function storedShare(): number {
   try {
-    const kept = Number(window.localStorage.getItem(WIDTH_KEY));
-    return Number.isFinite(kept) && kept > 0 ? sensibleWidth(kept) : WIDTH_DEFAULT;
+    const kept = Number(window.localStorage.getItem(SHARE_KEY));
+    return Number.isFinite(kept) && kept > 0 ? sensibleShare(kept) : SHARE_DEFAULT;
   } catch {
-    return WIDTH_DEFAULT;
+    return SHARE_DEFAULT;
   }
 }
 
@@ -188,7 +197,7 @@ export function App() {
   */
   const [inSplit, setInSplit] = useState(false);
 
-  const [width, setWidth] = useState(storedWidth);
+  const [share, setShare] = useState(storedShare);
 
   /*
     A drag reads its own state, not React's.
@@ -201,11 +210,11 @@ export function App() {
     the value as it is now, not as it was at the last paint.
   */
   const dragging = useRef(false);
-  const widthNow = useRef(width);
+  const shareNow = useRef(share);
 
-  const resize = (px: number) => {
-    widthNow.current = px;
-    setWidth(px);
+  const resize = (next: number) => {
+    shareNow.current = next;
+    setShare(next);
   };
 
   /** The open conversation. The workspace below belongs to it. */
@@ -594,7 +603,16 @@ export function App() {
         The assistant is the left column and stays put. Everything else is
         the canvas, which gives way when a site opens beside it.
       */}
-      <aside className="messaging" style={inSplit ? undefined : { width }}>
+      {/*
+        A percentage, so the browser keeps the proportion as the window
+        changes size. Doing it in JavaScript would mean a resize listener
+        recomputing what CSS already knows, and a column that lags the drag
+        of a window edge.
+      */}
+      <aside
+        className="messaging"
+        style={inSplit ? undefined : { width: `${(share * 100).toFixed(3)}%` }}
+      >
         {/*
           The logo gives the window back to the app.
 
@@ -661,7 +679,7 @@ export function App() {
           onPointerMove={(event) => {
             if (!dragging.current) return;
             // The column starts at the left edge, so the pointer's x is it.
-            resize(sensibleWidth(event.clientX));
+            resize(shareAt(event.clientX));
           }}
           onPointerUp={(event) => {
             try {
@@ -670,19 +688,21 @@ export function App() {
               // It was never captured.
             }
             dragging.current = false;
-            rememberWidth(widthNow.current);
+            rememberShare(shareNow.current);
           }}
           onKeyDown={(event) => {
-            const step = event.shiftKey ? 48 : 12;
             if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
             event.preventDefault();
-            const next = sensibleWidth(widthNow.current + (event.key === "ArrowLeft" ? -step : step));
+            // A step in pixels, so a key press moves the edge the same
+            // distance whatever the window is doing.
+            const step = (event.shiftKey ? 48 : 12) / Math.max(1, window.innerWidth);
+            const next = sensibleShare(shareNow.current + (event.key === "ArrowLeft" ? -step : step));
             resize(next);
-            rememberWidth(next);
+            rememberShare(next);
           }}
           onDoubleClick={() => {
-            resize(WIDTH_DEFAULT);
-            rememberWidth(WIDTH_DEFAULT);
+            resize(SHARE_DEFAULT);
+            rememberShare(SHARE_DEFAULT);
           }}
         />
       )}
