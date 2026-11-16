@@ -200,13 +200,41 @@ export const browserTools = [
   ),
   tool(
     "browser_tabs",
-    "List the browser tabs, or select one. Avoid opening or closing tabs: the person has one tab paired beside this app.",
+    "List the browser tabs, or select one. Use browser_close_tab to close one, and leave the rest of the window alone: these are the person's own tabs.",
     {
       action: z.enum(["list", "select"]).describe("list, or select an existing tab"),
       index: z.number().int().optional().describe("Tab index, for select"),
     },
     pass("browser_tabs"),
     { annotations: { readOnlyHint: true } },
+  ),
+  /*
+    Closing is its own tool, not another action on the one above.
+
+    That one is marked read-only, which listing and selecting very nearly
+    are. Closing a tab is not, and hiding it inside a tool that claims to be
+    would mean the one call here that destroys something is also the one
+    nothing stops to ask about.
+  */
+  tool(
+    "browser_close_tab",
+    "Close one browser tab, by the index browser_tabs list shows. These are the person's own tabs, open for their own reasons: close one you opened and were asked to clean up, or one the person asked you to close, and nothing else. Closing the tab paired beside the app takes the split apart and loses what was in it. List the tabs first — an index moves whenever a tab opens or closes — and say which page you are closing before you close it.",
+    {
+      index: z
+        .number()
+        .int()
+        .describe("Tab index from browser_tabs list. NOT a Chrome tab id, and not a pane index."),
+    },
+    async (args) => {
+      const result = await forward("browser_tabs", { action: "close", index: args.index });
+      return {
+        content: (result.content ?? []).map((block) => ({
+          type: "text" as const,
+          text: block.text ?? "",
+        })),
+        ...(result.isError ? { isError: true } : {}),
+      };
+    },
   ),
   tool(
     "browser_wait_for",
