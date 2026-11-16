@@ -86,6 +86,48 @@ export interface SyncReport {
   error?: string;
 }
 
+
+/* ------------------------------------------------------------- layouts */
+
+export interface TokenDef {
+  type: "color" | "length" | "number" | "enum";
+  surfaces: ("profile" | "resume")[];
+  values?: string[];
+  min?: number;
+  max?: number;
+  note: string;
+}
+
+export interface Vocabulary {
+  tokens: Record<string, TokenDef>;
+  defaults: Record<"profile" | "resume", Record<string, string>>;
+  sections: { kind: string; note: string }[];
+  page: { width: string; height: string };
+}
+
+export interface LayoutSection {
+  kind: string;
+  visible: boolean;
+  heading: string | null;
+  options: {
+    showProjects?: boolean;
+    maxBullets?: number;
+    hideDates?: boolean;
+    grouped?: boolean;
+    contact?: string[];
+  };
+}
+
+export interface Layout {
+  id: number;
+  surface: "profile" | "resume";
+  name: string;
+  spec: { sections: LayoutSection[] };
+  tokens: Record<string, string>;
+  is_default: number;
+  updated_at: string;
+}
+
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -244,6 +286,20 @@ export const api = {
       `/api/companies/${id}?postings=${withPostings ? "delete" : "keep"}`,
       { method: "DELETE" },
     ),
+
+  vocabulary: () => json<Vocabulary>("/api/layout/vocabulary"),
+
+  layouts: (surface?: "profile" | "resume") =>
+    json<Layout[]>(`/api/layouts${surface ? `?surface=${surface}` : ""}`),
+
+  /*
+    One call for both halves of an edit, because they are one edit. Moving a
+    section and recolouring a heading are the same gesture to the person
+    doing it, and two requests would mean two renders and a visible flicker
+    between them.
+  */
+  saveLayout: (id: number, patch: { spec?: unknown; tokens?: Record<string, string>; name?: string }) =>
+    json<Layout>(`/api/layouts/${id}`, { method: "PUT", body: JSON.stringify(patch) }),
 
   prefs: () => json<{ home_location: string | null }>("/api/prefs"),
 

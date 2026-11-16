@@ -372,3 +372,159 @@ button.tiny { padding: 1px 6px; font-size: 11px; }
   padding: 0 4px;
   line-height: 1;
 }
+
+/* ------------------------------------------------------- layout editor */
+/*
+  Controls on the left, the document on the right, at its real size. The
+  preview is the point of the screen: it gets the room, and the controls get
+  a column narrow enough that nobody mistakes them for the thing being made.
+*/
+.layout-editor {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .layout-editor { grid-template-columns: 1fr; }
+}
+
+.editor-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: calc(100vh - 190px);
+  overflow-y: auto;
+  padding-right: 6px;
+}
+.editor-controls h3 {
+  margin: 10px 0 2px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+.editor-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-faint);
+  line-height: 1.5;
+}
+
+/*
+  The app sets `input { width: 100% }` for its form fields, which is right
+  for a text box and wrong for a checkbox: in a flex row the box stretched
+  and pushed its own label to the far side. Checkboxes here size themselves.
+*/
+.layout-editor input[type="checkbox"] {
+  width: auto;
+  flex: none;
+  margin: 0;
+  padding: 0;
+}
+.layout-editor input[type="range"],
+.layout-editor input[type="color"] {
+  padding: 0;
+  border-radius: 3px;
+}
+
+.surface-switch {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.surface-switch button {
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+}
+.surface-switch button[aria-selected="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.saving { margin-left: auto; font-size: 11px; color: var(--text-faint); }
+
+.section-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.section-row {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  background: var(--bg-raised);
+}
+.section-off { opacity: 0.55; }
+.section-main { display: flex; align-items: center; gap: 8px; }
+.section-toggle { display: flex; align-items: center; gap: 7px; flex: 1; cursor: pointer; }
+.section-kind { font-size: 13px; text-transform: capitalize; }
+.section-move { display: flex; gap: 2px; }
+.section-move button { padding: 0 5px; line-height: 1.4; }
+
+.section-heading-input {
+  width: 100%;
+  margin-top: 5px;
+  padding: 3px 6px;
+  font-size: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text);
+}
+.section-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.section-options label { display: flex; align-items: center; gap: 4px; }
+.bullets-cap input { width: 48px; padding: 1px 4px; background: var(--bg-input); color: var(--text);
+  border: 1px solid var(--line-soft); border-radius: var(--radius); }
+
+.token-group { display: flex; flex-direction: column; gap: 5px; }
+.token {
+  display: grid;
+  grid-template-columns: 94px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+/* A token the person has changed is marked, so "what did I touch?" is visible. */
+.token-set .token-name { color: var(--accent); }
+.token-name { color: var(--text-dim); cursor: help; }
+.token-color { display: flex; align-items: center; gap: 6px; }
+.token-color input { width: 34px; height: 22px; padding: 0; border: 1px solid var(--line); background: none; }
+.token-range { display: flex; align-items: center; gap: 7px; }
+.token-range input { flex: 1; min-width: 0; }
+.token code { font-family: var(--mono); font-size: 10px; color: var(--text-faint); min-width: 52px; }
+.token select {
+  padding: 2px 4px; font-size: 12px; background: var(--bg-input); color: var(--text);
+  border: 1px solid var(--line-soft); border-radius: var(--radius);
+}
+.token-reset { padding: 0 3px; line-height: 1; color: var(--text-faint); }
+.token-reset:disabled { opacity: 0.25; }
+
+.editor-preview {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg-raised);
+}
+.preview-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.preview-bar .warn { color: var(--warn); }
+.editor-preview iframe {
+  display: block;
+  width: 100%;
+  height: calc(100vh - 230px);
+  border: 0;
+  background: #fff;
+}
