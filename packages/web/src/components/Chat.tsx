@@ -197,7 +197,7 @@ export function Chat({ onDataChanged }: { onDataChanged: () => void }) {
   const here = threads.find((thread) => thread.id === threadId);
 
   return (
-    <div className="chat" style={{ height: 260 }}>
+    <div className="chat">
       <div className="chat-head">
         <button className="ghost" onClick={() => setListOpen((was) => !was)}>
           {listOpen ? "▾" : "▸"} Threads ({threads.length})

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   api,
   type Application,
@@ -48,6 +48,54 @@ export function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [stats, setStats] = useState<{ jobs: number } | null>(null);
   const [surface, setSurface] = useState<string | null>(null);
+
+  /*
+    Whether this window is a split with a site in the other half.
+
+    While it is, the left pane is the whole app, and the only thing worth
+    putting in half a window next to a job posting is the assistant. So the
+    canvas — tabs, lists, editors — steps aside, and comes back when the
+    split does.
+
+    The extension says so. The page cannot work it out for itself: a narrow
+    window is not a split, and asking would mean asking forever, because
+    nothing else announces that the arrangement changed.
+  */
+  const [inSplit, setInSplit] = useState(false);
+
+  /*
+    The canvas is hidden, never unmounted.
+
+    Unmounting it would throw away every open editor, every half-written
+    field and the place you had scrolled to, and rebuild all of it on the way
+    back — for a column that is coming back in a few seconds. Hiding keeps
+    the state; the scroll position is the one part hiding does not keep, so
+    it is kept here.
+  */
+  const scroller = useRef<HTMLDivElement>(null);
+  const scrolledTo = useRef(0);
+
+  useLayoutEffect(() => {
+    // Restoring in a layout effect, before the browser paints: set after the
+    // paint and the column flashes at the top before jumping down.
+    if (!inSplit && scroller.current) scroller.current.scrollTop = scrolledTo.current;
+  }, [inSplit]);
+
+  /*
+    The extension pushes the arrangement whenever it changes, to every tab
+    that has its content script — which is how this page hears about a split
+    it did not ask for, and about one taken apart from the extension's popup.
+  */
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== window) return;
+      const data = event.data as { type?: string; role?: string | null; split?: boolean } | null;
+      if (data?.type !== "split-pilot:role") return;
+      setInSplit(data.role === "left" && data.split === true);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
 
   /*
     Tell the server what is on screen, so the agent can resolve "this one"
@@ -280,11 +328,20 @@ export function App() {
   const statuses = health?.statuses ?? [];
 
   return (
-    <div className="app">
-      <header className="header">
+    <div className={`app${inSplit ? " split" : ""}`}>
+      {/*
+        The assistant is the left column and stays put. Everything else is
+        the canvas, which gives way when a site opens beside it.
+      */}
+      <aside className="messaging">
         <div className="brand">
           job<span>search</span>
         </div>
+        <Chat onDataChanged={loadData} />
+      </aside>
+
+      <div className="canvas" aria-hidden={inSplit || undefined}>
+      <header className="header">
         <div className="spacer" />
         <div className="counts">{stats ? `${stats.jobs} postings` : ""}</div>
         <button onClick={() => void sync()} disabled={syncing || assessing}>
@@ -375,7 +432,15 @@ export function App() {
       )}
 
       <div className="body-wrap">
-        <div className="scroll">
+        <div
+          className="scroll"
+          ref={scroller}
+          onScroll={(event) => {
+            // Remembered as it happens. Read on the way out instead and the
+            // answer is zero: by then the column is display:none.
+            scrolledTo.current = event.currentTarget.scrollTop;
+          }}
+        >
           {tab === "projects" ? (
             <Projects />
           ) : tab === "design" ? (
@@ -475,8 +540,7 @@ export function App() {
           />
         )}
       </div>
-
-      <Chat onDataChanged={loadData} />
+      </div>
     </div>
   );
 }

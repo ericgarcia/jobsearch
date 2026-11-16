@@ -102,12 +102,12 @@ async function putPair(windowId, pair) {
   // The content scripts decide synchronously whether to catch a click, so they
   // are told their role rather than asked for it at the moment of the click.
   if (previous) {
-    tell(previous.left, null);
-    tell(previous.right, null);
+    tell(previous.left, null, false);
+    tell(previous.right, null, false);
   }
   if (pair) {
-    tell(pair.left, "left");
-    tell(pair.right, "right");
+    tell(pair.left, "left", pair.split === true);
+    tell(pair.right, "right", pair.split === true);
   }
 }
 
@@ -138,8 +138,18 @@ async function activeTab() {
   return tab ?? null;
 }
 
-function tell(tabId, role) {
-  chrome.tabs.sendMessage(tabId, { type: "split-pilot:you-are", role }).catch(() => {
+/*
+  Tell a tab what it is.
+
+  The split flag travels with the role because the app wants it: the left
+  pane shows only the assistant while the window is split, and the whole
+  column has to come back the moment it is not. A page can ask for the state,
+  but it would have to keep asking — nothing else tells it the arrangement
+  changed — and a poll for an answer that changes twice an hour is the thing
+  this file already refuses to do for the role.
+*/
+function tell(tabId, role, split) {
+  chrome.tabs.sendMessage(tabId, { type: "split-pilot:you-are", role, split }).catch(() => {
     // No content script in that tab — a chrome:// page, or one loaded before
     // the extension. It will ask for itself when it next loads.
   });
@@ -333,7 +343,10 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     return answer(respond, async () => ({ routed: await sendToRight(sender.tab?.id, message.url) }));
   }
   if (message?.type === "split-pilot:role") {
-    return answer(respond, async () => ({ role: (await sideOf(sender.tab?.id))?.side ?? null }));
+    return answer(respond, async () => {
+      const found = await sideOf(sender.tab?.id);
+      return { role: found?.side ?? null, split: found?.pair.split === true };
+    });
   }
 
   /* From connect.html, which Playwright opened with the relay address. */

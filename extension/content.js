@@ -15,6 +15,12 @@
 */
 
 let role = null;
+/*
+  Whether the two tabs are a visible split rather than plain neighbours. It
+  rides along with the role because the app uses it: the left pane gives the
+  whole window to the assistant while a site is open beside it.
+*/
+let split = false;
 
 /*
   The main world cannot ask the worker anything, so page.js is told. It is told
@@ -22,15 +28,17 @@ let role = null;
   the browser, and a timer in each of them to repeat an answer that changes
   perhaps twice a day is a poor way to spend a machine.
 */
-function setRole(next) {
-  if (next === role) return;
+function setRole(next, nextSplit = false) {
+  if (next === role && nextSplit === split) return;
   role = next;
-  window.postMessage({ type: "split-pilot:role", role }, "*");
+  split = nextSplit;
+  window.postMessage({ type: "split-pilot:role", role, split }, "*");
 }
 
 async function askRole() {
   try {
-    setRole((await chrome.runtime.sendMessage({ type: "split-pilot:role" }))?.role ?? null);
+    const reply = await chrome.runtime.sendMessage({ type: "split-pilot:role" });
+    setRole(reply?.role ?? null, reply?.split === true);
   } catch {
     setRole(null); // The worker is asleep, or the extension was reloaded.
   }
@@ -39,7 +47,7 @@ async function askRole() {
 void askRole();
 
 chrome.runtime.onMessage.addListener((message) => {
-  if (message?.type === "split-pilot:you-are") setRole(message.role);
+  if (message?.type === "split-pilot:you-are") setRole(message.role, message.split === true);
 });
 
 function send(url) {
@@ -84,7 +92,7 @@ window.addEventListener("message", (event) => {
 
   // page.js came up; tell it where things stand, whether or not that changed.
   if (event.data?.type === "split-pilot:ready") {
-    window.postMessage({ type: "split-pilot:role", role }, "*");
+    window.postMessage({ type: "split-pilot:role", role, split }, "*");
     return;
   }
 
