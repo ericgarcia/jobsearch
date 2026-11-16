@@ -437,8 +437,17 @@ export function App() {
         */
         if (await routeToPane(splitId, href.href)) return;
         try {
-          await api.openStage(href.href);
+          /*
+            Empty pane first, then the page into it. The split is there in
+            the moment you click, and the page arrives when it arrives —
+            which is how a browser behaves. Opening the tab at the URL
+            meant Playwright held it until the page had loaded, so a slow
+            posting left you looking at an unchanged window for seconds
+            with no sign anything had happened.
+          */
+          await api.openStage();
           await adoptStage(splitId);
+          await routeToPane(splitId, href.href);
         } catch {
           // No arrangement to be had — the browser is off, or Playwright is
           // not there. Open it the ordinary way rather than losing the click.

@@ -143,16 +143,25 @@ export async function openSplit(appUrl: string, stageUrl = "about:blank"): Promi
   */
   if (!(await focusApp())) await callBrowser("browser_navigate", { url: appUrl });
 
-  // Playwright opens the stage, so the bridge knows it from the start.
-  await callBrowser("browser_tabs", { action: "new", url: stageUrl });
+  /*
+    Playwright opens the stage, so the bridge knows it from the start — and
+    opens it empty, so the split is there before the page is. Navigating
+    afterwards goes through the extension, which does not wait for a load,
+    and is the same path every later page takes.
+  */
+  await callBrowser("browser_tabs", { action: "new", url: "about:blank" });
 
   // command() brings the app back into view; it is the only page allowed to
   // ask, and after opening the stage the stage is what is in view.
-  return command({ type: "split-pilot:adopt" });
+  const arranged = await command({ type: "split-pilot:adopt" });
+  if (stageUrl && stageUrl !== "about:blank") {
+    return await command({ type: "split-pilot:open", url: stageUrl });
+  }
+  return arranged;
 }
 
 /**
- * Open a tab showing `url`, for the app to adopt as its pane.
+ * Open an empty tab, for the app to adopt as its pane.
  *
  * Playwright opens it, not the extension and not the browser, and that is
  * the whole point of the round trip: a tab the bridge did not open is one
@@ -160,6 +169,13 @@ export async function openSplit(appUrl: string, stageUrl = "about:blank"): Promi
  * give a pane it cannot read. The adopting is left to the page, because
  * only the extension can tell which tab is asking and a page cannot know
  * its own tab id.
+ *
+ * Empty, and the caller navigates it afterwards. Opening it at the real
+ * URL meant this call did not return until that page had loaded — 5.6
+ * seconds for one that takes five — and the split appeared only after
+ * that. The person had clicked a link and watched nothing happen. A blank
+ * tab opens at once, so the pane is there immediately and fills in at the
+ * page's own pace, which is what every other browser does.
  */
 let opening: Promise<{ opened: boolean }> | null = null;
 let openedAt = 0;
@@ -167,7 +183,7 @@ let openedAt = 0;
 /** A stage opened this recently is the one everybody should be adopting. */
 const STAGE_IS_FRESH_MS = 5000;
 
-export async function openStageAt(url: string): Promise<{ opened: boolean }> {
+export async function openStage(): Promise<{ opened: boolean }> {
   /*
     One stage at a time, however many tabs ask.
 
@@ -181,7 +197,7 @@ export async function openStageAt(url: string): Promise<{ opened: boolean }> {
 
   opening = (async () => {
     await closeOrphanedStages();
-    const opened = await callBrowser("browser_tabs", { action: "new", url });
+    const opened = await callBrowser("browser_tabs", { action: "new", url: "about:blank" });
     if (opened.isError === true) throw new Error(text(opened));
     return { opened: true };
   })();

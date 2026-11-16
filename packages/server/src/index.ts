@@ -20,7 +20,7 @@ import { getInterests, setInterests } from "./interests.js";
 import { assessTopJobs, ASSESS_MODEL } from "./assess.js";
 import { browserEnabled, runAgent, verifyCredential } from "./agent/session.js";
 import { APP_URL, SPLIT_EXTENSION_ID } from "./config.js";
-import { openStageAt } from "./agent/split.js";
+import { openStage } from "./agent/split.js";
 import { pdfFilename, renderPdf } from "./layout/pdf.js";
 import { changed, onChange } from "./notify.js";
 import { clearState, reportState } from "./appState.js";
@@ -254,21 +254,20 @@ app.post("/api/sync", async (request) => {
 /* ------------------------------------------------------------------- split */
 
 /**
- * Open a page as the pane beside the app.
+ * Open an empty pane beside the app.
  *
  * The app asks when someone clicks a link in it and there is no pane yet.
  * Playwright opens the tab, here, so the assistant can drive what it shows;
  * the app then adopts it through the extension, which is the only party that
- * can tell which tab asked.
+ * can tell which tab asked, and navigates it itself.
+ *
+ * It carries no URL on purpose. Opening the tab at the page meant waiting
+ * for that page to load before the split could appear at all.
  */
-app.post("/api/split/open", async (request, reply) => {
+app.post("/api/split/open", async (_request, reply) => {
   if (!browserEnabled) return reply.code(409).send({ error: "The browser is switched off." });
-  const url = ((request.body ?? {}) as { url?: string }).url;
-  if (typeof url !== "string" || !/^https?:\/\//.test(url)) {
-    return reply.code(400).send({ error: "an http or https url is required" });
-  }
   try {
-    return await openStageAt(url);
+    return await openStage();
   } catch (error) {
     // A link that cannot be arranged still has to open. The page falls back.
     return reply.code(503).send({ error: (error as Error).message });
