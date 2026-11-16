@@ -141,6 +141,31 @@ export async function threadTabs(id: string | null, thread: number): Promise<Thr
   return reply?.tabs ?? [];
 }
 
+/** Show one of them in the pane, making the split again if it is gone. */
+export async function showInPane(id: string | null, tabId: number): Promise<boolean> {
+  if (!id) return false;
+  const reply = await ask<{ error?: string }>(id, { type: "split-pilot:show", tabId });
+  return reply != null && reply.error === undefined;
+}
+
+/** Close one page, leaving the thread and its other pages alone. */
+export async function closeTab(id: string | null, tabId: number): Promise<void> {
+  if (!id) return;
+  await ask(id, { type: "split-pilot:close-tab", tabId });
+}
+
+/**
+ * Step out of the split without closing anything.
+ *
+ * The pane's page stays open as an ordinary tab, so the app can give it the
+ * window back and then take it again. Closing it instead would mean the
+ * only way to read the app in full was to throw away what you were reading.
+ */
+export async function leaveSplit(id: string | null): Promise<void> {
+  if (!id) return;
+  await ask(id, { type: "split-pilot:unpair" });
+}
+
 /** Close them. The app asks only once the person has agreed. */
 export async function closeThreadTabs(id: string | null, thread: number): Promise<number> {
   if (!id) return 0;

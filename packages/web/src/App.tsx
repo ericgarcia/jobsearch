@@ -315,7 +315,7 @@ export function App() {
         <div className="brand">
           job<span>search</span>
         </div>
-          <Chat onDataChanged={loadData} splitId={hasSplit ? splitId : null} />
+          <Chat onDataChanged={loadData} splitId={hasSplit ? splitId : null} inSplit={inSplit} />
       </aside>
 
       <div className="canvas" aria-hidden={inSplit || undefined}>

@@ -48,6 +48,15 @@ void askRole();
 
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === "split-pilot:you-are") setRole(message.role, message.split === true);
+
+  /*
+    The pages a conversation has open, on their way to the app's own code.
+    Relayed rather than answered, because only the worker can see tabs and
+    only the main world can draw them.
+  */
+  if (message?.type === "split-pilot:tabs") {
+    window.postMessage({ type: "split-pilot:tabs", thread: message.thread, pages: message.pages }, "*");
+  }
 });
 
 function send(url) {

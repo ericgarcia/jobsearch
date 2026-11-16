@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, chat, type ChatEvent, type Thread } from "../api.ts";
 import { useChanges } from "../changes.ts";
-import { closeThreadTabs, tellThread, threadTabs } from "../split.ts";
+import {
+  closeTab,
+  closeThreadTabs,
+  leaveSplit,
+  showInPane,
+  tellThread,
+  threadTabs,
+  type ThreadTab,
+} from "../split.ts";
 
 interface Entry {
   kind: "user" | "assistant" | "tool" | "error";
@@ -40,13 +48,27 @@ function label(thread: Thread): string {
   return thread.title?.trim() || thread.preview?.trim() || "New thread";
 }
 
+/** What to call a page. Its own title, else the site it is on. */
+function pageName(page: ThreadTab): string {
+  const title = page.title.trim();
+  if (title) return title;
+  try {
+    return new URL(page.url).hostname.replace(/^www\./, "");
+  } catch {
+    return page.url || "Untitled";
+  }
+}
+
 export function Chat({
   onDataChanged,
   splitId,
+  inSplit,
 }: {
   onDataChanged: () => void;
   /** Split Pilot's id, or null when it is not installed. */
   splitId: string | null;
+  /** Whether a page currently has the other half of the window. */
+  inSplit: boolean;
 }) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [draft, setDraft] = useState("");
@@ -55,6 +77,8 @@ export function Chat({
   const [listOpen, setListOpen] = useState(false);
   const [threadId, setThreadId] = useState<number | null>(threadFromUrl);
   const [renaming, setRenaming] = useState<number | null>(null);
+  /** The pages this thread has open, as the extension sees them. */
+  const [pages, setPages] = useState<ThreadTab[]>([]);
 
   const conversationId = useRef<number | null>(threadId);
   const abort = useRef<AbortController | null>(null);
@@ -102,6 +126,39 @@ export function Chat({
   */
   useEffect(() => {
     void tellThread(splitId, threadId);
+  }, [splitId, threadId]);
+
+  /*
+    The thread's pages: asked for once, then pushed.
+
+    Asked on arrival because the worker has no idea this page just loaded.
+    Pushed afterwards — a page gets its title a second after it opens, and a
+    strip that polled for that would be wrong for exactly as long as the
+    interval, every time.
+  */
+  useEffect(() => {
+    if (threadId === null) {
+      setPages([]);
+      return;
+    }
+    let current = true;
+    void threadTabs(splitId, threadId).then((found) => {
+      if (current) setPages(found);
+    });
+
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== window) return;
+      const data = event.data as { type?: string; thread?: number; pages?: ThreadTab[] } | null;
+      if (data?.type !== "split-pilot:tabs") return;
+      if (data.thread !== threadId) return;
+      setPages(data.pages ?? []);
+    };
+
+    window.addEventListener("message", onMessage);
+    return () => {
+      current = false;
+      window.removeEventListener("message", onMessage);
+    };
   }, [splitId, threadId]);
 
   function open(id: number | null): void {
@@ -298,6 +355,48 @@ export function Chat({
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {pages.length > 0 && (
+        /*
+          The pages this conversation has open.
+
+          They were invisible before: a page went into the pane and the only
+          way back to a previous one was the browser's own tab strip, where
+          it sat among everything else with nothing to say which thread it
+          belonged to. Here they are the thread's, and switching between
+          them is one click — as is giving the window back to the app and
+          then taking it again, which closes nothing.
+        */
+        <div className="pages">
+          {pages.map((page) => (
+            <div className={`page${page.active ? " showing" : ""}`} key={page.id}>
+              <button
+                className="page-open"
+                title={page.url}
+                onClick={() => void showInPane(splitId, page.id)}
+              >
+                {pageName(page)}
+              </button>
+              <button
+                className="ghost"
+                title="Close this page"
+                onClick={() => void closeTab(splitId, page.id)}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          {inSplit && (
+            <button
+              className="ghost full-app"
+              title="Give the window back to the app. The page stays open."
+              onClick={() => void leaveSplit(splitId)}
+            >
+              Full app
+            </button>
+          )}
         </div>
       )}
 

@@ -237,6 +237,7 @@ async function remember(leftTabId, tabId) {
   const had = threads[thread] ?? [];
   if (!had.includes(tabId)) threads[thread] = [...had, tabId];
   await chrome.storage.session.set({ [THREADS]: threads });
+  await announce(thread);
 }
 
 /**
@@ -251,6 +252,59 @@ async function tabsOfThread(thread) {
   const ids = (await stored(THREADS))[thread] ?? [];
   const found = await Promise.all(ids.map((id) => chrome.tabs.get(id).catch(() => null)));
   return found.filter((tab) => tab !== null);
+}
+
+/**
+ * A thread's pages, as the app shows them.
+ *
+ * One description, used by the handler that answers a question and by the
+ * push that arrives unasked — so a page cannot be listed one way in the
+ * strip and another way in the warning before it closes.
+ */
+async function pagesOfThread(thread) {
+  return (await tabsOfThread(thread)).map((other) => ({
+    id: other.id,
+    title: other.title ?? "",
+    url: other.url ?? "",
+    /*
+      In view means on screen now.
+
+      The active tab of its window is the obvious half. The other half is a
+      tab in a split: both panes are displayed, and only one of them is
+      Chrome's active tab — so the page beside the app, the very page this
+      feature puts there, would have been closed with no warning at all. A
+      tab carries a splitViewId while it is in one.
+    */
+    active: other.active === true || (other.splitViewId ?? -1) >= 0,
+  }));
+}
+
+/**
+ * Tell the app that a thread's pages have changed.
+ *
+ * Sent to whichever app tabs are showing that thread, and to no others —
+ * two app tabs on two conversations have nothing to say to each other. The
+ * app could ask on a timer instead, and would then be wrong for a second
+ * every time a page finished loading and got its title.
+ */
+async function announce(thread) {
+  if (thread === null || thread === undefined) return;
+  const current = await stored(CURRENT);
+  const pages = await pagesOfThread(thread);
+
+  /*
+    Compared as text, because the same thread arrives both ways: as the
+    number the app sent, and as the string Object.entries gives back for a
+    key of the register. They are not equal, and the push went nowhere.
+  */
+  const wanted = String(thread);
+
+  for (const [tabId, showing] of Object.entries(current)) {
+    if (String(showing) !== wanted) continue;
+    chrome.tabs.sendMessage(Number(tabId), { type: "split-pilot:tabs", thread, pages }).catch(() => {
+      // No content script there. The app asks for itself when it loads.
+    });
+  }
 }
 
 /** Whether any thread claims this tab. */
@@ -576,6 +630,17 @@ chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
     case "split-pilot:unpair":
       return answer(respond, async () => {
         await dissolve(tab.windowId);
+        // The strip marks which page is in the pane. After this, none is.
+        await announce(await threadOf(tab.id));
+        return { ok: true };
+      });
+
+    /* Close one page from the strip. Its own tab, not the whole thread. */
+    case "split-pilot:close-tab":
+      return answer(respond, async () => {
+        await chrome.tabs.remove(message.tabId).catch(() => {
+          // Already gone; onRemoved has done the forgetting either way.
+        });
         return { ok: true };
       });
 
@@ -595,24 +660,21 @@ chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
       cannot see the tabs to warn by itself.
     */
     case "split-pilot:thread-tabs":
-      return answer(respond, async () => ({
-        tabs: (await tabsOfThread(message.thread)).map((other) => ({
-          id: other.id,
-          title: other.title ?? "",
-          url: other.url ?? "",
-          /*
-            In view means on screen now.
+      return answer(respond, async () => ({ tabs: await pagesOfThread(message.thread) }));
 
-            The active tab of its window is the obvious half. The other half
-            is a tab in a split: both panes are displayed, and only one of
-            them is Chrome's active tab — so the page beside the app, the
-            very page this feature puts there, would have been closed with
-            no warning at all. A tab carries a splitViewId while it is in
-            one.
-          */
-          active: other.active === true || (other.splitViewId ?? -1) >= 0,
-        })),
-      }));
+    /*
+      Put a page back in the pane, whichever page it is.
+
+      This is how the app's strip switches between the pages a thread has
+      open, and how it resumes after stepping out of the split: the pane is
+      not a fixed tab, it is whichever tab is being shown right now.
+    */
+    case "split-pilot:show":
+      return answer(respond, async () => {
+        const wanted = await chrome.tabs.get(message.tabId).catch(() => null);
+        if (!wanted) return { error: "that page is not open any more" };
+        return await adopt(tab, wanted);
+      });
 
     /* And doing it. The app asks only after the person has agreed. */
     case "split-pilot:close-thread":
@@ -624,6 +686,7 @@ chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
             // Gone already, which is where we were heading.
           });
         }
+        await announce(message.thread);
         return { closed: open.length };
       });
 
@@ -738,16 +801,32 @@ async function forget(tabId) {
   }
 
   const threads = await stored(THREADS);
-  let changed = false;
+  const touched = [];
   for (const [thread, ids] of Object.entries(threads)) {
     if (!ids.includes(tabId)) continue;
     const left = ids.filter((id) => id !== tabId);
     if (left.length > 0) threads[thread] = left;
     else delete threads[thread];
-    changed = true;
+    touched.push(thread);
   }
-  if (changed) await chrome.storage.session.set({ [THREADS]: threads });
+  if (touched.length > 0) {
+    await chrome.storage.session.set({ [THREADS]: threads });
+    for (const thread of touched) await announce(thread);
+  }
 }
+
+/*
+  A page gets its title after it has loaded, not when it is opened, so the
+  strip would otherwise show a row with a URL and no name until something
+  else happened to refresh it. Navigating a page changes both.
+*/
+chrome.tabs.onUpdated.addListener(async (tabId, change) => {
+  if (change.title === undefined && change.url === undefined) return;
+  const threads = await stored(THREADS);
+  for (const [thread, ids] of Object.entries(threads)) {
+    if (ids.includes(tabId)) await announce(thread);
+  }
+});
 
 chrome.windows.onRemoved.addListener(async (windowId) => {
   await putPair(windowId, null);

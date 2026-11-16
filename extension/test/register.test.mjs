@@ -56,7 +56,7 @@ globalThis.chrome = {
   tabs: {
     onCreated: { addListener: (fn) => (onCreated = fn) },
     onRemoved: { addListener: (fn) => (onRemoved = fn) },
-    onUpdated: { addListener: () => {} },
+    onUpdated: { addListener: (fn) => (onUpdated = fn) },
     get: async (id) => {
       const tab = tabs.get(id);
       if (!tab) throw new Error(`No tab with id ${id}`);
@@ -71,15 +71,20 @@ globalThis.chrome = {
       tabs.delete(id);
       await onRemoved(id);
     },
-    sendMessage: async () => {},
+    sendMessage: async (tabId, message) => {
+      pushes.push({ tabId, message });
+    },
   },
   windows: { onRemoved: { addListener: () => {} } },
   debugger: { onEvent: { addListener: () => {} }, onDetach: { addListener: () => {} } },
   action: { onClicked: { addListener: () => {} } },
 };
 
+/** Everything the worker pushed to a tab, in order. */
+const pushes = [];
 let onRemoved = async () => {};
 let onCreated = async () => {};
+let onUpdated = async () => {};
 
 await import("../background.js");
 
@@ -211,5 +216,52 @@ const fromStranger = tabStub({ openerTabId: stranger.id, pendingUrl: "https://ne
 await onCreated(fromStranger);
 assert.equal(tabs.has(fromStranger.id), true, "still open, and not adopted");
 ok("the extension does not touch the rest of the browser");
+
+console.log("\n10. The app is told when its pages change");
+
+const watcher = tabStub({ url: "http://localhost:5173/", title: "jobsearch" });
+await say({ type: "split-pilot:thread", thread: 11 }, watcher);
+
+pushes.length = 0;
+const read = tabStub({ url: "https://example.com/a", title: "A page" });
+await say({ type: "split-pilot:adopt", tabId: read.id }, watcher);
+
+const told = pushes.filter((p) => p.message.type === "split-pilot:tabs");
+assert.ok(told.length > 0, "nothing was pushed");
+assert.equal(told.at(-1).tabId, watcher.id, "told the app tab showing that thread");
+assert.deepEqual(told.at(-1).message.pages.map((x) => x.id), [read.id]);
+ok("opening a page pushes the thread's list to the app");
+
+console.log("\n11. And when a page it has open is renamed");
+
+pushes.length = 0;
+tabs.get(read.id).title = "A page, loaded";
+await onUpdated(read.id, { title: "A page, loaded" });
+const renamed = pushes.filter((p) => p.message.type === "split-pilot:tabs");
+assert.equal(renamed.at(-1).message.pages[0].title, "A page, loaded");
+ok("a title arriving late reaches the strip");
+
+console.log("\n12. A page can be put back in the pane by id");
+
+const second = tabStub({ url: "https://example.com/b", title: "B page" });
+await say({ type: "split-pilot:adopt", tabId: second.id }, watcher);
+const shown = await say({ type: "split-pilot:show", tabId: read.id }, watcher);
+assert.equal(shown.right, read.id, "the chosen page is the pane now");
+assert.equal(tabs.has(second.id), true, "and the other one is still open");
+ok("switching pages keeps both");
+
+const missing = await say({ type: "split-pilot:show", tabId: 999999 }, watcher);
+assert.match(missing.error ?? "", /not open/);
+ok("asking for a page that has gone says so rather than throwing");
+
+console.log("\n13. One page closes without taking the thread");
+
+await say({ type: "split-pilot:close-tab", tabId: second.id }, watcher);
+assert.equal(tabs.has(second.id), false);
+assert.deepEqual(
+  (await say({ type: "split-pilot:thread-tabs", thread: 11 }, watcher)).tabs.map((x) => x.id),
+  [read.id],
+);
+ok("the other page and the thread are untouched");
 
 console.log(`\n${passed} passed, 0 failed`);

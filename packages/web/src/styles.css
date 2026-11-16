@@ -258,6 +258,25 @@ a { color: var(--accent); }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .thread-meta { font-size: 10.5px; color: var(--text-faint); font-family: var(--mono); }
+/* The pages a conversation has open, above its messages. */
+.pages {
+  flex: none; display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+  padding: 6px 10px; border-bottom: 1px solid var(--line-soft); background: var(--bg);
+}
+.page {
+  display: flex; align-items: center; max-width: 100%;
+  border: 1px solid var(--line); border-radius: 5px; background: var(--bg-raised);
+}
+.page.showing { border-color: var(--accent); }
+.page-open {
+  max-width: 190px; padding: 3px 4px 3px 8px; font-size: 11.5px;
+  background: none; border: 0; color: var(--text-dim); cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.page.showing .page-open { color: var(--text); }
+.page .ghost { padding: 3px 6px; }
+.pages .full-app { margin-left: auto; font-size: 11.5px; }
+
 .thread-here {
   max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   color: var(--text-dim);
