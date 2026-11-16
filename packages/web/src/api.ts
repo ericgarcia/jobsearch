@@ -87,6 +87,28 @@ export interface SyncReport {
 }
 
 
+
+export interface Project {
+  id: number;
+  role_id: number | null;
+  name: string;
+  blurb: string | null;
+  narrative: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  narrative_public: number;
+  sort_order: number;
+}
+
+export interface ProseSection {
+  id: number;
+  kind: string;
+  heading: string;
+  body: string;
+  is_public: number;
+  sort_order: number;
+}
+
 /* ------------------------------------------------------------- layouts */
 
 export interface TokenDef {
@@ -286,6 +308,22 @@ export const api = {
       `/api/companies/${id}?postings=${withPostings ? "delete" : "keep"}`,
       { method: "DELETE" },
     ),
+
+  projects: () => json<Project[]>("/api/projects"),
+  addProject: (project: Partial<Project> & { name: string }) =>
+    json<Project>("/api/projects", { method: "POST", body: JSON.stringify(project) }),
+  saveProject: (id: number, patch: Partial<Project>) =>
+    json<Project>(`/api/projects/${id}`, { method: "PUT", body: JSON.stringify(patch) }),
+  deleteProject: (id: number) =>
+    json<{ deleted: boolean }>(`/api/projects/${id}`, { method: "DELETE" }),
+
+  sections: () => json<ProseSection[]>("/api/sections"),
+  addSection: (section: { heading: string; body: string }) =>
+    json<ProseSection>("/api/sections", { method: "POST", body: JSON.stringify(section) }),
+  saveSection: (id: number, patch: Partial<ProseSection>) =>
+    json<ProseSection>(`/api/sections/${id}`, { method: "PUT", body: JSON.stringify(patch) }),
+  deleteSection: (id: number) =>
+    json<{ deleted: boolean }>(`/api/sections/${id}`, { method: "DELETE" }),
 
   vocabulary: () => json<Vocabulary>("/api/layout/vocabulary"),
 

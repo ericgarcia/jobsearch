@@ -275,6 +275,62 @@ app.post("/api/split/stage", async (request, reply) => {
   }
 });
 
+/* ---------------------------------------------------------------- projects */
+
+app.get("/api/projects", async () => profile.listProjects());
+
+app.post("/api/projects", async (request, reply) => {
+  const body = (request.body ?? {}) as { name?: string; role_id?: number | null };
+  if (!body.name?.trim()) return reply.code(400).send({ error: "name is required" });
+  try {
+    return await profile.addProject(body as Parameters<typeof profile.addProject>[0]);
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.put("/api/projects/:id", async (request, reply) => {
+  try {
+    return await profile.updateProject(
+      Number((request.params as { id: string }).id),
+      request.body as Record<string, never>,
+    );
+  } catch (error) {
+    return reply.code(404).send({ error: (error as Error).message });
+  }
+});
+
+app.delete("/api/projects/:id", async (request) => ({
+  deleted: await profile.deleteProject(Number((request.params as { id: string }).id)),
+}));
+
+/* ---------------------------------------------------------------- sections */
+
+app.get("/api/sections", async () => profile.listSections());
+
+app.post("/api/sections", async (request, reply) => {
+  const body = (request.body ?? {}) as { heading?: string; body?: string };
+  if (!body.heading?.trim() || !body.body?.trim()) {
+    return reply.code(400).send({ error: "heading and body are required" });
+  }
+  return profile.addSection(body as Parameters<typeof profile.addSection>[0]);
+});
+
+app.put("/api/sections/:id", async (request, reply) => {
+  try {
+    return await profile.updateSection(
+      Number((request.params as { id: string }).id),
+      request.body as Record<string, never>,
+    );
+  } catch (error) {
+    return reply.code(404).send({ error: (error as Error).message });
+  }
+});
+
+app.delete("/api/sections/:id", async (request) => ({
+  deleted: await profile.deleteSection(Number((request.params as { id: string }).id)),
+}));
+
 /* ----------------------------------------------------------------- layouts */
 
 /**
@@ -478,7 +534,13 @@ app.post("/api/jobs/:id/status", async (request, reply) => {
 const bad = (reply: { code: (n: number) => { send: (b: unknown) => unknown } }, error: unknown) =>
   reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
 
-app.get("/api/profile", async () => ({ ...profile.fullProfile(), empty: await profile.isEmpty() }));
+app.get("/api/profile", async () => {
+  // Spreading a promise is legal and yields {}, so this has to be awaited
+  // first rather than inline. The route returned `{"empty": false}` and
+  // nothing else for as long as it was written the short way.
+  const [full, empty] = await Promise.all([profile.fullProfile(), profile.isEmpty()]);
+  return { ...full, empty };
+});
 
 app.patch("/api/profile", async (request, reply) => {
   try {

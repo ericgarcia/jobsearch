@@ -197,13 +197,15 @@ function splitLinks(raw: string): { label: string; url: string }[] {
  * whole reason the two are separate.
  */
 export async function gatherContent(resumeId?: number | null): Promise<RenderContent> {
-  const [me, roles, bullets, education, skills, interests] = await Promise.all([
+  const [me, roles, bullets, education, skills, interests, projects, sections] = await Promise.all([
     profile.getProfile(),
     profile.listRoles(),
     profile.listBullets(),
     profile.listEducation(),
     profile.listSkills(),
     getInterests(),
+    profile.listProjects(),
+    profile.listSections(),
   ]);
 
   // A tailored resume replaces both the summary and the bullets; anything it
@@ -229,9 +231,9 @@ export async function gatherContent(resumeId?: number | null): Promise<RenderCon
     location: me.location,
     links: splitLinks(me.links),
     summary,
-    // profile_sections does not exist yet; the shape is here so the renderer
-    // and the stylesheet are ready for it.
-    values: [],
+    values: sections
+      .filter((section) => section.is_public === 1)
+      .map((section) => ({ heading: section.heading, body: section.body })),
     interests: { titles: interests.titles, include: interests.include, note: interests.note },
     roles: roles
       .map((role) => ({
@@ -245,12 +247,27 @@ export async function gatherContent(resumeId?: number | null): Promise<RenderCon
         bullets: chosen
           ? (chosen.get(role.id) ?? [])
           : bullets.filter((b) => b.role_id === role.id).map((b) => b.text),
-        projects: [],
+        // The blurb, never the narrative: a project line beside a role has
+        // to be one line. The long form belongs to the profile's own
+        // projects section, and only when its author published it.
+        projects: projects
+          .filter((project) => project.role_id === role.id)
+          .map((project) => ({ name: project.name, blurb: project.blurb })),
       }))
       // A tailored resume names a subset of roles. A role with nothing to say
       // on this resume is not a gap to explain, it is a role left out.
       .filter((role) => (chosen ? role.bullets.length > 0 : true)),
-    projects: [],
+    /*
+      The standalone projects section. A narrative appears here only if its
+      author published it; otherwise the blurb stands alone. The default is
+      unpublished, because the long form is where someone writes candidly
+      for their own use.
+    */
+    projects: projects.map((project) => ({
+      name: project.name,
+      blurb: project.narrative_public === 1 && project.narrative ? project.narrative : project.blurb,
+      role: roles.find((role) => role.id === project.role_id)?.company ?? null,
+    })),
     education: education.map((item) => ({
       school: item.school,
       degree: item.degree,

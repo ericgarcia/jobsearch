@@ -62,6 +62,30 @@ with:
 npm test --workspace=@jobsearch/server
 ```
 
+## Projects, and writing at length
+
+A project has two bodies, and they do different jobs.
+
+- **The blurb** is one resume-length line, written for a stranger in a hurry.
+  It is what appears beside a role.
+- **The narrative** is as long as it needs to be — what the problem was, what
+  you tried, what it cost — and it is source material rather than resume
+  content.
+
+The narrative earns its keep twice. It goes into the fact-check corpus, so a
+tailored summary can draw on it and still be checked against what is true;
+without that, every sentence taken from it would be flagged as unsupported.
+And `distil_project` hands it to the agent to propose bullets from, which you
+approve into the profile. Writing once at length is the point.
+
+**A narrative is not published until you publish it.** The long form is where
+people write candidly for their own use, so `narrative_public` starts at 0 and
+`test/projects.test.mts` checks it both ways round — private stays off the
+page, published reaches it, and the fact-checker sees it either way.
+
+Prose sections — values, how you work — are the other way round. They are
+written to be read, so they are public unless you turn one off.
+
 ## Styling the profile and the resume
 
 Two surfaces, styled separately, both stored as data:

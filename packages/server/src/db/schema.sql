@@ -145,6 +145,48 @@ CREATE TABLE IF NOT EXISTS profile_bullets (
 
 CREATE INDEX IF NOT EXISTS profile_bullets_role_idx ON profile_bullets (role_id);
 
+/*
+  A project: the long-form writing, and the one line that goes on a resume.
+
+  Two fields rather than one because they do different jobs. `blurb` is
+  resume-length and meant to be read by a stranger in a hurry. `narrative` is
+  as long as it needs to be — what the problem was, what you tried, what it
+  cost — and it is source material, not resume content. The fact-checker
+  reads it, so a tailored summary can draw on it honestly, and the agent
+  distils bullets from it that you approve into profile_bullets.
+
+  narrative_public is off by default, and that default is the point. The
+  long form is where someone writes candidly for their own use. A blurb is
+  written to be read; a narrative has to be published deliberately.
+*/
+CREATE TABLE IF NOT EXISTS profile_projects (
+  id              INTEGER PRIMARY KEY,
+  role_id         INTEGER REFERENCES profile_roles (id) ON DELETE CASCADE,
+  name            TEXT    NOT NULL,
+  blurb           TEXT,
+  narrative       TEXT,
+  start_date      TEXT,
+  end_date        TEXT,
+  narrative_public INTEGER NOT NULL DEFAULT 0,
+  sort_order      INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS profile_projects_role_idx ON profile_projects (role_id);
+
+/*
+  A block of prose that is not tied to a role: values, how someone works,
+  what they are looking for. Authored to be shown, so it is public unless
+  turned off.
+*/
+CREATE TABLE IF NOT EXISTS profile_sections (
+  id         INTEGER PRIMARY KEY,
+  kind       TEXT    NOT NULL DEFAULT 'values',
+  heading    TEXT    NOT NULL,
+  body       TEXT    NOT NULL,
+  is_public  INTEGER NOT NULL DEFAULT 1,
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS profile_education (
   id         INTEGER PRIMARY KEY,
   school     TEXT    NOT NULL,

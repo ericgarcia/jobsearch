@@ -26,8 +26,32 @@ export interface RoleRow {
 export interface BulletRow {
   id: number;
   role_id: number | null;
+  /** The project it was distilled from, when it came from one. */
+  project_id?: number | null;
   text: string;
   skills: string;
+  sort_order: number;
+}
+
+
+export interface ProjectRow {
+  id: number;
+  role_id: number | null;
+  name: string;
+  blurb: string | null;
+  narrative: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  narrative_public: number;
+  sort_order: number;
+}
+
+export interface SectionRow {
+  id: number;
+  kind: string;
+  heading: string;
+  body: string;
+  is_public: number;
   sort_order: number;
 }
 
@@ -65,6 +89,21 @@ export async function listBullets(roleId?: number): Promise<BulletRow[]> {
     : ((await dbAll(`SELECT * FROM profile_bullets WHERE role_id = ? ORDER BY sort_order`, roleId)) as BulletRow[]);
 }
 
+
+export async function listProjects(roleId?: number | null): Promise<ProjectRow[]> {
+  if (roleId === undefined) {
+    return (await dbAll(`SELECT * FROM profile_projects ORDER BY role_id, sort_order, id`)) as ProjectRow[];
+  }
+  return (await dbAll(
+    `SELECT * FROM profile_projects WHERE role_id IS ? ORDER BY sort_order, id`,
+    roleId,
+  )) as ProjectRow[];
+}
+
+export async function listSections(): Promise<SectionRow[]> {
+  return (await dbAll(`SELECT * FROM profile_sections ORDER BY sort_order, id`)) as SectionRow[];
+}
+
 export async function listEducation(): Promise<EducationRow[]> {
   return (await dbAll(`SELECT * FROM profile_education ORDER BY sort_order`)) as EducationRow[];
 }
@@ -75,14 +114,23 @@ export async function listSkills(): Promise<SkillRow[]> {
 
 /** The whole profile, as the agent and the UI both read it. */
 export async function fullProfile() {
-  const roles = await listRoles();
-  const bullets = await listBullets();
+  const [roles, bullets, projects, sections] = await Promise.all([
+    listRoles(),
+    listBullets(),
+    listProjects(),
+    listSections(),
+  ]);
   return {
     profile: await getProfile(),
+    sections,
+    // Projects with no role of their own, so nothing is invisible to a
+    // caller that only walks the roles.
+    loose_projects: projects.filter((project) => project.role_id == null),
     roles: roles.map((role) => ({
       ...role,
       links: undefined,
       bullets: bullets.filter((bullet) => bullet.role_id === role.id),
+      projects: projects.filter((project) => project.role_id === role.id),
     })),
     unassigned_bullets: bullets.filter((bullet) => bullet.role_id == null),
     education: await listEducation(),
@@ -94,19 +142,31 @@ export async function fullProfile() {
 export async function profileCorpus(): Promise<string> {
   // One round trip each, in parallel: they do not depend on each other, and
   // a remote database makes the difference between five waits and one.
-  const [profile, roles, bullets, education, skills] = await Promise.all([
+  const [profile, roles, bullets, education, skills, projects, sections] = await Promise.all([
     getProfile(),
     listRoles(),
     listBullets(),
     listEducation(),
     listSkills(),
+    listProjects(),
+    listSections(),
   ]);
 
+  /*
+    The project narratives are in here, and that is most of what they are
+    for. The checker compares generated prose against every stored fact; a
+    long-form account that it cannot see is an account the agent must not
+    draw on, because every sentence taken from it would be flagged as
+    unsupported. Including it is what makes writing at length useful rather
+    than decorative.
+  */
   return [
     profile.headline,
     profile.summary,
     ...roles.map((role) => `${role.title} ${role.company} ${role.summary ?? ""}`),
     ...bullets.map((bullet) => bullet.text),
+    ...projects.map((project) => `${project.name} ${project.blurb ?? ""} ${project.narrative ?? ""}`),
+    ...sections.map((section) => `${section.heading} ${section.body}`),
     ...education.map((item) => `${item.school} ${item.degree ?? ""} ${item.field ?? ""}`),
     ...skills.map((skill) => `${skill.name} ${skill.years ?? ""}`),
   ]
@@ -174,13 +234,25 @@ export async function deleteRole(id: number): Promise<boolean> {
   return (await dbRun(`DELETE FROM profile_roles WHERE id = ?`, id)).changes > 0;
 }
 
-export async function addBullet(roleId: number | null, text: string, skills: string[] = []): Promise<BulletRow> {
+export async function addBullet(
+  roleId: number | null,
+  text: string,
+  skills: string[] = [],
+  projectId: number | null = null,
+): Promise<BulletRow> {
   if (roleId != null) {
     const role = (await dbGet(`SELECT 1 FROM profile_roles WHERE id = ?`, roleId));
     if (!role) throw new Error(`No role with id ${roleId}`);
   }
   const next = (await dbGet(`SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM profile_bullets WHERE role_id IS ?`, roleId)) as { n: number };
-  const info = (await dbRun(`INSERT INTO profile_bullets (role_id, text, skills, sort_order) VALUES (?, ?, ?, ?)`, roleId, text, JSON.stringify(skills), next.n));
+  const info = (await dbRun(`INSERT INTO profile_bullets (role_id, project_id, text, skills, sort_order)
+     VALUES (?, ?, ?, ?, ?)`,
+    roleId,
+    projectId,
+    text,
+    JSON.stringify(skills),
+    next.n,
+  ));
   return (await dbGet(`SELECT * FROM profile_bullets WHERE id = ?`, info.lastInsertRowid)) as BulletRow;
 }
 
@@ -221,4 +293,103 @@ export async function addSkill(name: string, category?: string, years?: number):
 
 export async function deleteSkill(id: number): Promise<boolean> {
   return (await dbRun(`DELETE FROM profile_skills WHERE id = ?`, id)).changes > 0;
+}
+
+/* ---------------------------------------------------------- projects */
+
+export async function addProject(project: {
+  role_id?: number | null;
+  name: string;
+  blurb?: string | null;
+  narrative?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  narrative_public?: boolean;
+}): Promise<ProjectRow> {
+  if (project.role_id != null) {
+    const role = await dbGet(`SELECT 1 FROM profile_roles WHERE id = ?`, project.role_id);
+    if (!role) throw new Error(`No role with id ${project.role_id}`);
+  }
+  const next = (await dbGet(
+    `SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM profile_projects WHERE role_id IS ?`,
+    project.role_id ?? null,
+  )) as { n: number };
+
+  const info = await dbRun(
+    `INSERT INTO profile_projects (role_id, name, blurb, narrative, start_date, end_date, narrative_public, sort_order)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    project.role_id ?? null,
+    project.name,
+    project.blurb ?? null,
+    project.narrative ?? null,
+    project.start_date ?? null,
+    project.end_date ?? null,
+    project.narrative_public ? 1 : 0,
+    next.n,
+  );
+  return (await dbGet(`SELECT * FROM profile_projects WHERE id = ?`, info.lastInsertRowid)) as ProjectRow;
+}
+
+export async function updateProject(id: number, patch: Partial<ProjectRow>): Promise<ProjectRow> {
+  const fields = ["role_id", "name", "blurb", "narrative", "start_date", "end_date", "narrative_public", "sort_order"] as const;
+  const set: string[] = [];
+  const params: InValue[] = [];
+  for (const field of fields) {
+    if (patch[field] !== undefined) {
+      set.push(`${field} = ?`);
+      params.push(patch[field] as InValue);
+    }
+  }
+  if (set.length > 0) {
+    await dbRun(`UPDATE profile_projects SET ${set.join(", ")} WHERE id = ?`, ...params, id);
+  }
+  const row = (await dbGet(`SELECT * FROM profile_projects WHERE id = ?`, id)) as ProjectRow | undefined;
+  if (!row) throw new Error(`No project with id ${id}`);
+  return row;
+}
+
+export async function deleteProject(id: number): Promise<boolean> {
+  return (await dbRun(`DELETE FROM profile_projects WHERE id = ?`, id)).changes > 0;
+}
+
+/* ---------------------------------------------------------- sections */
+
+export async function addSection(section: {
+  kind?: string;
+  heading: string;
+  body: string;
+  is_public?: boolean;
+}): Promise<SectionRow> {
+  const next = (await dbGet(`SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM profile_sections`)) as { n: number };
+  const info = await dbRun(
+    `INSERT INTO profile_sections (kind, heading, body, is_public, sort_order) VALUES (?, ?, ?, ?, ?)`,
+    section.kind ?? "values",
+    section.heading,
+    section.body,
+    section.is_public === false ? 0 : 1,
+    next.n,
+  );
+  return (await dbGet(`SELECT * FROM profile_sections WHERE id = ?`, info.lastInsertRowid)) as SectionRow;
+}
+
+export async function updateSection(id: number, patch: Partial<SectionRow>): Promise<SectionRow> {
+  const fields = ["kind", "heading", "body", "is_public", "sort_order"] as const;
+  const set: string[] = [];
+  const params: InValue[] = [];
+  for (const field of fields) {
+    if (patch[field] !== undefined) {
+      set.push(`${field} = ?`);
+      params.push(patch[field] as InValue);
+    }
+  }
+  if (set.length > 0) {
+    await dbRun(`UPDATE profile_sections SET ${set.join(", ")} WHERE id = ?`, ...params, id);
+  }
+  const row = (await dbGet(`SELECT * FROM profile_sections WHERE id = ?`, id)) as SectionRow | undefined;
+  if (!row) throw new Error(`No section with id ${id}`);
+  return row;
+}
+
+export async function deleteSection(id: number): Promise<boolean> {
+  return (await dbRun(`DELETE FROM profile_sections WHERE id = ?`, id)).changes > 0;
 }

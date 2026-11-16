@@ -107,8 +107,17 @@ const addBullet = tool(
     role_id: z.number().int().nullable().describe("The role this belongs to, or null if it stands alone"),
     text: z.string().describe("One concrete achievement, in the person's own terms"),
     skills: z.array(z.string()).optional().describe("Skills this evidences, for matching later"),
+    project_id: z
+      .number()
+      .int()
+      .nullable()
+      .optional()
+      .describe("The project this was distilled from, when it came from one"),
   },
-  async (args) => guard(async () => await profile.addBullet(args.role_id, args.text, args.skills ?? [])),
+  async (args) =>
+    guard(async () =>
+      profile.addBullet(args.role_id, args.text, args.skills ?? [], args.project_id ?? null),
+    ),
 );
 
 const updateBullet = tool(
@@ -354,7 +363,144 @@ const exportPdfTool = tool(
     }),
 );
 
+
+/* ------------------------------------------------------------ projects */
+
+const addProjectTool = tool(
+  "add_project",
+  "Record a project. `blurb` is one resume-length line. `narrative` is the long account — what the problem was, what was tried, what it cost — and it is source material, not resume content: the fact-checker reads it so a tailored summary can draw on it, and distil_project turns it into bullets. A narrative stays off the public profile unless narrative_public is set.",
+  {
+    name: z.string(),
+    role_id: z.number().nullable().optional().describe("The role it belongs to, or null for a standalone project."),
+    blurb: z.string().optional(),
+    narrative: z.string().optional(),
+    start_date: z.string().optional(),
+    end_date: z.string().optional(),
+    narrative_public: z.boolean().optional(),
+  },
+  async (args) => guard(async () => profile.addProject(args)),
+);
+
+const updateProjectTool = tool(
+  "update_project",
+  "Change a stored project. Send only the fields that change.",
+  {
+    id: z.number(),
+    name: z.string().optional(),
+    blurb: z.string().nullable().optional(),
+    narrative: z.string().nullable().optional(),
+    start_date: z.string().nullable().optional(),
+    end_date: z.string().nullable().optional(),
+    narrative_public: z.boolean().optional(),
+  },
+  async (args) =>
+    guard(async () => {
+      const { id, narrative_public, ...rest } = args;
+      return profile.updateProject(id, {
+        ...rest,
+        ...(narrative_public === undefined ? {} : { narrative_public: narrative_public ? 1 : 0 }),
+      });
+    }),
+);
+
+const deleteProjectTool = tool(
+  "delete_project",
+  "Remove a project. Bullets distilled from it stay in the profile.",
+  { id: z.number() },
+  async (args) => guard(async () => ({ deleted: await profile.deleteProject(args.id) })),
+);
+
+const listProjectsTool = tool(
+  "list_projects",
+  "Every stored project, with its blurb and its narrative.",
+  {},
+  async () => guard(async () => profile.listProjects()),
+  { annotations: { readOnlyHint: true } },
+);
+
+/**
+ * Turning a narrative into bullets.
+ *
+ * The narrative is the useful thing to write and the wrong thing to put on
+ * a resume. This hands back the text and the rules rather than doing the
+ * extraction itself: the agent is the one reading, and a bullet it proposes
+ * and the person approves beats one a regular expression cut out of a
+ * paragraph.
+ *
+ * Nothing is written here. add_bullet does that, after someone has seen it.
+ */
+const distilProjectTool = tool(
+  "distil_project",
+  "Read a project's narrative so you can propose resume bullets from it. Returns the text and the role it belongs to. Propose three to five bullets, show them to the person, and only then call add_bullet for the ones they accept — this tool writes nothing.",
+  { id: z.number() },
+  async (args) =>
+    guard(async () => {
+      const projects = await profile.listProjects();
+      const project = projects.find((candidate) => candidate.id === args.id);
+      if (!project) throw new Error(`No project with id ${args.id}`);
+
+      const roles = await profile.listRoles();
+      const role = roles.find((candidate) => candidate.id === project.role_id);
+
+      return {
+        project: { id: project.id, name: project.name, blurb: project.blurb },
+        role: role ? { id: role.id, title: role.title, company: role.company } : null,
+        narrative: project.narrative,
+        how: [
+          "One claim per bullet, and only claims the narrative actually supports.",
+          "Keep the figures exactly as written. An invented or rounded number is what the fact-checker exists to catch.",
+          "Lead with what changed, not with what you were responsible for.",
+          "Show them to the person before calling add_bullet, with role_id and project_id set.",
+        ],
+      };
+    }),
+  { annotations: { readOnlyHint: true } },
+);
+
+/* ------------------------------------------------------------ sections */
+
+const addSectionTool = tool(
+  "add_section",
+  "Add a block of prose to the profile that is not tied to a role: values, how the person works, what they care about. Shown on the public profile.",
+  { heading: z.string(), body: z.string(), kind: z.string().optional(), is_public: z.boolean().optional() },
+  async (args) => guard(async () => profile.addSection(args)),
+);
+
+const updateSectionTool = tool(
+  "update_section",
+  "Change a prose section. Send only what changes.",
+  {
+    id: z.number(),
+    heading: z.string().optional(),
+    body: z.string().optional(),
+    is_public: z.boolean().optional(),
+  },
+  async (args) =>
+    guard(async () => {
+      const { id, is_public, ...rest } = args;
+      return profile.updateSection(id, {
+        ...rest,
+        ...(is_public === undefined ? {} : { is_public: is_public ? 1 : 0 }),
+      });
+    }),
+);
+
+const deleteSectionTool = tool(
+  "delete_section",
+  "Remove a prose section.",
+  { id: z.number() },
+  async (args) => guard(async () => ({ deleted: await profile.deleteSection(args.id) })),
+);
+
 export const profileTools = [
+  addProjectTool,
+  updateProjectTool,
+  deleteProjectTool,
+  listProjectsTool,
+  distilProjectTool,
+  addSectionTool,
+  updateSectionTool,
+  deleteSectionTool,
   exportPdfTool,
   stylingGuideTool,
   getLayoutTool,
@@ -379,6 +525,12 @@ export const profileTools = [
 ];
 
 export const PROFILE_MUTATING = [
+  "add_project",
+  "update_project",
+  "delete_project",
+  "add_section",
+  "update_section",
+  "delete_section",
   "export_resume_pdf",
   "style_layout",
   "arrange_layout",

@@ -531,3 +531,40 @@ button.tiny { padding: 1px 6px; font-size: 11px; }
 
 .export-pdf { display: flex; align-items: center; gap: 8px; }
 .export-pdf .warn { font-size: 11px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ----------------------------------------------------- projects & prose */
+.projects-pane { max-width: 760px; }
+.projects-pane h3 { margin: 22px 0 4px; font-size: 13px; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--text-dim); }
+
+.new-project { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; margin: 10px 0 14px; }
+
+.project-list, .section-prose-list { list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 8px; }
+
+.project-card { border: 1px solid var(--line-soft); border-radius: var(--radius); background: var(--bg-raised); }
+.project-head { display: flex; align-items: center; gap: 8px; padding: 9px 11px; }
+.project-disclose { padding: 0 4px; line-height: 1; }
+.project-title { flex: 1; min-width: 0; }
+.project-role { color: var(--text-faint); font-size: 12px; }
+.project-flags { font-size: 11px; }
+/* The long form's state is on the closed card, because "is this public?" is
+   the question someone asks without opening anything. */
+.flag { color: var(--text-faint); border: 1px solid var(--line-soft); border-radius: 999px; padding: 1px 8px; }
+.flag-on { color: var(--warn); border-color: var(--warn); }
+.flag-empty { opacity: 0.6; }
+
+.project-body { padding: 0 11px 12px; display: flex; flex-direction: column; gap: 10px; }
+.project-body label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-dim); }
+.project-body textarea { font: inherit; line-height: 1.55; resize: vertical; }
+.project-public { flex-direction: row !important; align-items: flex-start; gap: 8px !important; }
+.project-public input { width: auto; flex: none; margin-top: 3px; }
+.project-public em { color: var(--text-faint); font-style: normal; }
+.project-actions { display: flex; align-items: center; gap: 10px; }
+.project-actions label { flex-direction: row; align-items: center; gap: 5px; }
+.project-actions label input { width: auto; flex: none; }
+
+.section-prose-list li { display: flex; flex-direction: column; gap: 6px;
+  border: 1px solid var(--line-soft); border-radius: var(--radius);
+  background: var(--bg-raised); padding: 10px 11px; }
+.section-prose-list textarea { font: inherit; line-height: 1.55; resize: vertical; }

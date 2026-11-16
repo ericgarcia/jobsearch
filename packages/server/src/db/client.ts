@@ -158,6 +158,8 @@ async function addMissingColumns(): Promise<void> {
     ["job_assessments", "model", "TEXT"],
     ["jobs", "location_tokens", "TEXT"],
     ["resumes", "layout_id", "INTEGER REFERENCES layouts (id) ON DELETE SET NULL"],
+    // Which project a bullet came out of, so distilling can be traced back.
+    ["profile_bullets", "project_id", "INTEGER REFERENCES profile_projects (id) ON DELETE SET NULL"],
   ];
 
   for (const [table, column, definition] of additions) {

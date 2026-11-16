@@ -14,12 +14,13 @@ import { JobDetail } from "./components/JobDetail.tsx";
 import { Chat } from "./components/Chat.tsx";
 import { Profile } from "./components/Profile.tsx";
 import { LayoutEditor } from "./components/LayoutEditor.tsx";
+import { Projects } from "./components/Projects.tsx";
 import { Boards } from "./components/Boards.tsx";
 import { adoptStage, myRole, splitInstalled, syncToken } from "./split.ts";
 import { ResumeView } from "./components/ResumeView.tsx";
 import { CoverLetter } from "./components/CoverLetter.tsx";
 
-type Tab = "jobs" | "applications" | "drafts" | "profile" | "design" | "boards";
+type Tab = "jobs" | "applications" | "drafts" | "profile" | "projects" | "design" | "boards";
 
 export function App() {
   const [health, setHealth] = useState<Health | null>(null);
@@ -302,6 +303,9 @@ export function App() {
         <button aria-selected={tab === "profile"} onClick={() => goToTab("profile")}>
           Profile
         </button>
+        <button aria-selected={tab === "projects"} onClick={() => goToTab("projects")}>
+          Projects
+        </button>
         <button aria-selected={tab === "design"} onClick={() => goToTab("design")}>
           Design
         </button>
@@ -354,7 +358,9 @@ export function App() {
 
       <div className="body-wrap">
         <div className="scroll">
-          {tab === "design" ? (
+          {tab === "projects" ? (
+            <Projects />
+          ) : tab === "design" ? (
             <LayoutEditor />
           ) : tab === "boards" ? (
             <Boards place={place} includeRemote={includeRemote} onChanged={loadData} />
