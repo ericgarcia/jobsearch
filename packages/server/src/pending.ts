@@ -21,11 +21,20 @@ import { forgetFact, getFact, setFact } from "./apply/facts.js";
  * person types over it if they want to and keeps or skips it. Writing happens
  * on their click, with whatever text is in the box at that moment.
  *
- * That last part is also how the assistant stays out of their prose. It may
- * propose a value in their own words from the conversation, or the text
- * already stored so they can edit it, or a deletion. It may not compose a
- * sentence about them — and because the person sees and edits before anything
- * lands, the rule has a second enforcement that does not depend on the model.
+ * That last part is also what lets the assistant draft. It can write a line
+ * and propose it, because proposing is not storing: the person reads it in
+ * the box, rewrites it there if they want to, and presses Keep or Skip. The
+ * approval is a step in the table rather than a caution in a prompt, which is
+ * the enforcement that does not depend on the model.
+ *
+ * So the line it may not cross is substance, not authorship. A figure, a
+ * date, an employer, a result that is in neither the profile nor the
+ * conversation does not belong in a proposal, whatever it would do for the
+ * sentence. Wording is the assistant's to offer; facts are not its to make.
+ * An earlier version of this comment forbade composing a sentence at all,
+ * and the assistant obeyed it by answering "help me make this line better"
+ * with a critique and no draft — which is the work the person was asking it
+ * to do.
  */
 
 /**
