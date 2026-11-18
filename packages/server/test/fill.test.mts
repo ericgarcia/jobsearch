@@ -211,7 +211,70 @@ assert.equal(named(asked.fill).includes("Full name ✱"), false);
 assert.ok(named(asked.fill).includes("Full name"), "the required mark is not part of the question");
 ok("the required mark is stripped from what is recorded");
 
-console.log("\n7. The payload is the shape the browser tool demands");
+console.log("\n7. A list is only given something on it");
+
+/*
+  Lever's demographic question "What is your location?" is a list of every
+  country. The stored location is a city: "New York, New York, United
+  States". Every matching rule looked for the stored answer inside an
+  option, nothing matched, and the value was sent as written — so the
+  browser hunted five seconds for a country called "New York, New York,
+  United States" and timed out, which failed the whole form fill.
+*/
+const countries = [
+  { role: "option", name: "Select...", target: "c0" },
+  { role: "option", name: "India", target: "c1" },
+  { role: "option", name: "Oman", target: "c2" },
+  { role: "option", name: "Romania", target: "c3" },
+  { role: "option", name: "United States", target: "c4" },
+  { role: "option", name: "United States Minor Outlying Islands", target: "c5" },
+];
+
+assert.equal(chooseOption("New York, New York, United States", countries)?.name, "United States");
+ok("the option the stored answer names is the one chosen");
+
+/*
+  Whole words, and not fussiness: "Romania" contains "oman", so a plain
+  substring test declares someone a resident of Oman.
+*/
+assert.equal(chooseOption("Bucharest, Romania", countries)?.name, "Romania");
+ok("a country spelled inside another country's name is not matched");
+
+assert.equal(chooseOption("Lagos, Nigeria", countries), null);
+ok("a country the list does not offer is no answer at all");
+
+const LIST = `
+- combobox "What is your location?" [ref=e1]:
+  - option "Select..." [ref=e2]
+  - option "United States" [ref=e3]
+  - option "Romania" [ref=e4]
+`;
+
+const far = planFill(readSnapshot(LIST), {
+  ...known,
+  profile: { ...known.profile, location: "New York, New York, United States" },
+});
+const chosen = far.fill.find((field) => field.name === "What is your location?");
+assert.equal(chosen?.value, "United States", "the page's own wording is what gets sent");
+ok("a select is filled with the option, not with the stored sentence");
+
+const nowhere = planFill(readSnapshot(LIST), {
+  ...known,
+  profile: { ...known.profile, location: "Lagos, Nigeria" },
+});
+assert.equal(
+  nowhere.fill.find((field) => field.name === "What is your location?"),
+  undefined,
+  "nothing is forced into a list that does not offer it",
+);
+assert.match(
+  nowhere.leftAlone.find((row) => row.name === "What is your location?")?.why ?? "",
+  /Nothing in this list matches/,
+  "and it is said out loud",
+);
+ok("an unmatched list is left alone and reported, not typed into");
+
+console.log("\n8. The payload is the shape the browser tool demands");
 
 /*
   This is the test that was missing, and the one that cost a live run.

@@ -154,7 +154,35 @@ export function chooseOption(stored: string, options: Control[]): Control | null
   const holds = options.filter((option) => option.name.toLowerCase().includes(want));
   if (holds.length === 1) return holds[0]!;
 
+  /*
+    The other direction: an option named inside the stored answer.
+
+    A country list asked "What is your location?" and the stored location was
+    "New York, New York, United States". Every rule above looks for the
+    stored answer inside an option, and no option contains that sentence, so
+    nothing matched and the select was left to time out. The answer the
+    person means is the option their answer names.
+
+    Whole words only, and this is not fussiness: "Romania" contains "Oman",
+    "Mali" contains "Mali" in "Somalia", and a plain substring test would
+    put someone in the wrong country. The longest match wins, so "United
+    States" is preferred over "India" in "…, United States of America", and
+    a tie is no answer at all.
+  */
+  const named = options
+    .map((option) => ({ option, text: option.name.trim().toLowerCase() }))
+    .filter(({ text }) => text.length > 1 && new RegExp(`\\b${escape(text)}\\b`).test(want))
+    .sort((a, b) => b.text.length - a.text.length);
+
+  if (named.length === 1) return named[0]!.option;
+  if (named.length > 1 && named[0]!.text.length > named[1]!.text.length) return named[0]!.option;
+
   return null;
+}
+
+/** A literal, safe to put in a pattern. */
+function escape(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 export function planFill(controls: Control[], known: Known): Plan {
@@ -205,6 +233,40 @@ export function planFill(controls: Control[], known: Known): Plan {
 
   const put = (control: Control, value: string, kind: FieldKind, asks?: string) => {
     if (!value || answered.has(control.target)) return;
+
+    /*
+      A list can only be given something on it.
+
+      A select was handed the stored answer as written, and the browser then
+      spent five seconds looking for an option by that name before timing
+      out — the failure that cost a whole form fill. Radios have always been
+      matched against what the page offers; a select is the same question
+      wearing a different control, so it is matched the same way, and the
+      value sent is the page's own wording.
+
+      No clear match is left alone and said out loud. A list of countries is
+      not a free text box, and guessing at one is how someone ends up
+      declaring the wrong country to an employer.
+    */
+    if (control.role === "combobox") {
+      const offered = options(control.name);
+      if (offered.length > 0) {
+        const choice = chooseOption(value, offered);
+        if (!choice) {
+          leftAlone.push({
+            name: plainly(asks ?? control.name),
+            kind,
+            why:
+              kind === "eeo"
+                ? "What you have stored is not one of the choices this list offers. Left blank."
+                : `Nothing in this list matches "${value}", so it is left for you.`,
+          });
+          return;
+        }
+        value = choice.name;
+      }
+    }
+
     answered.add(control.target);
     fill.push({
       element: control.name || control.role,
