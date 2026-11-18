@@ -629,6 +629,45 @@ export async function proposeFrom(document: Document): Promise<Import> {
   return (await getImport(Number(written.lastInsertRowid)))!;
 }
 
+/**
+ * A proposal in a few lines, for the assistant rather than for the page.
+ *
+ * It used to get the whole thing — fifteen roles with every bullet — and
+ * then read it out, because a tool result shapes what happens next more than
+ * an instruction does. Handing back a document invites somebody to describe
+ * the document; handing back counts invites them to get on with it.
+ *
+ * The detail is not lost. It is on the person's own profile page the moment
+ * the import is applied, which is where they can see it in place rather than
+ * as a list in a chat window.
+ */
+export function outline(proposal: Proposed): {
+  roles: string[];
+  bullets: number;
+  education: string[];
+  skills: number;
+  facts: string[];
+  summary: boolean;
+  to_ask: number;
+} {
+  return {
+    roles: proposal.roles.map(
+      (role) =>
+        `${role.company} — ${role.title}` +
+        (role.start_date ? ` (${role.start_date}–${role.end_date ?? "present"})` : "") +
+        `, ${role.bullets.length} line${role.bullets.length === 1 ? "" : "s"}`,
+    ),
+    bullets: proposal.roles.reduce((count, role) => count + role.bullets.length, 0),
+    education: proposal.education.map(
+      (item) => `${item.degree ?? "study"}${item.field ? ` ${item.field}` : ""}, ${item.school}`,
+    ),
+    skills: proposal.skills.length,
+    facts: proposal.facts.map((fact) => fact.slug),
+    summary: Boolean(proposal.summary),
+    to_ask: proposal.unsure.length,
+  };
+}
+
 function importOf(row: {
   id: number;
   source: string;

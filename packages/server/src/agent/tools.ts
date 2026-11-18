@@ -23,6 +23,7 @@ import {
   applyImport,
   documentForUpload,
   importHelp,
+  outline,
   proposeFrom,
   whatIsMissing,
   type Document,
@@ -390,12 +391,13 @@ const importProfileTool = tool(
       return {
         import_id: proposed.id,
         source: proposed.source,
-        found: proposed.proposal,
+        found: outline(proposed.proposal),
         note:
-          "Nothing is stored yet. Say what was found — the roles and dates, how many bullets each, the education, the " +
-          "facts it would put on file — and quote any bullet exactly if you quote it at all. Then apply_import with " +
-          "the id, and with only the items they wanted if they did not want all of them. Anything in `unsure` is " +
-          "there because the document did not say plainly: ask about those rather than storing them.",
+          "Nothing is stored yet, and this is a count rather than the contents — do not read it out. Say in one " +
+          "sentence what you found (how many jobs, how far back, whether there is education and skills) and apply " +
+          "it with apply_import. They will see the detail on their profile, in place, which is better than a list " +
+          "in a chat window. The things the reader could not settle are queued when you apply, and you ask about " +
+          "those one at a time with next_question afterwards.",
       };
     }),
 );
@@ -439,8 +441,10 @@ const applyImportTool = tool(
       return {
         applied,
         note:
-          "Stored. Say what went in, what was skipped because something was already there, and how many lines you " +
-          "left out of which roles — they agreed to that, so it should be visible rather than quietly done.",
+          `Stored. Say in one short sentence what went in${applied.to_ask ? "" : "."}` +
+          (applied.to_ask
+            ? `, then call next_question and ask them about the first of the ${applied.to_ask} things the reader could not settle. One at a time: do not list them, do not preview them, and do not ask what they would like to go through.`
+            : " Then call next_question in case there is anything else worth asking about."),
       };
     }),
 );
