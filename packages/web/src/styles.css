@@ -353,6 +353,11 @@ a { color: var(--accent); }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .thread-meta { font-size: 10.5px; color: var(--text-faint); font-family: var(--mono); }
+/* The answers every application wants, in the profile. */
+.standing-row { display: flex; align-items: center; gap: 10px; margin: 5px 0; }
+.standing-question { flex: none; width: 300px; font-size: 12px; color: var(--text-dim); }
+.standing-row input { flex: 1; }
+
 /* What an application will ask for, grouped by who answers it. */
 .form-needs {
   margin: 10px 12px; padding: 10px 12px;

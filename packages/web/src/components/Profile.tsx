@@ -1,3 +1,4 @@
+import { ApplicationAnswers } from "./ApplicationAnswers.tsx";
 import { useEffect, useState } from "react";
 import { useChanges } from "../changes.ts";
 import { Interests } from "./Interests.tsx";
@@ -212,6 +213,8 @@ export function Profile() {
       {data.roles.map((item) => (
         <RoleCard key={item.id} role={item} onChanged={load} />
       ))}
+
+      <ApplicationAnswers />
 
       <h3>Skills</h3>
       <div className="skills">

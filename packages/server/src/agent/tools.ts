@@ -13,6 +13,12 @@ import { homeLocation, matchBar, setMatchBar } from "../settings.js";
 import { importPosting } from "../importing.js";
 import { formForJob } from "../apply/read.js";
 import { describe as describeForm } from "../apply/form.js";
+import {
+  coverage,
+  listStandingAnswers,
+  selfIdentificationKeysSet,
+  setStandingAnswer,
+} from "../apply/answers.js";
 import { assessTopJobs, ASSESS_MODEL } from "../assess.js";
 import { SOURCES } from "../sources/index.js";
 import { profileTools, PROFILE_MUTATING } from "./profileTools.js";
@@ -196,6 +202,53 @@ const applicationFormTool = tool(
     guard(async () => {
       const form = await formForJob(args.job_id);
       return { ...form, summary: describeForm(form) };
+    }),
+  { annotations: { readOnlyHint: true } },
+);
+
+const standingAnswersTool = tool(
+  "get_standing_answers",
+  "What the person has already said about their situation — work authorisation, sponsorship, relocation, days in an office, notice, pay. These are the same at every company and are the answers to copy, never to work out: an agent inferring someone's right to work in a country from their history is guessing about something legally significant. Anything not stored here is a decision only they can make.",
+  {},
+  async () => guard(async () => ({ answers: await listStandingAnswers() })),
+  { annotations: { readOnlyHint: true } },
+);
+
+const setStandingAnswerTool = tool(
+  "set_standing_answer",
+  "Store what they just told you about their situation, in their words, so no application has to ask again. Use the topic that fits: work_authorization, sponsorship, relocation, onsite, notice_period, start_date, salary — or your own short topic name for anything else. Only store what they actually said; an empty answer removes it.",
+  {
+    topic: z.string().describe("work_authorization, sponsorship, relocation, onsite, notice_period, start_date, salary, or your own"),
+    answer: z.string().describe("Their answer, in their words"),
+    question: z.string().optional().describe("The question it answers, if it is not one of the known topics"),
+  },
+  async (args) =>
+    guard(async () => {
+      await setStandingAnswer(args.topic, args.answer, args.question);
+      return { answers: await listStandingAnswers() };
+    }),
+);
+
+const selfIdStatusTool = tool(
+  "self_identification_status",
+  "Whether the person has stored answers for the voluntary self-identification questions — gender, race, veteran status, disability, pronouns. Answers with which of them are set and NEVER with a value: those are theirs, they are not sent to you, and you must not ask for them, infer them from a name or a history, or answer such a question on a form. When a form asks one, say it is voluntary and that stored answers are filled in without you seeing them.",
+  {},
+  async () =>
+    guard(async () => ({
+      stored: await selfIdentificationKeysSet(),
+      note: "Values are never shown to the assistant. They are filled into forms by the app itself.",
+    })),
+  { annotations: { readOnlyHint: true } },
+);
+
+const coverageTool = tool(
+  "application_coverage",
+  "What a job's application asks for, and how much of it is already answerable: identity and links from the profile, documents from the resume and letter this app writes, situation questions from the standing answers, self-identification from what the person stored. Answers with the fields that nothing can answer yet — which is the list worth putting to them before they start, and worth comparing across a shortlist. Self-identification is never listed as outstanding: leaving it blank is a complete answer.",
+  { job_id: z.number().int() },
+  async (args) =>
+    guard(async () => {
+      const form = await formForJob(args.job_id);
+      return { ats: form.ats, url: form.url, ...(await coverage(form)) };
     }),
   { annotations: { readOnlyHint: true } },
 );
@@ -439,6 +492,10 @@ export const jobsearchServer = createSdkMcpServer({
     syncBoardsTool,
     importPostingTool,
     applicationFormTool,
+    coverageTool,
+    standingAnswersTool,
+    setStandingAnswerTool,
+    selfIdStatusTool,
     matchBarTool,
     getMatchBarTool,
     rankJobs,

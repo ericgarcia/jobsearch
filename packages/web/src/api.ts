@@ -405,6 +405,28 @@ export const api = {
   saveLayout: (id: number, patch: { spec?: unknown; tokens?: Record<string, string>; name?: string }) =>
     json<Layout>(`/api/layouts/${id}`, { method: "PUT", body: JSON.stringify(patch) }),
 
+  standingAnswers: () =>
+    json<{ answers: { topic: string; question: string; answer: string }[]; topics: Record<string, string> }>(
+      "/api/standing-answers",
+    ),
+  setStandingAnswer: (topic: string, answer: string) =>
+    json<unknown>(`/api/standing-answers/${encodeURIComponent(topic)}`, {
+      method: "PUT",
+      body: JSON.stringify({ answer }),
+    }),
+
+  /*
+    Self-identification. Read and written by this page alone: no agent tool
+    returns these values, and the server never puts them in a prompt.
+  */
+  selfIdentification: () =>
+    json<{ values: Record<string, string>; keys: readonly string[] }>("/api/self-identification"),
+  setSelfIdentification: (key: string, value: string) =>
+    json<unknown>(`/api/self-identification/${encodeURIComponent(key)}`, {
+      method: "PUT",
+      body: JSON.stringify({ value }),
+    }),
+
   applicationForm: (jobId: number) =>
     json<ApplicationForm>(`/api/jobs/${jobId}/application-form`),
 

@@ -22,6 +22,15 @@ import { browserEnabled, runAgent, verifyCredential } from "./agent/session.js";
 import { APP_URL, SPLIT_EXTENSION_ID } from "./config.js";
 import { openStage } from "./agent/split.js";
 import { formForJob } from "./apply/read.js";
+import {
+  coverage,
+  listStandingAnswers,
+  readSelfIdentification,
+  setSelfIdentification,
+  setStandingAnswer,
+  SELF_ID_KEYS,
+  TOPIC_QUESTIONS,
+} from "./apply/answers.js";
 import { describe as describeForm } from "./apply/form.js";
 import { pdfFilename, renderPdf } from "./layout/pdf.js";
 import { changed, onChange } from "./notify.js";
@@ -289,6 +298,52 @@ app.get("/api/jobs/:id/application-form", async (request, reply) => {
   } catch (error) {
     return reply.code(502).send({ error: (error as Error).message });
   }
+});
+
+/**
+ * What an application asks, and what we can already answer.
+ */
+app.get("/api/jobs/:id/application-coverage", async (request, reply) => {
+  try {
+    const form = await formForJob(Number((request.params as { id: string }).id));
+    return { ats: form.ats, url: form.url, ...(await coverage(form)) };
+  } catch (error) {
+    return reply.code(502).send({ error: (error as Error).message });
+  }
+});
+
+/* ------------------------------------------------- standing answers, self-id */
+
+app.get("/api/standing-answers", async () => ({
+  answers: await listStandingAnswers(),
+  topics: TOPIC_QUESTIONS,
+}));
+
+app.put("/api/standing-answers/:topic", async (request) => {
+  const body = (request.body ?? {}) as { answer?: string; question?: string };
+  await setStandingAnswer(
+    (request.params as { topic: string }).topic,
+    body.answer ?? "",
+    body.question,
+  );
+  return { answers: await listStandingAnswers() };
+});
+
+/*
+  Self-identification, read and written only here.
+
+  This route serves the person's own page. No agent tool returns these
+  values, and the server never puts them in a prompt — see apply/answers.ts.
+*/
+app.get("/api/self-identification", async () => ({
+  values: await readSelfIdentification(),
+  keys: SELF_ID_KEYS,
+}));
+
+app.put("/api/self-identification/:key", async (request) => {
+  const body = (request.body ?? {}) as { value?: string };
+  await setSelfIdentification((request.params as { key: string }).key, body.value ?? "");
+  return { values: await readSelfIdentification() };
 });
 
 /* --------------------------------------------------------------- app state */

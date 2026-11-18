@@ -280,3 +280,28 @@ CREATE TABLE IF NOT EXISTS job_match (
 );
 
 CREATE INDEX IF NOT EXISTS job_match_score_idx ON job_match (score DESC);
+
+-- What the person says about their situation, once, for every application:
+-- work authorization, sponsorship, relocation, notice, pay. These are the
+-- answers an agent must copy rather than infer, so they are stored in the
+-- person's own words and read back verbatim.
+CREATE TABLE IF NOT EXISTS standing_answers (
+  topic      TEXT PRIMARY KEY,
+  question   TEXT NOT NULL,
+  answer     TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Voluntary self-identification: gender, race, veteran and disability status,
+-- and pronouns. Deliberately its own table and not columns on profile, so
+-- that nothing which reads the profile can read these by accident.
+--
+-- Nothing here is ever sent to the model. The tools can report which keys
+-- are set, never a value, and the step that fills a form matches the stored
+-- value to the form's options in code. The person types them; the browser
+-- receives them; nothing in between needs to know.
+CREATE TABLE IF NOT EXISTS self_identification (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);

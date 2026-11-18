@@ -20,3 +20,8 @@ profile.local.*
 
 # The layout engine compiles into its package, like the server does.
 packages/*/dist/
+
+# Worktrees the desktop app creates for other sessions. They are checkouts of
+# this same repository; committing one as a gitlink would point at a commit
+# nobody else has.
+.claude/worktrees/
