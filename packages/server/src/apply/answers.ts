@@ -74,15 +74,49 @@ export async function setStandingAnswer(
 
 /* ------------------------------------------------------- self-identification */
 
-export const SELF_ID_KEYS = ["gender", "race", "veteran", "disability", "pronouns"] as const;
+/*
+  What a voluntary section can ask, and so what there has to be room to store.
+
+  The first five were the legally reported ones. The rest are here because
+  real surveys ask them and nothing could answer them: a question with no
+  key is left blank with "nothing stored", which is correct and is also the
+  app declining to do the thing it was asked to do.
+
+  `location` is a country asked inside a demographic survey, and it is kept
+  apart from the profile's location on purpose. The profile holds a city
+  because an employer needs to post a contract to it. Answering a
+  demographic question from it would be taking something given for one
+  purpose and disclosing it for another, which is the person's call and not
+  this file's — so it is stored again, here, by them, or not at all.
+*/
+export const SELF_ID_KEYS = [
+  "gender",
+  "race",
+  "veteran",
+  "disability",
+  "pronouns",
+  "transgender",
+  "sexual_orientation",
+  "age",
+  "location",
+] as const;
 export type SelfIdKey = (typeof SELF_ID_KEYS)[number];
 
+/*
+  Order is load-bearing, specific before general. "Do you identify as
+  transgender?" is a gender question by its words, and matching it to the
+  gender answer would put "Woman" in front of a yes/no.
+*/
 const SELF_ID_PATTERNS: [SelfIdKey, RegExp][] = [
   ["pronouns", /\bpronoun/i],
   ["disability", /\bdisabilit/i],
   ["veteran", /\bveteran|\bmilitary\b/i],
+  ["transgender", /\btransgender|\btrans\b/i],
+  ["sexual_orientation", /\bsexual orientation|\borientation\b|\blgbt/i],
+  ["age", /\bage\b|\bdate of birth\b|\bbirth year\b|\bgeneration\b/i],
   ["race", /\b(?:race|racial|ethnic|hispanic|latin)/i],
   ["gender", /\b(?:gender|sex\b)/i],
+  ["location", /\blocation\b|\bcountry\b|\bwhere do you live\b/i],
 ];
 
 /** Which self-identification question a field is, if it is one. */
@@ -125,6 +159,84 @@ export async function setSelfIdentification(key: string, value: string): Promise
 export async function selfIdentificationKeysSet(): Promise<string[]> {
   const rows = await all<{ key: string }>(`SELECT key FROM self_identification ORDER BY key`);
   return rows.map((row) => row.key);
+}
+
+/* -------------------------------------------------- filling them in, or not */
+
+/**
+ * Whether the person asked for this application's voluntary section to be
+ * filled in.
+ *
+ * Per application, and unanswered until they say. Declining to disclose is
+ * a complete answer to every one of these questions, so silence means
+ * blank: an app that filled them because they were stored would be making
+ * the disclosure decision on their behalf, once per employer, invisibly.
+ *
+ * It is asked per application rather than once, because the decision is
+ * about this employer. Somewhere they want to work and somewhere they are
+ * applying to on a whim are not the same company, and a standing "yes"
+ * would answer for both.
+ */
+export async function voluntaryChoice(jobId: number): Promise<boolean | null> {
+  const row = await get<{ fill: number }>(
+    `SELECT fill FROM voluntary_answers WHERE job_id = ?`,
+    jobId,
+  );
+  return row ? row.fill === 1 : null;
+}
+
+export async function setVoluntaryChoice(jobId: number, fill: boolean): Promise<void> {
+  await run(
+    `INSERT INTO voluntary_answers (job_id, fill, at) VALUES (?, ?, datetime('now'))
+       ON CONFLICT (job_id) DO UPDATE SET fill = excluded.fill, at = excluded.at`,
+    jobId,
+    fill ? 1 : 0,
+  );
+  changed("applications");
+}
+
+export interface VoluntarySection {
+  /** The questions, which are the labels and never the answers. */
+  questions: { label: string; required: boolean; stored: boolean }[];
+  /** Which of them this app could answer from what is stored. */
+  answerable: number;
+  /** What the person has decided for this application. */
+  choice: "fill" | "blank" | null;
+}
+
+/**
+ * The voluntary part of one application, and what has been decided about it.
+ *
+ * Labels are questions, not answers, so they are safe to show and to say
+ * out loud. Which keys are set is safe too. The values are not here and are
+ * not reachable from here.
+ */
+export async function voluntarySection(
+  form: ApplicationForm,
+  jobId: number,
+): Promise<VoluntarySection> {
+  const [keys, choice] = await Promise.all([
+    selfIdentificationKeysSet(),
+    voluntaryChoice(jobId),
+  ]);
+  const have = new Set(keys);
+
+  const questions = form.fields
+    .filter((field) => field.kind === "eeo")
+    .map((field) => {
+      const key = selfIdKeyOf(field.label);
+      return {
+        label: field.label,
+        required: field.required,
+        stored: key !== null && have.has(key),
+      };
+    });
+
+  return {
+    questions,
+    answerable: questions.filter((question) => question.stored).length,
+    choice: choice === null ? null : choice ? "fill" : "blank",
+  };
 }
 
 /* ---------------------------------------------------------------- coverage */
@@ -209,7 +321,9 @@ export async function coverage(form: ApplicationForm): Promise<Coverage> {
         required: field.required,
         kind: field.kind,
         from: have ? ("self_identification" as const) : null,
-        ...(have ? {} : { missing: "Voluntary, and not stored. It stays blank unless you say." }),
+        ...(have
+          ? {}
+          : { missing: "Voluntary, and not stored. It stays blank unless you say." }),
       };
     }
 

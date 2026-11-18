@@ -1,7 +1,19 @@
-import { classify, type ApplicationForm, type FieldType, type FormField } from "./form.js";
+import {
+  byWords,
+  isVoluntarySection,
+  type ApplicationForm,
+  type FieldType,
+  type FormField,
+} from "./form.js";
 
 /**
  * Reading each board's published form.
+ *
+ * The kind each parser assigns is provisional and comes from the label's
+ * words. apply/classify.ts reads the form with a model afterwards and
+ * corrects it: these functions stay pure so they can be tested against a
+ * saved posting, and a pure function cannot ask anything what a question
+ * means.
  *
  * One parser per board, and each one takes text rather than fetching, so
  * every shape here is tested against a saved copy of a real posting instead
@@ -58,7 +70,7 @@ export function parseGreenhouse(html: string, url: string): ApplicationForm {
       label,
       type: GREENHOUSE_TYPES[first?.type ?? ""] ?? "text",
       required: question.required === true,
-      kind: classify(label),
+      kind: byWords(label),
       ...(options && options.length > 0 ? { options } : {}),
       ...(first?.name ? { ref: first.name } : {}),
     });
@@ -162,6 +174,31 @@ const LEVER_FIELD_TYPES: Record<string, FieldType> = {
   dropdown: "select",
 };
 
+/*
+  The headings a lever form is divided by, with where each one starts.
+
+  A field's section is the heading above it, and the section is part of the
+  question: Lever's demographic survey opens with "What is your location?",
+  which is word for word a contact field higher up the same page. Read
+  without its heading it was filled from the profile.
+*/
+function leverSections(html: string): { at: number; title: string }[] {
+  return [...html.matchAll(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi)].map((found) => ({
+    at: found.index ?? 0,
+    title: tidy((found[1] ?? "").replace(/<[^>]*>/g, " ")),
+  }));
+}
+
+/** The heading a position on the page sits under, if any. */
+function sectionAt(sections: { at: number; title: string }[], at: number): string | undefined {
+  let title: string | undefined;
+  for (const section of sections) {
+    if (section.at > at) break;
+    title = section.title || title;
+  }
+  return title;
+}
+
 function unescapeHtml(text: string): string {
   return text
     .replace(/&quot;/g, '"')
@@ -189,6 +226,18 @@ function leverTemplateFields(html: string): FormField[] {
       continue; // A template we cannot read is not a question we can report.
     }
 
+    /*
+      A lever survey is the voluntary section, whatever it is called.
+
+      surveysResponses is the mechanism Lever gives employers for the
+      equal-opportunity questions; cards are their own questions. One
+      employer titled theirs "Demographic Survey for Spotify" and another
+      could title it anything, so the mechanism decides and the title only
+      names it.
+    */
+    const section = (template.text ?? "").trim() || undefined;
+    const survey = /^surveysResponses\[/.test(found[1] ?? "");
+
     for (const field of template.fields ?? []) {
       const label = (field.text ?? "").trim();
       if (!label) continue;
@@ -200,8 +249,9 @@ function leverTemplateFields(html: string): FormField[] {
         label,
         type: LEVER_FIELD_TYPES[field.type ?? ""] ?? "text",
         required: field.required === true,
-        kind: classify(label),
+        kind: survey ? "eeo" : byWords(label, section),
         ...(options && options.length > 0 ? { options } : {}),
+        ...(section ? { section } : {}),
         ref: found[1],
       });
     }
@@ -213,6 +263,7 @@ function leverTemplateFields(html: string): FormField[] {
 export function parseLever(html: string, url: string): ApplicationForm {
   const fields: FormField[] = leverTemplateFields(html);
   const seen = new Set<string>();
+  const sections = leverSections(html);
 
   const INPUT = /<(input|select|textarea)\b([^>]*)>/gi;
   let found: RegExpExecArray | null;
@@ -220,7 +271,18 @@ export function parseLever(html: string, url: string): ApplicationForm {
   while ((found = INPUT.exec(html)) !== null) {
     const tag = found[1]!.toLowerCase();
     const attributes = found[2] ?? "";
-    const name = attribute(attributes, "name");
+    /*
+      A select with no name of its own.
+
+      The country list in Lever's demographic survey is posted by script and
+      carries only a class and a data-qa, so a parser that needs a name
+      skipped it — and the form report left out the one field in that
+      section that this app was filling in. Named by its data-qa, which is
+      what Lever calls it.
+    */
+    const name =
+      attribute(attributes, "name") ??
+      (tag === "select" ? attribute(attributes, "data-qa") : null);
     if (!name || LEVER_SKIP.test(name.split("[").pop() ?? name)) continue;
     // Already reported, with its real wording, from its template.
     if (LEVER_FROM_TEMPLATE.test(name)) continue;
@@ -232,7 +294,8 @@ export function parseLever(html: string, url: string): ApplicationForm {
       Radios and checkboxes repeat the same name once per option, so the
       field is created on first sight and later rows only add their option.
     */
-    const label = leverLabel(html, name, attributes);
+    const section = sectionAt(sections, found.index ?? 0);
+    const label = leverLabel(html, name, attributes, found.index ?? 0);
     if (seen.has(name)) {
       const existing = fields.find((field) => field.ref === name);
       const option = attribute(attributes, "value");
@@ -261,10 +324,11 @@ export function parseLever(html: string, url: string): ApplicationForm {
       label,
       type,
       required: /\brequired\b/i.test(attributes),
-      kind: classify(label),
+      kind: byWords(label, section),
       ...(option && (inputType === "radio" || inputType === "checkbox")
         ? { options: [option] }
         : {}),
+      ...(section ? { section } : {}),
       ref: name,
     });
   }
@@ -281,7 +345,7 @@ export function parseLever(html: string, url: string): ApplicationForm {
  * reported under an ugly name is still reported; a field dropped for want of
  * a label is a question nobody knows was asked.
  */
-function leverLabel(html: string, name: string, attributes: string): string {
+function leverLabel(html: string, name: string, attributes: string, at: number): string {
   const aria = attribute(attributes, "aria-label");
   if (aria) return aria;
 
@@ -295,7 +359,12 @@ function leverLabel(html: string, name: string, attributes: string): string {
     label "Full name", which is the one mistake this classification must not
     make.
   */
-  const at = html.indexOf(`name="${name}"`);
+  /*
+    The input's own position, passed in rather than searched for. Looking
+    the name up found its first occurrence, which is a different input
+    whenever a name repeats — and found nothing at all for a select that has
+    no name attribute, the one in the demographic survey.
+  */
   if (at > 0) {
     const start = html.lastIndexOf("application-question", at);
     const block = html.slice(start > 0 ? start : Math.max(0, at - 1200), at);
@@ -364,14 +433,21 @@ interface AshbyEntry {
 
 export function parseAshby(body: string, url: string): ApplicationForm {
   const payload = JSON.parse(body) as {
-    data?: { jobPosting?: { applicationForm?: { sections?: { fieldEntries?: AshbyEntry[] }[] } } };
+    data?: {
+      jobPosting?: {
+        applicationForm?: { sections?: { title?: string; fieldEntries?: AshbyEntry[] }[] };
+      };
+    };
   };
 
   const sections = payload.data?.jobPosting?.applicationForm?.sections;
   if (!sections) throw new Error("No application form in the ashby response.");
 
   const fields: FormField[] = [];
+  // Ashby names its sections, which is the only board that hands over the
+  // heading for free. A titled section is part of every question under it.
   for (const section of sections) {
+    const title = (section.title ?? "").trim() || undefined;
     for (const entry of section.fieldEntries ?? []) {
       const label = (entry.field?.title ?? "").trim();
       if (!label) continue;
@@ -383,8 +459,9 @@ export function parseAshby(body: string, url: string): ApplicationForm {
         label,
         type: ASHBY_TYPES[entry.field?.type ?? ""] ?? "unknown",
         required: entry.isRequired === true,
-        kind: classify(label),
+        kind: byWords(label, title),
         ...(options && options.length > 0 ? { options } : {}),
+        ...(title ? { section: title } : {}),
         ...(entry.field?.path ? { ref: entry.field.path } : {}),
       });
     }

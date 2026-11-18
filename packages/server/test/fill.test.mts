@@ -9,7 +9,16 @@
 */
 
 import assert from "node:assert/strict";
-import { chooseOption, planFill, readSnapshot, reportOf, type Known } from "../src/apply/fill.js";
+import {
+  askedOf,
+  chooseOption,
+  planFill,
+  questionsOf,
+  readSnapshot,
+  reportOf,
+  type Known,
+} from "../src/apply/fill.js";
+import { classifyByWords, type Classified } from "../src/apply/classify.js";
 import { refusal, wouldSend } from "../src/apply/guard.js";
 
 let passed = 0;
@@ -59,6 +68,12 @@ const known: Known = {
     { topic: "sponsorship", answer: "No" },
   ],
   selfId: { gender: "Prefer not to disclose" },
+  /*
+    The tests that follow are about the matching, so they are run with the
+    person having asked for the voluntary section. Section 9 is the one that
+    checks what happens when they have not, which is the default.
+  */
+  fillVoluntary: true,
 };
 
 console.log("\n1. Reading a snapshot");
@@ -308,5 +323,129 @@ for (const field of plan.fill) {
   assert.ok(TYPES.has(field.type), `${field.name} has a type the tool rejects: ${field.type}`);
 }
 ok("each planned field carries target, name, type and value, and a type the tool accepts");
+
+console.log("\n9. A voluntary section is blank unless they asked for it");
+
+/*
+  Storing an answer is not permission to send it. This is the default: the
+  values are on file, they match the form's options exactly, and nothing is
+  filled because nobody said to for this employer.
+*/
+const unasked = planFill(controls, { ...known, fillVoluntary: false });
+assert.equal(unasked.fill.some((field) => field.kind === "eeo"), false);
+assert.equal(reportOf(unasked).self_identification_filled, 0);
+ok("a stored answer that matches perfectly is still not filled in");
+
+const held = unasked.leftAlone.find((row) => /gender/i.test(row.name));
+assert.ok(held, "the question was not reported as left alone either");
+assert.match(held?.why ?? "", /have not asked/);
+ok("it says why it is blank, so nobody has to wonder");
+
+console.log("\n10. What a question means comes from the classifier, not its words");
+
+/*
+  The failure this is built around. Lever's demographic survey opens by
+  asking for a country, in the same words as the contact field at the top of
+  the same page. By its label it is an address, and it was answered from the
+  profile — the person's city disclosed to a demographic survey they never
+  agreed to answer.
+
+  The heading is in the snapshot, so the classifier is given it, and its
+  verdict is what the plan follows.
+*/
+const SURVEY = `
+- textbox "Current location" [ref=e1]
+- heading "Demographic Survey" [level=4]
+- combobox "What is your location?" [ref=e2]:
+  - option "United States" [ref=e3]
+  - option "United Kingdom" [ref=e4]
+`;
+
+const paged = readSnapshot(SURVEY);
+assert.equal(paged.find((control) => control.target === "e1")?.section, undefined);
+assert.equal(paged.find((control) => control.target === "e2")?.section, "Demographic Survey");
+ok("a control carries the heading it sits under, and one above it does not");
+
+const questions = askedOf(paged);
+const country = questions.find((question) => /what is your location/i.test(question.label));
+assert.equal(country?.section, "Demographic Survey");
+assert.deepEqual(country?.options, ["United States", "United Kingdom"]);
+ok("the classifier is given the heading and the choices, which are the form's own words");
+
+assert.equal(questionsOf(paged).length, 2, "the page asks two questions");
+
+const verdicts = new Map<string, Classified>([
+  ["Current location", { kind: "identity", slot: "location", by: "model" }],
+  ["What is your location?", { kind: "eeo", key: "location", by: "model" }],
+]);
+
+const judged = planFill(paged, { ...known, fillVoluntary: false }, verdicts);
+assert.equal(judged.fill.some((field) => field.target === "e2"), false);
+assert.ok(judged.leftAlone.some((row) => /what is your location/i.test(row.name)));
+ok("the survey's country is left blank, though its label reads as an address");
+
+assert.equal(
+  judged.fill.find((field) => field.target === "e1")?.value,
+  "New York, NY",
+  "the contact field above it is still filled",
+);
+ok("and the contact field of the same name is still answered");
+
+/*
+  The other half of the same bug. The profile holds a city; a field asking
+  for a country has nothing on file to answer it, and the pattern that read
+  both as "location" put the city in the country box.
+*/
+const COUNTRIES = `
+- combobox "Country" [ref=e7]:
+  - option "United States" [ref=e8]
+- textbox "Postcode" [ref=e9]
+- textbox "City" [ref=e10]
+`;
+const addressed = planFill(
+  readSnapshot(COUNTRIES),
+  { ...known, fillVoluntary: false },
+  new Map<string, Classified>([
+    ["Country", { kind: "identity", slot: "country", by: "model" }],
+    ["Postcode", { kind: "identity", slot: "postcode", by: "model" }],
+    ["City", { kind: "identity", slot: "city", by: "model" }],
+  ]),
+);
+assert.equal(addressed.fill.some((field) => /country|postcode/i.test(field.name)), false);
+assert.equal(addressed.fill.find((field) => field.name === "City")?.value, "New York, NY");
+assert.ok(addressed.leftAlone.some((row) => row.name === "Country" && /nothing for country/i.test(row.why)));
+ok("a city answers a city, and nothing answers a country or a postcode");
+
+/*
+  With the section it is a disclosure, and the stored country answers it —
+  never the profile's city, which was given as a contact detail.
+*/
+const agreed = planFill(
+  paged,
+  { ...known, fillVoluntary: true, selfId: { location: "United States" } },
+  verdicts,
+);
+assert.equal(agreed.fill.find((field) => field.target === "e2")?.value, "United States");
+assert.equal(agreed.fill.find((field) => field.target === "e2")?.kind, "eeo");
+ok("once they ask for it, the stored country answers it and the profile is not used");
+
+const noKey = planFill(paged, { ...known, fillVoluntary: true, selfId: {} }, verdicts);
+assert.ok(noKey.leftAlone.some((row) => /nothing stored/i.test(row.why)));
+ok("with nothing stored for it, it is blank and says so");
+
+console.log("\n11. The keyword layer is still there, and still fails safe");
+
+assert.equal(classifyByWords({ label: "What is your location?" }).kind, "identity");
+assert.equal(
+  classifyByWords({ label: "What is your location?", section: "Demographic Survey" }).kind,
+  "eeo",
+);
+assert.equal(classifyByWords({ label: "Tell us about a hard bug" }).kind, "custom");
+assert.equal(
+  classifyByWords({ label: "Are you legally authorized to work in the US?" }).topic,
+  "work_authorization",
+);
+assert.equal(classifyByWords({ label: "What are your pronouns?" }).key, "pronouns");
+ok("the fallback classifies by words, section first, and says which route it was");
 
 console.log(`\n${passed} passed, 0 failed`);

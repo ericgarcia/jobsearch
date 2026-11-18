@@ -1,7 +1,19 @@
 import fs from "node:fs";
 import path from "node:path";
-import { classify, topicOf, type FieldKind } from "./form.js";
-import { listStandingAnswers, readSelfIdentification, selfIdKeyOf } from "./answers.js";
+import { topicOf, type FieldKind } from "./form.js";
+import {
+  listStandingAnswers,
+  readSelfIdentification,
+  selfIdKeyOf,
+  voluntaryChoice,
+} from "./answers.js";
+import {
+  classifyAsked,
+  classifyByWords,
+  type Asked,
+  type Classified,
+  type Slot,
+} from "./classify.js";
 import { callBrowser } from "../agent/browserClient.js";
 import { BROWSER_FILES } from "../agent/browserServer.js";
 import { openOnStage, withPane } from "../agent/split.js";
@@ -43,6 +55,14 @@ export interface Control {
   target: string;
   /** For a radio or a checkbox, the group it belongs to. */
   group?: string;
+  /**
+   * The heading this control sits under.
+   *
+   * Part of the question, not decoration. A country list under "Demographic
+   * Survey" is a demographic question and a country list at the top of the
+   * form is an address, and the label is the same sentence in both.
+   */
+  section?: string;
 }
 
 /*
@@ -71,6 +91,12 @@ const REF = /\[ref=([^\]]+)\]/;
 export function readSnapshot(snapshot: string): Control[] {
   const controls: Control[] = [];
   const stack: { indent: number; name: string }[] = [];
+  /*
+    The heading last passed, which is the section everything after it is in.
+    Read the way a person reads the page: top to bottom, and a question
+    belongs to the last heading above it.
+  */
+  let section: string | undefined;
 
   for (const raw of snapshot.split("\n")) {
     const found = LINE.exec(raw);
@@ -82,9 +108,17 @@ export function readSnapshot(snapshot: string): Control[] {
     while (stack.length > 0 && stack[stack.length - 1]!.indent >= depth) stack.pop();
     const group = stack.length > 0 ? stack[stack.length - 1]!.name : undefined;
 
+    if (role === "heading" && name) section = name;
+
     // Everything named can be a question; only something with a ref can be
     // answered.
-    controls.push({ role, name, target: target ?? "", ...(group ? { group } : {}) });
+    controls.push({
+      role,
+      name,
+      target: target ?? "",
+      ...(group ? { group } : {}),
+      ...(section ? { section } : {}),
+    });
     if (name) stack.push({ indent: depth, name });
   }
 
@@ -103,6 +137,17 @@ export interface Known {
   standing: { topic: string; answer: string }[];
   /** Read from the database and never shown to the agent. */
   selfId: Record<string, string>;
+  /**
+   * Whether the person asked for this application's voluntary section to be
+   * filled in.
+   *
+   * False unless they said yes for this employer. Stored answers are not a
+   * standing instruction to disclose: declining is a complete answer to
+   * every question in that section, and an app that filled them because
+   * they were on file would be making that decision for them, once per
+   * company, without saying so.
+   */
+  fillVoluntary: boolean;
 }
 
 export interface Filling {
@@ -121,13 +166,33 @@ export interface Plan {
   leftAlone: { name: string; kind: FieldKind; why: string }[];
 }
 
-const FIRST = /\bfirst name|given name\b/i;
-const LAST = /\blast name|family name|surname\b/i;
-const LINK_HINTS: [RegExp, RegExp][] = [
-  [/linkedin/i, /linkedin\.com/i],
-  [/github/i, /github\.com/i],
-  [/(?:website|portfolio|personal site|blog)/i, /^https?:/i],
-];
+/*
+  Which of the person's links is which, by the site it points at.
+
+  This half stays in code, and deliberately: the slot — what the field is
+  asking for — is a judgement about the employer's words and is made by the
+  model, while recognising github.com in a URL is not a judgement at all.
+  The person's links are not sent anywhere to be sorted.
+*/
+const LINK_HOSTS: Partial<Record<Slot, RegExp>> = {
+  linkedin: /linkedin\.com/i,
+  github: /github\.com|gitlab\.com/i,
+  twitter: /twitter\.com|\bx\.com/i,
+  scholar: /scholar\.google\./i,
+};
+
+/* A personal site is the one that is none of the above. */
+const NAMED_HOST = /linkedin\.com|github\.com|gitlab\.com|twitter\.com|\bx\.com|scholar\.google\./i;
+
+function linkFor(slot: Slot | undefined, links: string[]): string | undefined {
+  if (!slot) return undefined;
+  const host = LINK_HOSTS[slot];
+  if (host) return links.find((link) => host.test(link));
+  if (slot === "portfolio" || slot === "website" || slot === "other_link") {
+    return links.find((link) => /^https?:/i.test(link) && !NAMED_HOST.test(link));
+  }
+  return undefined;
+}
 
 /**
  * The option a stored answer means, in the words this form uses.
@@ -185,7 +250,103 @@ function escape(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export function planFill(controls: Control[], known: Known): Plan {
+/*
+  The label without the mark that means "required".
+
+  Lever writes it into the accessible name, so the record read "Full name ✱" —
+  the form's typography preserved as though it were part of the question.
+*/
+export function plainly(label: string): string {
+  return label.replace(/\s*[✱*＊]\s*$/u, "").trim();
+}
+
+const CHOICES = new Set(["radio", "option", "checkbox"]);
+
+/** The answers offered under one question. */
+function optionsOf(controls: Control[], group: string): Control[] {
+  return controls.filter((control) => control.group === group && CHOICES.has(control.role));
+}
+
+/*
+  The roles a question can wear. A radio or an option is not in here: those
+  are answers, reached through the group that asks the question. A checkbox
+  is, because a consent is a checkbox and leaving it out meant it was neither
+  ticked nor reported — the field simply vanished, which is worse than
+  ticking it, since nobody can check what they were not told about.
+*/
+const ASKS = new Set(["textbox", "combobox", "radiogroup", "checkbox", "slider"]);
+
+/**
+ * The questions a page asks, in the order it asks them.
+ *
+ * Exported because two things need the same list and must not disagree about
+ * it: the planner, and the classifier that is asked what each question means.
+ *
+ * A group of tick boxes becomes the one question it is, standing where its
+ * first box stood, and its boxes become that question's options. A checkbox
+ * counts as a question on its own, because a consent is a lone checkbox and
+ * leaving checkboxes out made consents vanish from the report entirely. But
+ * Lever asks pronouns as ten checkboxes under one label, and counting each as
+ * a question told the person they had ten questions to answer — "He/him",
+ * "She/her", "They/them" — each described as its own question needing an
+ * answer written for this application. It is one question with ten answers.
+ */
+export function questionsOf(controls: Control[]): Control[] {
+  const ticks = new Map<string, number>();
+  for (const control of controls) {
+    if (control.role !== "checkbox" || !control.group) continue;
+    ticks.set(control.group, (ticks.get(control.group) ?? 0) + 1);
+  }
+  // Two or more tick boxes under one label is that shape. One is a consent,
+  // and stays a question.
+  const isChoiceOf = (control: Control) =>
+    control.role === "checkbox" &&
+    control.group !== undefined &&
+    (ticks.get(control.group) ?? 0) > 1;
+
+  const questions: Control[] = [];
+  for (const control of controls) {
+    if (isChoiceOf(control)) {
+      const group = control.group ?? "";
+      if (!questions.some((asked) => asked.name === group)) {
+        questions.push({
+          role: "radiogroup",
+          name: group,
+          target: "",
+          ...(control.section ? { section: control.section } : {}),
+        });
+      }
+      continue;
+    }
+    if (ASKS.has(control.role) && control.name) questions.push(control);
+  }
+  return questions;
+}
+
+/** The same questions, in the words the classifier is given. */
+export function askedOf(controls: Control[]): Asked[] {
+  return questionsOf(controls).map((control) => {
+    const offered = optionsOf(controls, control.name).map((option) => option.name);
+    return {
+      label: plainly(control.name),
+      ...(control.section ? { section: control.section } : {}),
+      ...(offered.length > 0 ? { options: offered } : {}),
+    };
+  });
+}
+
+/**
+ * What to type where.
+ *
+ * `kinds` is what the classifier made of each question, by label. Without it
+ * every field falls back to its words, which is what the tests do and what
+ * happens when there is no credential.
+ */
+export function planFill(
+  controls: Control[],
+  known: Known,
+  kinds?: Map<string, Classified>,
+): Plan {
   const fill: Filling[] = [];
   const leftAlone: Plan["leftAlone"][number][] = [];
   const answered = new Set<string>();
@@ -194,42 +355,7 @@ export function planFill(controls: Control[], known: Known): Plan {
   const [first = "", ...rest] = (known.profile.name ?? "").split(/\s+/);
   const last = rest.join(" ");
 
-  const CHOICES = new Set(["radio", "option", "checkbox"]);
-  const options = (group: string) =>
-    controls.filter((control) => control.group === group && CHOICES.has(control.role));
-
-  /*
-    Groups that ask one question with several tick boxes.
-
-    A checkbox counts as a question on its own, because a consent is a lone
-    checkbox and leaving checkboxes out made consents vanish from the report
-    entirely. But Lever asks pronouns as ten checkboxes under one label, and
-    counting each as a question told the person they had ten questions to
-    answer — "He/him", "She/her", "They/them" — each described as their own
-    question needing an answer written for this application. It is one
-    question with ten answers.
-
-    Two or more tick boxes under the same label is that shape. One is a
-    consent, and stays a question.
-  */
-  const ticksPerGroup = new Map<string, number>();
-  for (const control of controls) {
-    if (control.role !== "checkbox" || !control.group) continue;
-    ticksPerGroup.set(control.group, (ticksPerGroup.get(control.group) ?? 0) + 1);
-  }
-  const isChoiceOf = (control: Control) =>
-    control.role === "checkbox" &&
-    control.group !== undefined &&
-    (ticksPerGroup.get(control.group) ?? 0) > 1;
-
-  /*
-    The label without the mark that means "required".
-
-    Lever writes it into the accessible name, so the record read "Full name
-    ✱" — the form's typography preserved as though it were part of the
-    question.
-  */
-  const plainly = (label: string) => label.replace(/\s*[✱*＊]\s*$/u, "").trim();
+  const options = (group: string) => optionsOf(controls, group);
 
   const put = (control: Control, value: string, kind: FieldKind, asks?: string) => {
     if (!value || answered.has(control.target)) return;
@@ -286,100 +412,151 @@ export function planFill(controls: Control[], known: Known): Plan {
   };
 
   /*
-    The roles a question can wear. A radio or an option is not in here: those
-    are answers, reached through the group that asks the question. A checkbox
-    is, because a consent is a checkbox and leaving it out meant it was
-    neither ticked nor reported — the field simply vanished, which is worse
-    than ticking it, since nobody can check what they were not told about.
-  */
-  const ASKS = new Set(["textbox", "combobox", "radiogroup", "checkbox", "slider"]);
+    Give a stored answer to the control that takes it.
 
-  /*
-    The questions on the page, in the order they are asked.
-
-    A group of tick boxes becomes the one question it is, standing where its
-    first box stood, and its boxes become that question's options.
+    A group of radios is answered by clicking one of them, so the option is
+    found first and the option is what gets filled. A list is not: a combobox
+    takes the chosen wording as its value, and `put` matches it to what the
+    list offers. Handing `put` the <option> element instead — which is what
+    this did — meant typing into something that cannot be typed into, so a
+    stored answer to a question asked as a select was silently lost. It only
+    ever showed up on radios, which is most forms, which is why it survived.
   */
-  const questions: Control[] = [];
-  for (const control of controls) {
-    if (isChoiceOf(control)) {
-      const group = control.group ?? "";
-      if (!questions.some((asked) => asked.name === group)) {
-        questions.push({ role: "radiogroup", name: group, target: "" });
-      }
-      continue;
+  const resolve = (control: Control, stored: string, kind: FieldKind, whyNot: string) => {
+    const label = control.name;
+    if (control.role !== "radiogroup" && control.role !== "checkbox") {
+      put(control, stored, kind, label);
+      return;
     }
-    if (ASKS.has(control.role) && control.name) questions.push(control);
-  }
+    const choice = chooseOption(stored, options(label));
+    if (choice) put(choice, choice.name, kind, label);
+    else leftAlone.push({ name: plainly(label), kind, why: whyNot });
+  };
+
+  const questions = questionsOf(controls);
 
   for (const control of questions) {
     const label = control.name;
     if (!label) continue;
-    const kind = classify(label);
+
+    /*
+      What the classifier made of this question, or its words if it was not
+      asked. The lookup is by the plain label, which is the same string the
+      classifier was given — the two must agree, or a question is planned as
+      one kind and was judged as another.
+    */
+    const asks = plainly(label);
+    const verdict =
+      kinds?.get(asks) ??
+      classifyByWords({ label: asks, ...(control.section ? { section: control.section } : {}) });
+    const kind = verdict.kind;
 
     if (kind === "identity") {
-      if (FIRST.test(label)) put(control, first, kind);
-      else if (LAST.test(label)) put(control, last, kind);
-      else if (/\bname\b/i.test(label)) put(control, known.profile.name ?? "", kind);
-      else if (/e-?mail/i.test(label)) put(control, known.profile.email ?? "", kind);
-      else if (/phone|mobile|telephone/i.test(label)) put(control, known.profile.phone ?? "", kind);
-      else if (/location|city|address|country/i.test(label))
-        put(control, known.profile.location ?? "", kind);
+      /*
+        The slot, not the label.
+
+        A pattern over the label read "Country" and "City" as the same
+        question and answered both with the profile's location, so a form
+        asking for a country was given "New York, NY" — which its list then
+        refused, five seconds later. The profile holds a city; a field
+        wanting a country or a postcode has nothing on file to answer it,
+        and saying so is the correct outcome.
+      */
+      const value = ((): string => {
+        switch (verdict.slot) {
+          case "first_name":
+            return first;
+          case "last_name":
+            return last;
+          case "full_name":
+          case "preferred_name":
+            return known.profile.name ?? "";
+          case "email":
+            return known.profile.email ?? "";
+          case "phone":
+            return known.profile.phone ?? "";
+          case "location":
+          case "city":
+          case "address":
+            return known.profile.location ?? "";
+          default:
+            return "";
+        }
+      })();
+
+      if (value) resolve(control, value, kind, `Nothing stored matches "${asks}".`);
+      else {
+        leftAlone.push({
+          name: asks,
+          kind,
+          why: verdict.slot
+            ? `The profile has nothing for ${verdict.slot.replace(/_/g, " ")}.`
+            : "Nothing on file answers this one.",
+        });
+      }
       continue;
     }
 
     if (kind === "link") {
-      for (const [asks, looks] of LINK_HINTS) {
-        if (!asks.test(label)) continue;
-        const match = known.profile.links.find((link) => looks.test(link));
-        if (match) put(control, match, kind);
-        break;
+      const link = linkFor(verdict.slot, known.profile.links);
+      if (link) put(control, link, kind);
+      else {
+        leftAlone.push({
+          name: asks,
+          kind,
+          why: "No link on the profile answers this one.",
+        });
       }
       continue;
     }
 
     if (kind === "standing") {
-      const topic = topicOf(label);
+      const topic = verdict.topic ?? topicOf(label);
       const stored = topic === "other" ? undefined : byTopic.get(topic);
       if (!stored) {
         leftAlone.push({ name: label, kind, why: "No standing answer stored for this." });
         continue;
       }
-      const choice = chooseOption(stored, options(label));
-      if (choice) put(choice, choice.name, kind, label);
-      else if (control.role === "textbox") put(control, stored, kind);
-      else {
-        leftAlone.push({
-          name: label,
-          kind,
-          why: `Stored answer "${stored}" does not clearly match any option offered.`,
-        });
-      }
+      resolve(
+        control,
+        stored,
+        kind,
+        `Stored answer "${stored}" does not clearly match any option offered.`,
+      );
       continue;
     }
 
     if (kind === "eeo") {
       /*
+        Nothing in a voluntary section is touched unless the person asked for
+        it to be, for this application. See Known.fillVoluntary.
+      */
+      if (!known.fillVoluntary) {
+        leftAlone.push({
+          name: asks,
+          kind,
+          why: "Voluntary, and you have not asked for this section to be filled in. Left blank.",
+        });
+        continue;
+      }
+
+      /*
         The one place these values are read. They go from the database to
         the browser; the plan records that the field was filled and never
         what with, and the agent is told a count and nothing else.
       */
-      const key = selfIdKeyOf(label);
+      const key = verdict.key ?? selfIdKeyOf(label);
       const stored = key ? known.selfId[key] : undefined;
       if (!stored) {
-        leftAlone.push({ name: label, kind, why: "Voluntary, and nothing stored. Left blank." });
+        leftAlone.push({ name: asks, kind, why: "Voluntary, and nothing stored. Left blank." });
         continue;
       }
-      const choice = chooseOption(stored, options(label));
-      if (choice) put(choice, choice.name, kind, label);
-      else if (control.role === "textbox") put(control, stored, kind);
-      else {
-        leftAlone.push({
-          name: label,
-          kind,
-          why: "What you have stored does not match the options this form offers. Left blank.",
-        });
-      }
+      resolve(
+        control,
+        stored,
+        kind,
+        "What you have stored does not match the options this form offers. Left blank.",
+      );
       continue;
     }
 
@@ -511,8 +688,8 @@ function failures(failed: Filled["failed"]): { name: string; why: string }[] {
   }));
 }
 
-async function knownAnswers(): Promise<Known> {
-  const [row, standing, selfId] = await Promise.all([
+async function knownAnswers(jobId: number): Promise<Known> {
+  const [row, standing, selfId, voluntary] = await Promise.all([
     get<{
       name: string | null;
       email: string | null;
@@ -522,6 +699,7 @@ async function knownAnswers(): Promise<Known> {
     }>(`SELECT name, email, phone, location, links FROM profile WHERE id = 1`),
     listStandingAnswers(),
     readSelfIdentification(),
+    voluntaryChoice(jobId),
   ]);
 
   let links: string[] = [];
@@ -544,6 +722,7 @@ async function knownAnswers(): Promise<Known> {
     },
     standing: standing.map((answer) => ({ topic: answer.topic, answer: answer.answer })),
     selfId,
+    fillVoluntary: voluntary === true,
   };
 }
 
@@ -587,7 +766,14 @@ export async function fillApplication(jobId: number): Promise<unknown> {
       };
     }
 
-    const plan = planFill(controls, await knownAnswers());
+    /*
+      Read the page's questions, then ask what they mean.
+
+      One call for the whole form, on the form's own words. Nothing the
+      person stored is in it: see apply/classify.ts.
+    */
+    const kinds = await classifyAsked(askedOf(controls));
+    const plan = planFill(controls, await knownAnswers(jobId), kinds);
 
     const outcome = await fillFields(plan.fill);
 
