@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { Layout, LayoutSection, TokenDef, Vocabulary } from "../api.ts";
-import type { Pages, Selection } from "./Document.tsx";
+import type { Layout, LayoutSection, ResumeSummary, TokenDef, Vocabulary } from "../api.ts";
+import { EDITABLE, type Pages, type Selection } from "./Document.tsx";
 
 /**
  * The controls, above the document rather than beside it.
@@ -356,6 +356,9 @@ export function DesignBar({
   onSelect,
   onToken,
   onSections,
+  drafts,
+  draftId,
+  onDraft,
   children,
 }: {
   surface: "profile" | "resume";
@@ -368,6 +371,10 @@ export function DesignBar({
   onSelect: (selection: Selection | null) => void;
   onToken: (name: string, value: string) => void;
   onSections: (sections: LayoutSection[]) => void;
+  /** Saved drafts, to show one instead of the stored profile. */
+  drafts: ResumeSummary[];
+  draftId: number | null;
+  onDraft: (id: number | null) => void;
   /** The export control, which belongs to the surface rather than the bar. */
   children?: ReactNode;
 }) {
@@ -414,6 +421,21 @@ export function DesignBar({
             Profile
           </button>
         </div>
+        {surface === "resume" && drafts.length > 0 && (
+          <select
+            className="draft-picker"
+            aria-label="Which content to show"
+            value={draftId ?? ""}
+            onChange={(e) => onDraft(e.target.value === "" ? null : Number(e.target.value))}
+          >
+            <option value="">Your profile</option>
+            {drafts.map((draft) => (
+              <option key={draft.id} value={draft.id}>
+                {draft.label ?? draft.company ?? `Draft ${draft.id}`}
+              </option>
+            ))}
+          </select>
+        )}
         <span className="saving">{saving ? "saving…" : ""}</span>
       </div>
 
@@ -426,6 +448,22 @@ export function DesignBar({
               {selection?.field && <span className="chip-field">{FIELD_NAMES[selection.field] ?? selection.field}</span>}
               {selection?.text && <span className="chip-text">{selection.text}</span>}
             </span>
+
+            {/*
+              Where typing lands, said before it is typed. The same bullet
+              means two different things on a draft and on the profile, and
+              the costly one to get wrong is silent: a reworded line that
+              quietly became the stored fact, on every other resume too.
+            */}
+            {surface === "resume" && selection?.field && EDITABLE.has(selection.field) && (
+              <span className="chip-scope">
+                {selection.line != null
+                  ? "this draft only"
+                  : selection.field === "heading"
+                    ? "this template"
+                    : "edits your profile"}
+              </span>
+            )}
 
             {chosen.kind !== "header" && (
               <input

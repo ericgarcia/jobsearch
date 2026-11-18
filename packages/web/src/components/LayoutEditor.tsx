@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type Layout, type LayoutSection, type Vocabulary } from "../api.ts";
+import { api, type Layout, type LayoutSection, type ResumeSummary, type Vocabulary } from "../api.ts";
 import { useChanges } from "../changes.ts";
 import { Document, type Pages, type Selection } from "./Document.tsx";
 import { DesignBar } from "./DesignBar.tsx";
@@ -84,6 +84,15 @@ export function LayoutEditor({ onSurface }: { onSurface?: (surface: Surface) => 
   const [pages, setPages] = useState<Pages | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
 
+  /*
+    Which content the template is showing: the stored profile, or one saved
+    draft. It decides where typing goes — a bullet on the profile is the
+    fact itself, and the same bullet on a draft is that draft's wording of
+    it. See Document.tsx for why both ids travel with the line.
+  */
+  const [drafts, setDrafts] = useState<ResumeSummary[]>([]);
+  const [draftId, setDraftId] = useState<number | null>(null);
+
   const pending = useRef<number | undefined>(undefined);
 
   /*
@@ -108,6 +117,27 @@ export function LayoutEditor({ onSurface }: { onSurface?: (surface: Surface) => 
   useEffect(() => {
     void api.vocabulary().then(setVocabulary).catch(() => setError("Could not read what can be styled."));
   }, []);
+
+  const loadDrafts = useCallback(() => {
+    void api.resumes().then(setDrafts).catch(() => undefined);
+  }, []);
+  useEffect(loadDrafts, [loadDrafts]);
+  useChanges("resumes", loadDrafts);
+
+  // A draft is a resume, so it has nothing to say about the public profile.
+  useEffect(() => {
+    if (surface !== "resume") setDraftId(null);
+  }, [surface]);
+
+  /*
+    Changing which content is shown drops the selection.
+
+    Without this the bar went on describing the line that was selected a
+    moment ago — including where typing would go. "This draft only" over a
+    document that is no longer the draft is the one kind of wrong this bar
+    must not be.
+  */
+  useEffect(() => setSelection(null), [draftId]);
 
   useEffect(() => {
     setPages(null);
@@ -174,6 +204,68 @@ export function LayoutEditor({ onSurface }: { onSurface?: (surface: Surface) => 
     save({ tokens: { [name]: value } });
   };
 
+  /**
+   * Where typed words go.
+   *
+   * The document says what was typed and what it was part of; this decides
+   * what that means. The one distinction worth stating: a bullet on a saved
+   * draft writes to that draft's line, which is checked against the stored
+   * fact and may come back with a warning. The same bullet on the profile
+   * writes to the fact itself, and changes every resume that cites it.
+   */
+  const commit = (chosen: Selection, text: string) => {
+    const done = (work: Promise<unknown>) =>
+      void work.then(() => setError(null)).catch((problem: Error) => setError(problem.message));
+
+    if (chosen.field === "heading" && layout) {
+      const at = layout.spec.sections.findIndex((section) => section.kind === chosen.section);
+      if (at < 0) return;
+      setSections(
+        layout.spec.sections.map((section, i) => (i === at ? { ...section, heading: text } : section)),
+      );
+      return;
+    }
+
+    if (chosen.line != null && draftId != null) {
+      done(api.saveResumeLine(draftId, chosen.line, text));
+      return;
+    }
+
+    switch (chosen.field) {
+      case "name":
+      case "headline":
+        done(api.patchProfile({ [chosen.field]: text }));
+        return;
+
+      case "summary":
+        // On a draft, the summary belongs to the draft: it was written for
+        // one posting, and it is checked against the whole profile.
+        done(draftId == null ? api.patchProfile({ summary: text }) : api.saveResume(draftId, { summary: text }));
+        return;
+
+      case "title":
+      case "company":
+        if (chosen.role != null) done(api.patchRole(chosen.role, { [chosen.field]: text }));
+        return;
+
+      case "bullet":
+        if (chosen.bullet != null) done(api.patchBullet(chosen.bullet, text));
+        return;
+
+      case "prose-heading":
+        if (chosen.prose != null) done(api.saveSection(chosen.prose, { heading: text }));
+        return;
+
+      case "project-name":
+        if (chosen.project != null) done(api.saveProject(chosen.project, { name: text }));
+        return;
+
+      case "project-blurb":
+        if (chosen.project != null) done(api.saveProject(chosen.project, { blurb: text }));
+        return;
+    }
+  };
+
   if (!vocabulary || !layout) {
     return <div className="empty">{error ?? "Loading…"}</div>;
   }
@@ -191,6 +283,9 @@ export function LayoutEditor({ onSurface }: { onSurface?: (surface: Surface) => 
         onSelect={setSelection}
         onToken={setToken}
         onSections={setSections}
+        drafts={drafts}
+        draftId={draftId}
+        onDraft={setDraftId}
       >
         {surface === "resume" ? (
           <ExportPdf />
@@ -206,11 +301,13 @@ export function LayoutEditor({ onSurface }: { onSurface?: (surface: Surface) => 
       <div className="editor-stage">
         <Document
           surface={surface}
+          resumeId={draftId}
           paged
           spec={layout.spec}
           tokens={layout.tokens}
           selection={selection}
           onSelect={setSelection}
+          onEdit={commit}
           onPages={setPages}
           onError={setError}
         />

@@ -823,3 +823,23 @@ button.tiny { padding: 1px 6px; font-size: 11px; }
   border: 1px solid var(--line-soft); border-radius: var(--radius);
   background: var(--bg-raised); padding: 10px 11px; }
 .section-prose-list textarea { font: inherit; line-height: 1.55; resize: vertical; }
+
+/* Slice three: which content the template is showing, and where typing goes. */
+.draft-picker {
+  width: auto;
+  padding: 3px 6px;
+  font-size: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text);
+}
+.chip-scope {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--line-soft);
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}

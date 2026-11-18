@@ -608,10 +608,35 @@ app.get("/api/document/:surface", async (request, reply) => {
   }
 
   const query = request.query as { resume?: string };
+  const resumeId = query.resume ? Number(query.resume) : null;
+
   try {
     const layout = await defaultLayout(surface);
-    const content = await gatherContent(query.resume ? Number(query.resume) : null);
-    return { surface, layout: { id: layout.id, spec: layout.spec, tokens: layout.tokens }, content };
+    const content = await gatherContent(resumeId);
+
+    /*
+      A tailored draft carries what the document cannot show: the stored
+      wording each line came from, and the warnings on it. The editor needs
+      both at the line it is about — a warning in a list somewhere else is a
+      warning about a sentence nobody is looking at.
+    */
+    const draft = resumeId == null ? undefined : await resume.getResume(resumeId);
+
+    return {
+      surface,
+      layout: { id: layout.id, spec: layout.spec, tokens: layout.tokens },
+      content,
+      draft: draft && {
+        id: draft.id,
+        label: draft.label,
+        summary_warnings: draft.summary_warnings,
+        lines: draft.lines.map((line) => ({
+          id: line.id,
+          source_text: line.source_text,
+          warnings: line.warnings,
+        })),
+      },
+    };
   } catch (error) {
     // The usual cause is a resume id that is not there, which is a request
     // about something that does not exist rather than a fault here.
@@ -795,6 +820,33 @@ app.get("/api/resumes", async (request) => {
 app.get("/api/resumes/:id", async (request, reply) => {
   try {
     return await resume.getResume(Number((request.params as { id: string }).id));
+  } catch (error) {
+    return reply.code(404).send({ error: (error as Error).message });
+  }
+});
+
+/**
+ * Edit a saved draft, a line at a time.
+ *
+ * A draft could be read and deleted but not changed, so fixing one word
+ * meant writing the whole thing again. Both routes run the checks that
+ * `draftResume` runs, and hand the warnings back with what they saved: a
+ * line typed on the page is checked exactly as a line the agent drafted.
+ */
+app.put("/api/resumes/:id", async (request, reply) => {
+  try {
+    const body = (request.body ?? {}) as { summary?: string | null; label?: string | null };
+    return await resume.updateResume(Number((request.params as { id: string }).id), body);
+  } catch (error) {
+    return reply.code(404).send({ error: (error as Error).message });
+  }
+});
+
+app.put("/api/resumes/:id/lines/:lineId", async (request, reply) => {
+  const { id, lineId } = request.params as { id: string; lineId: string };
+  const body = (request.body ?? {}) as { rendered_text?: string | null };
+  try {
+    return await resume.updateLine(Number(id), Number(lineId), body.rendered_text ?? null);
   } catch (error) {
     return reply.code(404).send({ error: (error as Error).message });
   }

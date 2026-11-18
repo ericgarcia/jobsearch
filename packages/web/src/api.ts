@@ -200,6 +200,14 @@ export interface DocumentPayload {
   surface: "profile" | "resume";
   layout: { id: number; spec: LayoutSpec; tokens: Record<string, string> };
   content: RenderContent;
+  /** Present when a tailored draft is being shown rather than the profile. */
+  draft?: {
+    id: number;
+    label: string | null;
+    summary_warnings: string[];
+    /** Per line: the stored wording it restates, and what is wrong with it. */
+    lines: { id: number; source_text: string; warnings: string[] }[];
+  };
 }
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
@@ -503,6 +511,23 @@ export const api = {
     json<ResumeSummary[]>(`/api/resumes${jobId ? `?job_id=${jobId}` : ""}`),
 
   resume: (id: number) => json<Resume>(`/api/resumes/${id}`),
+
+  /*
+    Editing a saved draft, which until now could only be read or deleted.
+    Both answer with the warnings the server found, so the line that was
+    just typed can say what is wrong with it.
+  */
+  saveResume: (id: number, patch: { summary?: string | null; label?: string | null }) =>
+    json<{ id: number; summary: string | null; label: string | null; summary_warnings: string[] }>(
+      `/api/resumes/${id}`,
+      { method: "PUT", body: JSON.stringify(patch) },
+    ),
+
+  saveResumeLine: (resumeId: number, lineId: number, text: string) =>
+    json<{ id: number; source_text: string; text: string; warnings: string[] }>(
+      `/api/resumes/${resumeId}/lines/${lineId}`,
+      { method: "PUT", body: JSON.stringify({ rendered_text: text }) },
+    ),
 
   resumeMarkdown: (id: number) => json<{ markdown: string }>(`/api/resumes/${id}/markdown`),
 
