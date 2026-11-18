@@ -16,6 +16,7 @@ import { describe as describeForm } from "../apply/form.js";
 import { startApplication } from "../apply/start.js";
 import { fillApplication } from "../apply/fill.js";
 import { listAnswers, markApplied, recordAnswers } from "../apply/record.js";
+import { keepable } from "../apply/keep.js";
 import {
   coverage,
   listStandingAnswers,
@@ -23,6 +24,7 @@ import {
   setStandingAnswer,
   setVoluntaryChoices,
   declineSelfIdentification,
+  declineStandingAnswer,
   voluntarySection,
 } from "../apply/answers.js";
 import { assessTopJobs, ASSESS_MODEL } from "../assess.js";
@@ -222,14 +224,31 @@ const standingAnswersTool = tool(
 
 const setStandingAnswerTool = tool(
   "set_standing_answer",
-  "Store what they just told you about their situation, in their words, so no application has to ask again. Use the topic that fits: work_authorization, sponsorship, relocation, onsite, notice_period, start_date, salary — or your own short topic name for anything else. Only store what they actually said; an empty answer removes it.",
+  "Store what they just told you about their situation, in their words, so no application has to ask again. Use the topic that fits: work_authorization, sponsorship, relocation, onsite, notice_period, start_date, salary — or your own short topic name for anything else, which is how a question nobody anticipated gets an answer on file. Pass `question` with a new topic, worded as you would ask them, because that wording is what later forms are matched against. Only store what they actually said; an empty answer removes it. If they say they would rather not answer, pass decline instead of an answer: that is written down as a refusal, nothing asks them again, and it is not the same as leaving it empty.",
   {
     topic: z.string().describe("work_authorization, sponsorship, relocation, onsite, notice_period, start_date, salary, or your own"),
-    answer: z.string().describe("Their answer, in their words"),
-    question: z.string().optional().describe("The question it answers, if it is not one of the known topics"),
+    answer: z.string().default("").describe("Their answer, in their words. Empty removes what is stored."),
+    question: z.string().optional().describe("The question it answers, in your words. Required for a topic that is not one of the known ones."),
+    decline: z
+      .boolean()
+      .optional()
+      .describe("True only if they said they would rather not answer this at all"),
   },
   async (args) =>
     guard(async () => {
+      /*
+        A refusal and an empty answer are different things, and the
+        difference is whether the next application asks again. See
+        apply/facts.ts.
+      */
+      if (args.decline) {
+        await declineStandingAnswer(args.topic, args.question);
+        return {
+          answers: await listStandingAnswers(),
+          declined: args.topic,
+          note: "Written down as a refusal. Nothing will ask them this again, and it is left blank on every form. Do not raise it.",
+        };
+      }
       await setStandingAnswer(args.topic, args.answer, args.question);
       return { answers: await listStandingAnswers() };
     }),
@@ -309,7 +328,7 @@ const fillApplicationTool = tool(
 
 const recordAnswerTool = tool(
   "record_answer",
-  "Write down an answer you put on an application form, so it can be read back later. Use it for the employer's own questions, which you write rather than copy — what you told them about why you want the job is the thing nobody remembers three weeks on. Never record a self-identification answer: those are filled by the app and recorded as answered, without the value.",
+  "Write down an answer you put on an application form, so it can be read back later. Use it for the employer's own questions, which you write rather than copy — what you told them about why you want the job is the thing nobody remembers three weeks on. Never record a self-identification answer: those are filled by the app and recorded as answered, without the value. If the answer turns out to be a fact about them rather than something written for this employer, the reply says so and names the question it answers: put that to them in one line, and store it with set_standing_answer if they agree.",
   {
     job_id: z.number().int(),
     label: z.string().describe("The question, as the form words it"),
@@ -320,7 +339,27 @@ const recordAnswerTool = tool(
       await recordAnswers(args.job_id, [
         { label: args.label, kind: "custom", value: args.value },
       ]);
-      return { recorded: args.label };
+
+      /*
+        The offer that closes the loop: an answer to a question the store had
+        no answer for was, until now, written down for this employer and
+        thrown away. It is only an offer — the app proposes, the person
+        decides, and set_standing_answer is what stores it. Keeping it
+        unasked would be building a profile of someone out of things they
+        said to somebody else.
+      */
+      const keep = await keepable(args.label, args.value);
+      return {
+        recorded: args.label,
+        ...(keep
+          ? {
+              worth_keeping: { topic: keep.slug, question: keep.question },
+              note: keep.known
+                ? `They already have an answer stored for "${keep.question}". Say what is stored differs from what you just put on this form, and ask whether to update it. Do not change it without their word.`
+                : `This looks like a fact about them rather than something written for this employer. Ask in one line whether to keep it for next time, as the answer to "${keep.question}", and store it with set_standing_answer on topic "${keep.slug}" if they say yes. Do not store it otherwise, and do not ask twice.`,
+            }
+          : {}),
+      };
     }),
 );
 
