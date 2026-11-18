@@ -63,8 +63,15 @@ async function forward(name: string, args: Record<string, unknown>): Promise<Too
   const log = (message: string) => console.log(`[browser] ${message}`);
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const connection = await connect(log);
     try {
+      /*
+        Inside the try, because opening the connection is the step most likely
+        to fail: when Playwright is not listening, `connect` throws "fetch
+        failed". Outside, that escaped as a bare error — past the retry, past
+        the message below — and every apply tool answered the person with the
+        single word "fetch failed".
+      */
+      const connection = await connect(log);
       return (await connection.callTool({ name, arguments: args }, undefined, {
         timeout: 120_000,
       })) as ToolResult;

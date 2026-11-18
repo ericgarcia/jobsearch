@@ -85,14 +85,25 @@ async function alreadyRunning(): Promise<boolean> {
   }
 }
 
-/** Start the server if it is not up yet. Safe to call on every turn. */
+/**
+ * Start the server if it is not up yet. Safe to call on every turn.
+ *
+ * The memo here is only for a server this process owns. A server found
+ * already listening belongs to somebody else — another dev server, another
+ * worktree — and nothing tells us when it goes away: there is no child to
+ * watch for `exit`. Remembering that we "ensured" it meant that when its
+ * owner died, this call became a no-op that reported success, every browser
+ * call failed with `fetch failed`, and the app could not recover without a
+ * restart. That is how it failed in practice, so a reuse is not remembered:
+ * the next caller probes again, finds nothing, and starts one of our own.
+ */
 export function ensureBrowserServer(log: (message: string) => void): Promise<void> {
   if (starting) return starting;
 
-  starting = (async () => {
+  const attempt = (async (): Promise<"reused" | "ours"> => {
     if (await alreadyRunning()) {
       log(`Reusing the Playwright MCP server already on port ${PORT}.`);
-      return;
+      return "reused";
     }
 
     // node, not npx: the binary is resolved above, so nothing is fetched.
@@ -120,12 +131,18 @@ export function ensureBrowserServer(log: (message: string) => void): Promise<voi
     });
 
     log(`Playwright MCP server listening on ${BROWSER_MCP_URL}.`);
+    return "ours";
   })();
 
-  starting = starting.catch((error) => {
-    starting = null;
-    throw error;
-  });
+  starting = attempt.then(
+    (how) => {
+      if (how === "reused") starting = null;
+    },
+    (error) => {
+      starting = null;
+      throw error;
+    },
+  );
 
   return starting;
 }

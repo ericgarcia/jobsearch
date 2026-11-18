@@ -64,21 +64,21 @@ const known: Known = {
 console.log("\n1. Reading a snapshot");
 
 const controls = readSnapshot(SNAPSHOT);
-assert.equal(controls.find((c) => c.ref === "e12")?.name, "Email");
-assert.equal(controls.find((c) => c.ref === "e20")?.role, "radio");
+assert.equal(controls.find((c) => c.target === "e12")?.name, "Email");
+assert.equal(controls.find((c) => c.target === "e20")?.role, "radio");
 ok("roles, names and refs come through");
 
 assert.equal(
-  controls.find((c) => c.ref === "e20")?.group,
+  controls.find((c) => c.target === "e20")?.group,
   "Are you legally authorized to work in the country where the job is located?",
 );
-assert.equal(controls.find((c) => c.ref === "e30")?.group, "What best describes your gender?");
+assert.equal(controls.find((c) => c.target === "e30")?.group, "What best describes your gender?");
 ok("a radio knows which question it answers");
 
 console.log("\n2. Planning what to type");
 
 const plan = planFill(controls, known);
-const valueFor = (ref: string) => plan.fill.find((field) => field.ref === ref)?.value;
+const valueFor = (target: string) => plan.fill.find((field) => field.target === target)?.value;
 
 assert.equal(valueFor("e10"), "Ada");
 assert.equal(valueFor("e11"), "Lovelace");
@@ -130,13 +130,13 @@ const mismatched = planFill(controls, {
   selfId: { gender: "Genderqueer" },
   standing: [{ topic: "work_authorization", answer: "Only with a visa" }],
 });
-assert.equal(mismatched.fill.some((f) => f.ref.startsWith("e3")), false);
+assert.equal(mismatched.fill.some((f) => f.target.startsWith("e3")), false);
 assert.ok(mismatched.leftAlone.some((row) => /gender/i.test(row.name)));
 assert.ok(mismatched.leftAlone.some((row) => /legally authorized/i.test(row.name)));
 ok("nothing is chosen on a weak match, in either store");
 
-assert.equal(chooseOption("Yes", [{ role: "radio", name: "Yes", ref: "a" }, { role: "radio", name: "Yes, with conditions", ref: "b" }])?.ref, "a");
-assert.equal(chooseOption("maybe", [{ role: "radio", name: "Yes", ref: "a" }]), null);
+assert.equal(chooseOption("Yes", [{ role: "radio", name: "Yes", target: "a" }, { role: "radio", name: "Yes, with conditions", target: "b" }])?.target, "a");
+assert.equal(chooseOption("maybe", [{ role: "radio", name: "Yes", target: "a" }]), null);
 ok("an exact option wins over one that merely starts the same");
 
 console.log("\n6. The send button is refused where it matters");
@@ -164,5 +164,40 @@ ok("everything else on the page, and submit anywhere else, still works");
 
 assert.match(refusal("Submit").reason, /by the app rather than by instruction/);
 ok("the refusal says it is not a matter of persuasion");
+
+console.log("\n6. The payload is the shape the browser tool demands");
+
+/*
+  This is the test that was missing, and the one that cost a live run.
+
+  Every planned field went out as `ref`, because that is what the snapshot
+  calls it and what this file's own fixtures called it. The browser tool
+  requires `target`, so it rejected all seven fields of a real application in
+  one go. Nothing above would have noticed: the planner was right about every
+  value, and wrong only about the name it sent them under.
+
+  So this asserts the wire contract itself, copied from the tool's schema:
+  the required keys, nothing unknown alongside them, and a `type` the tool's
+  enum actually contains.
+*/
+const REQUIRED = ["target", "name", "type", "value"] as const;
+const ALLOWED = new Set([...REQUIRED, "element", "kind"]);
+const TYPES = new Set(["textbox", "checkbox", "radio", "combobox", "slider"]);
+
+assert.ok(plan.fill.length > 0, "there is something to check");
+for (const field of plan.fill) {
+  for (const key of REQUIRED) {
+    assert.ok(
+      typeof (field as unknown as Record<string, unknown>)[key] === "string" &&
+        ((field as unknown as Record<string, string>)[key] ?? "") !== "",
+      `${field.name} is missing ${key}`,
+    );
+  }
+  for (const key of Object.keys(field)) {
+    assert.ok(ALLOWED.has(key), `${field.name} carries an unknown key ${key}`);
+  }
+  assert.ok(TYPES.has(field.type), `${field.name} has a type the tool rejects: ${field.type}`);
+}
+ok("each planned field carries target, name, type and value, and a type the tool accepts");
 
 console.log(`\n${passed} passed, 0 failed`);

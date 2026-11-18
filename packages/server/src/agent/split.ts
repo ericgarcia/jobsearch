@@ -225,18 +225,29 @@ export async function splitState(): Promise<string> {
  * the pane exists to make answerable, so it should not cost the person
  * their place.
  */
-export async function readPane(): Promise<string> {
+export interface Pane {
+  /** The page the pane is showing. */
+  url: string;
+  /** The bridge's index for the pane's tab. */
+  index: number;
+  /** The tab that was in view before, so the person's place can be put back. */
+  current: number | null;
+}
+
+/**
+ * Where the pane is, in the numbering the browser tools take.
+ *
+ * Chrome's tab indices and the bridge's are different numberings, and the
+ * tools say so. The URL is the thing both agree on, so it is what the pane is
+ * found by here.
+ */
+export async function findPane(): Promise<Pane | { error: string }> {
   const state = parse<{ paired?: boolean; right?: { url?: string } }>(await splitState());
-  if (state?.paired !== true || !state.right?.url) return "Nothing is open in the pane.";
+  if (state?.paired !== true || !state.right?.url) return { error: "Nothing is open in the pane." };
 
   const wanted = state.right.url;
   const listing = text(await callBrowser("browser_tabs", { action: "list" }));
 
-  /*
-    Chrome's tab indices and the bridge's are different numberings, and the
-    tools say so. The URL is the thing both agree on, so it is what the pane
-    is found by here.
-  */
   const LINE = /^-\s+(\d+):\s*(?:\(current\)\s*)?\[[^\]]*\]\(([^)]+)\)/;
   let index: number | null = null;
   let current: number | null = null;
@@ -248,15 +259,46 @@ export async function readPane(): Promise<string> {
   }
 
   if (index === null) {
-    return `The pane is showing ${wanted}, but the bridge cannot address that tab — it was opened outside Playwright, so its contents cannot be read here. Ask the person what it says, or open the page again from the app.`;
+    return {
+      error: `The pane is showing ${wanted}, but the bridge cannot address that tab — it was opened outside Playwright, so its contents cannot be read here. Ask the person what it says, or open the page again from the app.`,
+    };
   }
+  return { url: wanted, index, current };
+}
 
-  await callBrowser("browser_tabs", { action: "select", index });
-  const snapshot = text(await callBrowser("browser_snapshot", {}));
-  if (current !== null && current !== index) {
-    await callBrowser("browser_tabs", { action: "select", index: current });
+/**
+ * Do something to the page in the pane, and put the view back afterwards.
+ *
+ * Every browser tool acts on the tab in view, and the tab in view is the app.
+ * So anything meant for the pane — reading it, typing into it, attaching a
+ * file to it — has to select the pane first, and the select is easy to
+ * forget: the call succeeds either way, against the wrong page. Reading the
+ * app instead of the pane returns nonsense, which is noticed. *Filling* the
+ * app instead of the pane types someone's phone number into the app's own
+ * search box, which is not. One door, so neither can happen.
+ */
+export async function withPane<T>(
+  work: (pane: Pane) => Promise<T>,
+): Promise<T | { error: string }> {
+  const pane = await findPane();
+  if ("error" in pane) return pane;
+
+  await callBrowser("browser_tabs", { action: "select", index: pane.index });
+  try {
+    return await work(pane);
+  } finally {
+    if (pane.current !== null && pane.current !== pane.index) {
+      await callBrowser("browser_tabs", { action: "select", index: pane.current });
+    }
   }
-  return `The pane is showing ${wanted}\n\n${snapshot}`;
+}
+
+export async function readPane(): Promise<string> {
+  const read = await withPane(async (pane) => {
+    const snapshot = text(await callBrowser("browser_snapshot", {}));
+    return `The pane is showing ${pane.url}\n\n${snapshot}`;
+  });
+  return typeof read === "string" ? read : read.error;
 }
 
 /**
