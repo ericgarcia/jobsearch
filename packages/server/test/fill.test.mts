@@ -165,7 +165,53 @@ ok("everything else on the page, and submit anywhere else, still works");
 assert.match(refusal("Submit").reason, /by the app rather than by instruction/);
 ok("the refusal says it is not a matter of persuasion");
 
-console.log("\n6. The payload is the shape the browser tool demands");
+console.log("\n6. A group of tick boxes is one question, not many");
+
+/*
+  Lever asks pronouns as ten checkboxes under one label. A checkbox counts
+  as a question on its own — that is how a lone consent box stays visible —
+  so every one of those ten was reported as its own question needing an
+  answer written for this application: "He/him", "She/her", "They/them".
+  Found on the first real form this ever filled.
+*/
+const PRONOUNS = `
+- textbox "Full name ✱" [ref=e1]
+- group "Pronouns":
+  - checkbox "He/him" [ref=e2]
+  - checkbox "She/her" [ref=e3]
+  - checkbox "They/them" [ref=e4]
+- checkbox "Consent: marketing" [ref=e5]
+`;
+
+const asked = planFill(readSnapshot(PRONOUNS), {
+  ...known,
+  selfId: { pronouns: "He/him" },
+});
+
+const named = (list: { name: string }[]) => list.map((row) => row.name);
+for (const one of ["She/her", "They/them"]) {
+  assert.ok(!named(asked.leftAlone).includes(one), `${one} is an option, not a question`);
+  assert.ok(!named(asked.fill).includes(one), `${one} must not be reported as a question`);
+}
+ok("the individual tick boxes are not questions");
+
+assert.ok(
+  named(asked.leftAlone).includes("Consent: marketing"),
+  "a lone checkbox is still a consent, and still reported",
+);
+ok("a consent on its own is unaffected");
+
+const pronouns = asked.fill.find((field) => field.name === "Pronouns");
+assert.ok(pronouns, "the group is answered as one question");
+assert.equal(pronouns?.target, "e2", "the tick that gets set is the stored one");
+assert.equal(pronouns?.kind, "eeo");
+ok("the group is one question, recorded under its own label");
+
+assert.equal(named(asked.fill).includes("Full name ✱"), false);
+assert.ok(named(asked.fill).includes("Full name"), "the required mark is not part of the question");
+ok("the required mark is stripped from what is recorded");
+
+console.log("\n7. The payload is the shape the browser tool demands");
 
 /*
   This is the test that was missing, and the one that cost a live run.
