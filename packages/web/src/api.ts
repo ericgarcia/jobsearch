@@ -437,6 +437,30 @@ export const api = {
     How to get a career history out of LinkedIn. The same steps the assistant
     gives, from the same place, so the two cannot drift apart.
   */
+  /*
+    A file the person dropped into the chat or chose with the paperclip. The
+    browser hands over the bytes and never a path, so this is the only way a
+    document reaches the app at all — the assistant has no filesystem and
+    reads what it is given, by id.
+  */
+  upload: async (file: File) => {
+    const response = await fetch(
+      `/api/uploads?name=${encodeURIComponent(file.name)}`,
+      {
+        method: "POST",
+        headers: { "content-type": file.type || "application/octet-stream" },
+        body: file,
+      },
+    );
+    const body = (await response.json()) as
+      | { upload: { id: string; name: string; size: number } }
+      | { error: string };
+    if (!response.ok || "error" in body) {
+      throw new Error("error" in body ? body.error : "The file could not be sent.");
+    }
+    return body.upload;
+  },
+
   importHelp: () =>
     json<{
       routes: {

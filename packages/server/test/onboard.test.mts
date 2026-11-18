@@ -12,6 +12,7 @@
 */
 
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -23,7 +24,10 @@ import {
   proposeFrom,
   importHelp,
   importRoutes,
+  documentForUpload,
+  documentFrom,
   readSource,
+  saveUpload,
   vetFacts,
   whatIsMissing,
   type Proposed,
@@ -41,6 +45,13 @@ const ok = (what: string) => {
 };
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "onboard-"));
+
+/* A LinkedIn-shaped archive, for the hand-over tests at the end. */
+const exportDir = fs.mkdtempSync(path.join(os.tmpdir(), "onboard-zip-"));
+fs.mkdirSync(path.join(exportDir, "Export"));
+fs.writeFileSync(path.join(exportDir, "Export", "Positions.csv"), "Company Name,Title\nAcme,Engineer\n");
+const archiveForTest = path.join(exportDir, "export.zip");
+execFileSync("zip", ["-q", "-r", archiveForTest, "Export"], { cwd: exportDir });
 
 /* A proposal written straight into the table, standing in for the call. */
 const stash = async (proposal: Proposed, source = "resume") => {
@@ -64,13 +75,26 @@ const empty: Proposed = {
 console.log("\n1. What can be read, and what is refused rather than guessed at");
 
 fs.writeFileSync(path.join(scratch, "cv.md"), "# Ada Lovelace\n\nAnalytical engine work.\n");
-assert.match(readSource(path.join(scratch, "cv.md")).text, /Analytical engine/);
+const asText = readSource(path.join(scratch, "cv.md"));
+assert.equal(asText.kind, "text");
+assert.match(asText.kind === "text" ? asText.text : "", /Analytical engine/);
 assert.equal(readSource(path.join(scratch, "cv.md")).source, "resume");
 ok("a text file is read, and called a resume");
 
-fs.writeFileSync(path.join(scratch, "resume.pdf"), "%PDF-1.4 not really");
-assert.throws(() => readSource(path.join(scratch, "resume.pdf")), /no text extractor/i);
-ok("a PDF is refused with the reason, rather than read as rubbish");
+/*
+  A PDF is handed over whole rather than extracted, so the bytes come back
+  with the type to send them under. The model reads it; nothing in between
+  parses it.
+*/
+fs.writeFileSync(path.join(scratch, "resume.pdf"), "%PDF-1.4 and some bytes");
+const asFile = readSource(path.join(scratch, "resume.pdf"));
+assert.equal(asFile.kind, "file");
+assert.equal(asFile.kind === "file" ? asFile.media : "", "application/pdf");
+ok("a PDF comes back as bytes to send, not as text somebody extracted");
+
+fs.writeFileSync(path.join(scratch, "cv.docx"), "PK-ish but not really");
+assert.throws(() => readSource(path.join(scratch, "cv.docx")), /Export it as a PDF/i);
+ok("a Word file says what to do instead, since it cannot be read");
 
 fs.writeFileSync(path.join(scratch, "notes.bin"), "anything");
 assert.throws(() => readSource(path.join(scratch, "notes.bin")), /Cannot read/i);
@@ -84,8 +108,10 @@ fs.writeFileSync(path.join(exported, "Positions.csv"), "Company Name,Title\nAcme
 fs.writeFileSync(path.join(exported, "Skills.csv"), "Name\nRust\n");
 const linkedin = readSource(exported);
 assert.equal(linkedin.source, "linkedin");
-assert.match(linkedin.text, /Positions\.csv[\s\S]*Acme/);
-assert.match(linkedin.text, /Skills\.csv[\s\S]*Rust/);
+assert.equal(linkedin.kind, "text");
+const exportedText = linkedin.kind === "text" ? linkedin.text : "";
+assert.match(exportedText, /Positions\.csv[\s\S]*Acme/);
+assert.match(exportedText, /Skills\.csv[\s\S]*Rust/);
 ok("an unzipped LinkedIn export is read as the files it actually contains");
 
 fs.writeFileSync(path.join(exported, "..", "unrelated.txt"), "x");
@@ -284,10 +310,16 @@ ok("and with no credential it suggests nothing rather than suggesting rubbish");
 
 console.log("\n9. Reading needs a credential, and says so");
 
-await assert.rejects(() => proposeFrom("Some resume text", "resume"), /credential/i);
+await assert.rejects(
+  () => proposeFrom({ kind: "text", text: "Some resume text", source: "resume", origin: "" }),
+  /credential/i,
+);
 ok("it refuses with the reason, rather than storing an empty proposal");
 
-await assert.rejects(() => proposeFrom("   ", "resume"), /nothing to read/i);
+await assert.rejects(
+  () => proposeFrom({ kind: "text", text: "   ", source: "resume", origin: "" }),
+  /nothing to read/i,
+);
 ok("and an empty document is never sent anywhere");
 
 await assert.rejects(() => applyImport(9999), /No import with id/);
@@ -296,26 +328,66 @@ ok("applying something that does not exist fails rather than doing nothing quiet
 console.log("\n10. The routes out of LinkedIn say what they can and cannot do");
 
 /*
-  These are instructions a person will follow, so the thing worth asserting is
-  that the app never recommends a route it cannot finish. The PDF route is
-  listed because it is how most people would think to do this, and it is
-  marked unready because a PDF cannot be read here yet — the steps say to
-  paste the text instead.
+  These are instructions somebody will follow, so the thing worth asserting is
+  that the app never recommends a route it cannot finish, and that the quick
+  one is first. Save to PDF is three clicks; the full data download is a
+  request, an email and a wait, and it is there for when the PDF has left
+  something out.
 */
 const routes = importRoutes();
+assert.match(routes[0]?.name ?? "", /save your linkedin profile as a pdf/i);
 assert.equal(routes[0]?.ready, true);
-assert.match(routes[0]?.name ?? "", /download your linkedin data/i);
-ok("the route that works is first, and it is the complete one");
+ok("the three-click route is first, and it works");
 
+assert.ok(routes[0]?.steps.some((step) => /…|\.\.\./.test(step)));
+ok("and its steps name the button that is actually on the page");
+
+assert.match(routes[1]?.name ?? "", /download your full linkedin data/i);
+assert.ok(routes[1]?.best_for.includes("complete"));
+ok("the thorough one is second, and says what it is for");
+
+assert.ok(routes.every((route) => route.ready));
 assert.ok(routes.every((route) => route.steps.length > 0 && route.caveats.length > 0));
-ok("every route has steps and says where it falls short");
-
-const pdf = routes.find((route) => /PDF/i.test(route.name))!;
-assert.equal(pdf.ready, false);
-assert.ok(pdf.caveats.some((caveat) => /paste/i.test(caveat)));
-ok("the PDF route is marked unreadable and says what to do instead");
+ok("every route can be finished, and every route says where it falls short");
 
 assert.match(importHelp().note, /forbids automated access/i);
 ok("and the reason the exporting is theirs to do travels with the steps");
+
+console.log("\n11. A file is read from what they handed over, never from a path");
+
+/*
+  The whole of the agent's reach into the filesystem. It has no file tool at
+  all; it gets an id for something the person dropped into the chat, and that
+  id is matched against the folder's own listing rather than joined into a
+  path — so nothing it sends can name a file outside it.
+*/
+const handed = saveUpload("My CV.pdf", Buffer.from("%PDF-1.4 pretend"));
+assert.match(handed.id, /^[a-z0-9]+-[a-f0-9]+$/);
+assert.equal(handed.name, "My CV.pdf");
+
+const back = documentForUpload(handed.id);
+assert.equal(back.kind, "file");
+assert.equal(back.kind === "file" ? back.media : "", "application/pdf");
+ok("what was handed over comes back, under the name it was given");
+
+for (const bad of ["../../etc/passwd", "..", "", "nope", "/etc/passwd", "abcd-ef01"]) {
+  assert.throws(() => documentForUpload(bad), /No file was handed over/, `${bad} was accepted`);
+}
+ok("and an id that names anything else is refused, however it is shaped");
+
+const odd = saveUpload("../../../evil name?.pdf", Buffer.from("%PDF-1.4 pretend"));
+assert.equal(odd.name.includes("/"), false);
+assert.equal(odd.name.startsWith("."), false);
+ok("a name that tries to climb out of the folder is flattened before it is written");
+
+assert.throws(() => saveUpload("empty.pdf", Buffer.alloc(0)), /empty/i);
+ok("an empty file is refused rather than sent");
+
+console.log("\n12. A zip is recognised by its bytes, not only by its name");
+
+const named = documentFrom("export.zip", fs.readFileSync(archiveForTest));
+assert.equal(named.source, "linkedin");
+assert.equal(named.kind, "text");
+ok("an archive handed over as a zip is read as the export it is");
 
 console.log(`\n${passed} passed, 0 failed`);
