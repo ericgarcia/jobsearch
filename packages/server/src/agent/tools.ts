@@ -14,6 +14,7 @@ import { importPosting } from "../importing.js";
 import { formForJob } from "../apply/read.js";
 import { describe as describeForm } from "../apply/form.js";
 import { startApplication } from "../apply/start.js";
+import { fillApplication } from "../apply/fill.js";
 import {
   coverage,
   listStandingAnswers,
@@ -247,6 +248,13 @@ const startApplicationTool = tool(
   "Begin applying for a job. Moves it to 'applying', reads the application form, finds anything already drafted for it, and hands back what is left to do in order. Call this first when someone decides to apply, rather than drafting straight away: a letter written before the form was read answers questions nobody asked, and a second resume written without reading the first quietly replaces their edits. It writes nothing and submits nothing — the resume and the letter are yours to draft afterwards, and the person sends the application themselves.",
   { job_id: z.number().int() },
   async (args) => guard(async () => await startApplication(args.job_id)),
+);
+
+const fillApplicationTool = tool(
+  "fill_application",
+  "Fill in the application form for a job, in the pane beside the app, from what is already known: name, email and links from the profile, situation questions from the standing answers, and the voluntary self-identification fields from whatever the person stored — those are filled by the app itself and their values are not shown to you. Attaches the resume drafted for this job. Answers with what was filled and what was left, including the employer's own questions, which still need writing. It does not send anything: the control that sends an application is refused by the app, not by instruction, because an application cannot be taken back.",
+  { job_id: z.number().int() },
+  async (args) => guard(async () => await fillApplication(args.job_id)),
 );
 
 const coverageTool = tool(
@@ -501,6 +509,7 @@ export const jobsearchServer = createSdkMcpServer({
     importPostingTool,
     applicationFormTool,
     startApplicationTool,
+    fillApplicationTool,
     coverageTool,
     standingAnswersTool,
     setStandingAnswerTool,
