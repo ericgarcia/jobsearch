@@ -249,8 +249,32 @@ function AboutField({
   return (
     <label ref={box as never} className={asked ? "field-asked" : undefined}>
       <span>{field}</span>
-      {asked ? (
-        <div className="field-proposal">
+      {/*
+        The field as it always is, left in place to hold the space. While a
+        proposal is open it is covered rather than replaced, so the page is
+        laid out exactly as it was and nothing below moves.
+      */}
+      <input
+        key={stored}
+        defaultValue={stored}
+        placeholder={field === "headline" ? "Staff Backend Engineer" : ""}
+        {...(asked ? { tabIndex: -1, "aria-hidden": true } : {})}
+        onBlur={(event) => {
+          if (!asked && event.target.value !== stored) {
+            void api.patchProfile({ [field]: event.target.value }).then(onSaved);
+          }
+        }}
+      />
+
+      {/*
+        And the question, as one card over the top of it: the name, the box to
+        type in, why it is being asked, and the two answers. One border around
+        the whole of it, because it is one thing being asked — an outline on
+        the input alone reads as a validation error rather than a question.
+      */}
+      {asked && (
+        <div className="field-card">
+          <span>{field}</span>
           <input autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} />
           <div className="field-why">{asked.why}</div>
           {asked.current && asked.current !== asked.value && (
@@ -263,17 +287,6 @@ function AboutField({
             <button onClick={() => void resolve(false)}>Skip</button>
           </div>
         </div>
-      ) : (
-        <input
-          key={stored}
-          defaultValue={stored}
-          placeholder={field === "headline" ? "Staff Backend Engineer" : ""}
-          onBlur={(event) => {
-            if (event.target.value !== stored) {
-              void api.patchProfile({ [field]: event.target.value }).then(onSaved);
-            }
-          }}
-        />
       )}
     </label>
   );
