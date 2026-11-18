@@ -45,7 +45,14 @@ import {
   type Share,
 } from "./apply/facts.js";
 import { describe as describeForm } from "./apply/form.js";
-import { applyImport, listImports, proposeFrom, readSource, whatIsMissing } from "./onboard.js";
+import {
+  applyImport,
+  importHelp,
+  listImports,
+  proposeFrom,
+  readSource,
+  whatIsMissing,
+} from "./onboard.js";
 import { pdfFilename, renderPdf } from "./layout/pdf.js";
 import { changed, onChange } from "./notify.js";
 import { clearState, reportState } from "./appState.js";
@@ -419,6 +426,14 @@ app.post("/api/imports/:id/apply", async (request, reply) => {
 });
 
 app.get("/api/missing", async () => await whatIsMissing());
+
+/*
+  How to get a history out of LinkedIn. One copy of the steps, read by this
+  route and by the agent's import_help tool, because two copies is one copy
+  that goes stale. See onboard.ts for why the app does not read the page
+  itself.
+*/
+app.get("/api/imports/help", async () => importHelp());
 
 /* ------------------------------------------------------------------- facts */
 

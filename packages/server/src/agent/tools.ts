@@ -17,7 +17,7 @@ import { startApplication } from "../apply/start.js";
 import { fillApplication } from "../apply/fill.js";
 import { listAnswers, markApplied, recordAnswers } from "../apply/record.js";
 import { keepable } from "../apply/keep.js";
-import { applyImport, proposeFrom, readSource, whatIsMissing } from "../onboard.js";
+import { applyImport, importHelp, proposeFrom, readSource, whatIsMissing } from "../onboard.js";
 import {
   coverage,
   listStandingAnswers,
@@ -366,7 +366,7 @@ const recordAnswerTool = tool(
 
 const importProfileTool = tool(
   "import_profile",
-  "Read a resume or a LinkedIn export and report what it says, without storing any of it. Pass `text` for something they pasted, or `path` for a file on this machine — a .txt, .md, .csv, .json or .html file, or the folder a LinkedIn data export unzips into. PDFs and Word files cannot be read here; ask them to paste the text. Nothing is written to the profile by this call: the reply is a proposal, you put it to them, and apply_import stores whatever they accept. Quote the bullets back to them exactly as this reply gives them — they are their own sentences, and rewording one while relaying it means they approve something they did not write. It never reports anything about their right to work, sponsorship or visa status, and never anything a voluntary survey asks, whatever the document says: those they type themselves.",
+  "Read a resume or a LinkedIn export and report what it says, without storing any of it. Pass `text` for something they pasted, or `path` for a file on this machine — a LinkedIn data export zip as it arrives from them, a .txt, .md, .csv, .json or .html file, or the folder such an export unzips into. PDFs and Word files cannot be read here; ask them to paste the text. Call import_help if they do not have a document to hand: it has the steps for getting one out of LinkedIn. Nothing is written to the profile by this call: the reply is a proposal, you put it to them, and apply_import stores whatever they accept. Quote the bullets back to them exactly as this reply gives them — they are their own sentences, and rewording one while relaying it means they approve something they did not write. It never reports anything about their right to work, sponsorship or visa status, and never anything a voluntary survey asks, whatever the document says: those they type themselves.",
   {
     text: z.string().optional().describe("The document's text, as they pasted it"),
     path: z.string().optional().describe("A file on this machine, or an unzipped LinkedIn export folder"),
@@ -416,6 +416,14 @@ const applyImportTool = tool(
         note: "Stored. Say what went in and what was skipped because something was already there.",
       };
     }),
+);
+
+const importHelpTool = tool(
+  "import_help",
+  "How the person can get their career history out of LinkedIn, and which way is best. Use it when they have no profile yet, when they ask how to start, or when they ask about LinkedIn: give them the first route's steps in your own words, one message, and say the zip can be handed over as it arrives. This app does not read their LinkedIn page itself — LinkedIn forbids automated access and the cost of being wrong is their account — so if they ask why they are doing the exporting, say that plainly rather than apologising for it.",
+  {},
+  async () => guard(async () => importHelp()),
+  { annotations: { readOnlyHint: true } },
 );
 
 const whatIsMissingTool = tool(
@@ -696,6 +704,7 @@ export const jobsearchServer = createSdkMcpServer({
     fillApplicationTool,
     recordAnswerTool,
     importProfileTool,
+    importHelpTool,
     applyImportTool,
     whatIsMissingTool,
     applicationRecordTool,

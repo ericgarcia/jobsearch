@@ -370,6 +370,21 @@ a { color: var(--accent); }
 }
 .standing-aside:hover { color: var(--text-dim); }
 
+/* The LinkedIn export steps, on an empty profile and nowhere else. */
+.import-routes { margin-top: 10px; display: flex; flex-direction: column; gap: 12px; }
+.import-route-name { font-size: 12px; font-weight: 600; color: var(--text); }
+.import-route-soon { font-weight: 400; color: var(--text-faint); }
+.import-route-best { font-size: 11.5px; color: var(--text-dim); margin: 1px 0 4px; }
+.import-routes ol { margin: 0; padding-left: 18px; font-size: 11.5px; line-height: 1.55; }
+.import-route-caveats {
+  margin: 5px 0 0; padding-left: 18px;
+  font-size: 11px; color: var(--text-faint); line-height: 1.5;
+}
+.import-route-why {
+  border-top: 1px solid var(--line); padding-top: 8px;
+  font-size: 11px; color: var(--text-faint);
+}
+
 /* The resume and letter written for one application, shown with it. */
 .job-drafts {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px;

@@ -21,6 +21,8 @@ import {
   getImport,
   listImports,
   proposeFrom,
+  importHelp,
+  importRoutes,
   readSource,
   vetFacts,
   whatIsMissing,
@@ -290,5 +292,30 @@ ok("and an empty document is never sent anywhere");
 
 await assert.rejects(() => applyImport(9999), /No import with id/);
 ok("applying something that does not exist fails rather than doing nothing quietly");
+
+console.log("\n10. The routes out of LinkedIn say what they can and cannot do");
+
+/*
+  These are instructions a person will follow, so the thing worth asserting is
+  that the app never recommends a route it cannot finish. The PDF route is
+  listed because it is how most people would think to do this, and it is
+  marked unready because a PDF cannot be read here yet — the steps say to
+  paste the text instead.
+*/
+const routes = importRoutes();
+assert.equal(routes[0]?.ready, true);
+assert.match(routes[0]?.name ?? "", /download your linkedin data/i);
+ok("the route that works is first, and it is the complete one");
+
+assert.ok(routes.every((route) => route.steps.length > 0 && route.caveats.length > 0));
+ok("every route has steps and says where it falls short");
+
+const pdf = routes.find((route) => /PDF/i.test(route.name))!;
+assert.equal(pdf.ready, false);
+assert.ok(pdf.caveats.some((caveat) => /paste/i.test(caveat)));
+ok("the PDF route is marked unreadable and says what to do instead");
+
+assert.match(importHelp().note, /forbids automated access/i);
+ok("and the reason the exporting is theirs to do travels with the steps");
 
 console.log(`\n${passed} passed, 0 failed`);

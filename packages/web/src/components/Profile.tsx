@@ -121,6 +121,82 @@ function RoleCard({ role, onChanged }: { role: Role; onChanged: () => void }) {
   );
 }
 
+/**
+ * How to get a profile without typing one.
+ *
+ * Shown only on an empty profile, because that is the one moment it helps and
+ * every other moment it is clutter. The steps come from the server rather than
+ * being written here: the assistant gives the same instructions, and two
+ * copies of a set of steps is one copy that goes stale.
+ *
+ * It says why the exporting is theirs to do. "Export your data and give me the
+ * zip" reads as the app being lazy unless the reason is next to it, and the
+ * reason is good: reading their LinkedIn page for them is against LinkedIn's
+ * terms, and the account that gets restricted would be theirs.
+ */
+interface Route {
+  name: string;
+  best_for: string;
+  steps: string[];
+  caveats: string[];
+  ready: boolean;
+}
+
+function StartFromLinkedIn() {
+  const [routes, setRoutes] = useState<Route[]>([]);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    void api.importHelp().then((help) => setRoutes(help.routes));
+  }, []);
+
+  const best = routes[0];
+
+  return (
+    <div className="hint">
+      <b>Your profile is empty.</b> The quickest way to fill it is to let the assistant read what
+      you already have — say “here is my resume” and paste it, or hand over a LinkedIn export.
+      {best && (
+        <>
+          {" "}
+          <button className="standing-aside" onClick={() => setOpen(!open)}>
+            {open ? "hide the LinkedIn steps" : "how do I export from LinkedIn?"}
+          </button>
+          {open && (
+            <div className="import-routes">
+              {routes.map((route) => (
+                <div key={route.name}>
+                  <div className="import-route-name">
+                    {route.name}
+                    {!route.ready && <span className="import-route-soon"> — not readable yet</span>}
+                  </div>
+                  <div className="import-route-best">{route.best_for}</div>
+                  <ol>
+                    {route.steps.map((step) => (
+                      <li key={step}>{step}</li>
+                    ))}
+                  </ol>
+                  {route.caveats.length > 0 && (
+                    <ul className="import-route-caveats">
+                      {route.caveats.map((caveat) => (
+                        <li key={caveat}>{caveat}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+              <div className="import-route-why">
+                This app does not read your LinkedIn page itself. LinkedIn forbids automated
+                access, and the account that gets restricted for it would be yours.
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export function Profile() {
   const [data, setData] = useState<ProfileData | null>(null);
   const [adding, setAdding] = useState(false);
@@ -157,12 +233,7 @@ export function Profile() {
         ))}
       </div>
 
-      {data.empty && (
-        <div className="hint">
-          Your profile is empty. Add your roles below, or ask the assistant: “here is my resume”
-          and paste it — it will record the facts for you.
-        </div>
-      )}
+      {data.empty && <StartFromLinkedIn />}
 
       <h3>
         Experience
