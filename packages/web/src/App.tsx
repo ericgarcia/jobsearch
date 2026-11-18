@@ -973,6 +973,8 @@ export function App() {
             statuses={statuses}
             onClose={() => setSelected(null)}
             onChanged={loadData}
+            onOpenResume={setOpenResume}
+            onOpenLetter={setOpenLetter}
           />
         )}
       </div>

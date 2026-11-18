@@ -6,11 +6,15 @@ export function JobDetail({
   statuses,
   onClose,
   onChanged,
+  onOpenResume,
+  onOpenLetter,
 }: {
   jobId: number;
   statuses: string[];
   onClose: () => void;
   onChanged: () => void;
+  onOpenResume: (id: number) => void;
+  onOpenLetter: (id: number) => void;
 }) {
   const [job, setJob] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -141,6 +145,7 @@ export function JobDetail({
                 ["document", "Documents"],
                 ["standing", "About your situation"],
                 ["custom", "Their own questions"],
+                ["consent", "Consents, left alone"],
                 ["eeo", "Voluntary, and yours alone"],
                 ["identity", "From your profile"],
                 ["link", "Links"],
@@ -162,6 +167,54 @@ export function JobDetail({
                 </div>
               );
             })}
+          </div>
+        )}
+        {(job.drafts.resumes.length > 0 || job.drafts.cover_letters.length > 0) && (
+          /*
+            What has been written for this application, next to the
+            application. These were always stored against the job and shown
+            only in Drafts, where a resume for one posting is indistinguishable
+            from a resume for another.
+          */
+          <div className="job-drafts">
+            <span className="job-drafts-head">Written for this application</span>
+            {job.drafts.resumes.map((draft) => (
+              <button className="ghost" key={`r${draft.id}`} onClick={() => onOpenResume(draft.id)}>
+                {draft.label ?? `Resume ${draft.id}`}
+              </button>
+            ))}
+            {job.drafts.cover_letters.map((draft) => (
+              <button className="ghost" key={`c${draft.id}`} onClick={() => onOpenLetter(draft.id)}>
+                Cover letter
+              </button>
+            ))}
+          </div>
+        )}
+        {job.answers.length > 0 && (
+          /*
+            What went on the form. Once an application is sent it cannot be
+            opened again, and this is the only copy of what it said.
+          */
+          <div className="form-needs">
+            <div className="form-needs-head">
+              What you told them{job.applied_at ? `, sent ${job.applied_at.slice(0, 10)}` : ""}
+            </div>
+            {job.answers.map((answer) => (
+              <div className="form-field" key={answer.label}>
+                <span className="form-label" style={{ flex: "0 0 45%" }}>
+                  {answer.label}
+                </span>
+                <span className="form-label" style={{ color: "var(--text)" }}>
+                  {answer.kind === "eeo" ? (
+                    <i style={{ color: "var(--text-faint)" }}>
+                      answered from what you stored, not recorded here
+                    </i>
+                  ) : (
+                    answer.value
+                  )}
+                </span>
+              </div>
+            ))}
           </div>
         )}
         {job.fit_score != null && (

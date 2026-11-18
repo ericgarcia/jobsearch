@@ -25,7 +25,8 @@ export type Topic =
   | "layout"
   | "interests"
   | "resumes"
-  | "threads";
+  | "threads"
+  | "applications";
 
 export interface Change {
   topic: Topic;

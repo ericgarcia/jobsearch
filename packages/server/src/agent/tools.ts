@@ -13,6 +13,9 @@ import { homeLocation, matchBar, setMatchBar } from "../settings.js";
 import { importPosting } from "../importing.js";
 import { formForJob } from "../apply/read.js";
 import { describe as describeForm } from "../apply/form.js";
+import { startApplication } from "../apply/start.js";
+import { fillApplication } from "../apply/fill.js";
+import { listAnswers, markApplied, recordAnswers } from "../apply/record.js";
 import {
   coverage,
   listStandingAnswers,
@@ -239,6 +242,52 @@ const selfIdStatusTool = tool(
       note: "Values are never shown to the assistant. They are filled into forms by the app itself.",
     })),
   { annotations: { readOnlyHint: true } },
+);
+
+const startApplicationTool = tool(
+  "start_application",
+  "Begin applying for a job. Moves it to 'applying', reads the application form, finds anything already drafted for it, and hands back what is left to do in order. Call this first when someone decides to apply, rather than drafting straight away: a letter written before the form was read answers questions nobody asked, and a second resume written without reading the first quietly replaces their edits. It writes nothing and submits nothing — the resume and the letter are yours to draft afterwards, and the person sends the application themselves.",
+  { job_id: z.number().int() },
+  async (args) => guard(async () => await startApplication(args.job_id)),
+);
+
+const fillApplicationTool = tool(
+  "fill_application",
+  "Fill in the application form for a job, in the pane beside the app, from what is already known: name, email and links from the profile, situation questions from the standing answers, and the voluntary self-identification fields from whatever the person stored — those are filled by the app itself and their values are not shown to you. Attaches the resume drafted for this job. Answers with what was filled and what was left, including the employer's own questions, which still need writing. It does not send anything: the control that sends an application is refused by the app, not by instruction, because an application cannot be taken back.",
+  { job_id: z.number().int() },
+  async (args) => guard(async () => await fillApplication(args.job_id)),
+);
+
+const recordAnswerTool = tool(
+  "record_answer",
+  "Write down an answer you put on an application form, so it can be read back later. Use it for the employer's own questions, which you write rather than copy — what you told them about why you want the job is the thing nobody remembers three weeks on. Never record a self-identification answer: those are filled by the app and recorded as answered, without the value.",
+  {
+    job_id: z.number().int(),
+    label: z.string().describe("The question, as the form words it"),
+    value: z.string().describe("What was put in the field"),
+  },
+  async (args) =>
+    guard(async () => {
+      await recordAnswers(args.job_id, [
+        { label: args.label, kind: "custom", value: args.value },
+      ]);
+      return { recorded: args.label };
+    }),
+);
+
+const applicationRecordTool = tool(
+  "application_record",
+  "What went on a job's application form, as it was filled in. Self-identification fields show as answered without their values.",
+  { job_id: z.number().int() },
+  async (args) => guard(async () => ({ answers: await listAnswers(args.job_id) })),
+  { annotations: { readOnlyHint: true } },
+);
+
+const markAppliedTool = tool(
+  "mark_applied",
+  "Record that the person has sent the application. Only on their word: nothing here can see a submitted form, and the app never presses the button, so asking them and believing them is the honest version. Moves the job to 'applied', stamps the date, and freezes what was put on the form.",
+  { job_id: z.number().int() },
+  async (args) => guard(async () => await markApplied(args.job_id)),
 );
 
 const coverageTool = tool(
@@ -492,6 +541,11 @@ export const jobsearchServer = createSdkMcpServer({
     syncBoardsTool,
     importPostingTool,
     applicationFormTool,
+    startApplicationTool,
+    fillApplicationTool,
+    recordAnswerTool,
+    applicationRecordTool,
+    markAppliedTool,
     coverageTool,
     standingAnswersTool,
     setStandingAnswerTool,

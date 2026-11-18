@@ -15,7 +15,8 @@ export type Topic =
   | "layout"
   | "interests"
   | "resumes"
-  | "threads";
+  | "threads"
+  | "applications";
 
 type Listener = (topic: Topic) => void;
 

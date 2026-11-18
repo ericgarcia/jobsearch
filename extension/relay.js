@@ -34,6 +34,76 @@ const EVENTS = [
 ];
 
 /*
+  Commands that put a tab on screen, which this relay answers without doing.
+
+  The driving tool selects a tab before most of what it does — the app's own
+  agent selects the app tab before every Split Pilot command, and twice to
+  read the pane. Each of those arrives here as one of these two CDP commands,
+  and each one raises the Chrome window. On a Mac with several desktops that
+  drags the person to whichever desktop Chrome is on, in the middle of
+  whatever they were doing, several times a turn.
+
+  Nothing the agent does needs the tab on screen: the debugger reads and
+  drives a background tab exactly as well, and the person's own clicks are
+  not affected. So the command is accepted and dropped. Playwright's idea of
+  which tab is current still changes, because that is its own bookkeeping and
+  not something it asks the browser for.
+
+  One thing is weaker for it: a screenshot of a tab that has never been
+  painted can come back blank, because Chrome does not render a background
+  tab. Reading a page — snapshot, text, evaluate — is unaffected, and that is
+  what the agent uses.
+*/
+const NEVER_FOCUS = new Set(["Page.bringToFront", "Target.activateTarget"]);
+
+/*
+  The tabs the bridge opened, which are the only ones it may close.
+
+  A session is offered a tab to work with as it connects, and that tab is the
+  person's — whatever they had in view. Playwright closes the tabs of a
+  session when its client disconnects, and the close arrives here as an
+  ordinary chrome.tabs.remove with a tab id in it, indistinguishable from
+  closing a stage the session opened a moment ago. So a short-lived client
+  took the person's pages down with it: a window of tabs, Gmail and a
+  document among them, closed by a tool that had merely been shown them.
+
+  The register is the difference between the two. It is kept in session
+  storage rather than on the connection, because a stage outlives the
+  connection that opened it: the server reconnects after a restart and still
+  has to be able to sweep up the blank tabs it left behind.
+*/
+const OPENED = "bridgeTabs";
+
+async function openedByBridge() {
+  const stored = await chrome.storage.session.get(OPENED);
+  return new Set(stored[OPENED] ?? []);
+}
+
+/** Record a tab the bridge opened, and forget the ones that have closed. */
+async function rememberOpened(tabId) {
+  const ids = await openedByBridge();
+  ids.add(tabId);
+
+  const alive = [];
+  for (const id of ids) {
+    const there = await chrome.tabs.get(id).then(
+      () => true,
+      () => false,
+    );
+    if (there) alive.push(id);
+  }
+  await chrome.storage.session.set({ [OPENED]: alive });
+}
+
+/** Whether every tab in a remove is one the bridge opened. */
+async function mayClose(args) {
+  const asked = Array.isArray(args[0]) ? args[0] : [args[0]];
+  if (asked.length === 0) return false;
+  const ours = await openedByBridge();
+  return asked.every((id) => ours.has(id));
+}
+
+/*
   chrome.debugger drops its attachment when a tab navigates across certain
   boundaries, reporting target_closed for a tab that is still very much open.
   Re-attaching immediately works; re-attaching forever does not, so a tab that
@@ -60,6 +130,24 @@ async function invoke(fullMethod, args) {
   const fn = object[name];
   if (typeof fn !== "function") throw new Error(`Not a function: ${fullMethod}`);
   return fn.apply(object, args);
+}
+
+/** Whether this call would only have put a tab on screen. See NEVER_FOCUS. */
+function raisesTheWindow(fullMethod, args) {
+  return fullMethod === "chrome.debugger.sendCommand" && NEVER_FOCUS.has(args[1]);
+}
+
+/**
+ * The same call, with nothing in it that steals the window.
+ *
+ * A tab is created for every page the agent opens, and Chrome brings a new
+ * tab to the front unless it is told not to. The extension's own stage is
+ * already opened with `active: false` for this reason; a tab the driving tool
+ * opens is no different, so it is opened the same way.
+ */
+function quieted(fullMethod, args) {
+  if (fullMethod !== "chrome.tabs.create") return args;
+  return [{ ...(args[0] ?? {}), active: false }, ...args.slice(1)];
 }
 
 function detachQuietly(tabId) {
@@ -215,8 +303,28 @@ export class RelayConnection {
     const response = { id: message.id };
     try {
       if (!ALLOWED.has(message.method)) throw new Error(`Unknown method: ${message.method}`);
-      const args = message.params ?? [];
-      const result = await invoke(message.method, args);
+      const args = quieted(message.method, message.params ?? []);
+      /*
+        An answer, and no action. Refusing it instead would be reported as a
+        failed command, and the tool would stop rather than carry on with the
+        work it was selecting the tab for.
+      */
+      /*
+        Refused, not quietly ignored. The tool is asking to close a page it
+        does not own, and saying so puts the refusal in its own log rather
+        than leaving it to believe a page of the person's is gone.
+      */
+      if (message.method === "chrome.tabs.remove" && !(await mayClose(args))) {
+        throw new Error("Split Pilot closes only the tabs this bridge opened.");
+      }
+
+      const result = raisesTheWindow(message.method, args)
+        ? {}
+        : await invoke(message.method, args);
+
+      if (message.method === "chrome.tabs.create" && result?.id !== undefined) {
+        await rememberOpened(result.id);
+      }
 
       if (message.method === "chrome.debugger.attach") {
         const tabId = args[0]?.tabId;

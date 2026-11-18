@@ -5,6 +5,7 @@ import { z } from "zod";
 import { BROWSER_MCP_URL, ensureBrowserServer } from "./browserServer.js";
 import { openOnStage, openSplit, readPane, splitState } from "./split.js";
 import { APP_URL } from "../config.js";
+import { refusal, wouldSend } from "../apply/guard.js";
 
 /**
  * One MCP connection to Playwright, held for the life of the app.
@@ -108,6 +109,26 @@ export async function callBrowser(
   return forward(name, args);
 }
 
+/**
+ * Where the browser is, for the guard.
+ *
+ * Read from the tab listing rather than remembered: the page can navigate
+ * between one call and the next, and a guard working from a stale idea of
+ * where it is would be no guard at all. A listing it cannot read means it
+ * cannot tell, and the guard then assumes nothing — the refusal has to be
+ * grounded in a page it actually saw.
+ */
+async function currentUrl(): Promise<string | null> {
+  try {
+    const listing = await forward("browser_tabs", { action: "list" });
+    const text = (listing.content ?? []).map((block) => block.text ?? "").join("\n");
+    const current = /^-\s+\d+:\s*\(current\)\s*\[[^\]]*\]\(([^)]+)\)/m.exec(text);
+    return current?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 const pass = (name: string) => async (args: Record<string, unknown>) => {
   const result = await forward(name, args);
   return {
@@ -182,9 +203,24 @@ export const browserTools = [
   ),
   tool(
     "browser_click",
-    "Click an element. Only click something the person has asked you to click: this is their own signed-in browser.",
+    "Click an element. Only click something the person has asked you to click: this is their own signed-in browser. On an application form the control that sends the application is refused — filling one in is yours, sending it is theirs.",
     { element: ELEMENT, target: TARGET },
-    pass("browser_click"),
+    async (args) => {
+      /*
+        Refused here rather than in the prompt. See apply/guard.ts: an
+        application cannot be taken back, so the last click is the person's
+        and that has to be true whatever the model decides on a given turn.
+      */
+      const where = await currentUrl();
+      const what = String(args.element ?? "");
+      if (wouldSend(where, what)) {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(refusal(what)) }],
+          isError: true,
+        };
+      }
+      return await pass("browser_click")(args);
+    },
     { annotations: { destructiveHint: true } },
   ),
   tool(

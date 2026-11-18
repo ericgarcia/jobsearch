@@ -358,6 +358,15 @@ a { color: var(--accent); }
 .standing-question { flex: none; width: 300px; font-size: 12px; color: var(--text-dim); }
 .standing-row input { flex: 1; }
 
+/* The resume and letter written for one application, shown with it. */
+.job-drafts {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin: 10px 12px 0;
+}
+.job-drafts-head {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-faint);
+}
+
 /* What an application will ask for, grouped by who answers it. */
 .form-needs {
   margin: 10px 12px; padding: 10px 12px;
