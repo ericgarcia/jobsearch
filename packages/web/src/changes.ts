@@ -22,17 +22,41 @@ export type Topic =
 
 type Listener = (topic: Topic) => void;
 
-const listeners = new Set<Listener>();
+/*
+  Each listener with the topic it is waiting for, so that a reconnection can
+  tell it about its own topic rather than about somebody else's. See the note
+  on onerror below for what that cost.
+*/
+const listeners = new Map<Listener, Topic>();
 let source: EventSource | null = null;
+/** A reconnection already on its way, so a burst of errors makes one. */
+let retry: ReturnType<typeof setTimeout> | null = null;
+/** When this stream last said anything, beats included. */
+let heard = 0;
+let watchdog: ReturnType<typeof setInterval> | null = null;
+
+function again(): void {
+  if (retry !== null) return;
+  source?.close();
+  source = null;
+  retry = setTimeout(() => {
+    retry = null;
+    connect();
+  }, 2000);
+}
 
 function connect(): void {
   if (source) return;
+  heard = Date.now();
   source = new EventSource("/api/events");
 
   source.onmessage = (event) => {
     try {
-      const change = JSON.parse(event.data) as { topic: Topic };
-      for (const listener of [...listeners]) listener(change.topic);
+      const change = JSON.parse(event.data) as { topic: Topic | "beat" };
+      heard = Date.now();
+      /* The beat is only there to be heard. See the watchdog below. */
+      if (change.topic === "beat") return;
+      for (const listener of [...listeners.keys()]) listener(change.topic);
     } catch {
       // A malformed frame is not worth tearing the stream down for.
     }
@@ -41,16 +65,56 @@ function connect(): void {
   /*
     EventSource reconnects by itself, and that is usually what you want. It
     is not enough here: while it was away, changes happened that nobody will
-    resend. So on reconnection every listener is told its topic changed, and
-    they refetch. A spurious refetch costs one request; a missed one leaves
-    the page quietly wrong, which is the failure this whole mechanism exists
-    to prevent.
+    resend. So on every connection each listener is told its own topic
+    changed, and refetches. A spurious refetch costs one request; a missed
+    one leaves the page quietly wrong, which is the failure this whole
+    mechanism exists to prevent.
+
+    On open, not on error. Two things were wrong with doing it in onerror.
+    It fired on the way down — readyState CONNECTING means "lost it, about to
+    retry", so the refetches went to a server that was not there and the one
+    that came back was never announced. And it told every listener that
+    "profile" had changed, which only the profile listeners were waiting for,
+    so every other topic stopped updating for good.
+
+    What that looked like: the assistant proposed a change to a line on the
+    profile, said so, and the page showed nothing. The proposal was in the
+    database and correct; the page had simply never been told, because it
+    was listening for "focus" and the reconnection had said "profile" to a
+    server that was still down.
+  */
+  source.onopen = () => {
+    for (const [listener, topic] of [...listeners]) listener(topic);
+  };
+
+  /*
+    And putting it back, because the browser will not always do it.
+
+    EventSource retries a connection that drops cleanly, and gives up for
+    good on one that answers with an error — which is exactly what happens
+    here. The dev server proxies /api to the backend, so while the backend is
+    restarting the proxy answers with an error page, the browser marks the
+    stream CLOSED, and the page stops hearing about anything for the rest of
+    its life. Nothing looks broken: the data is right, the page is just no
+    longer being told.
+
+    So a stream the browser has given up on is replaced, with a pause so a
+    backend that is still starting is not hammered.
   */
   source.onerror = () => {
-    if (source?.readyState === EventSource.CONNECTING) {
-      for (const listener of [...listeners]) listener("profile");
-    }
+    if (source?.readyState === EventSource.CLOSED) again();
   };
+
+  /*
+    And the case the browser does not report at all: a connection that is
+    open and dead. The server beats every 25 seconds, so a minute of silence
+    means this stream is finished whatever readyState claims — start another.
+  */
+  if (watchdog === null) {
+    watchdog = setInterval(() => {
+      if (heard > 0 && Date.now() - heard > 60_000) again();
+    }, 15_000);
+  }
 }
 
 /**
@@ -84,7 +148,7 @@ export function useChanges(topic: Topic, reload: () => void, isBusy?: () => bool
       latest.current.reload();
     };
 
-    listeners.add(listener);
+    listeners.set(listener, topic);
     return () => {
       listeners.delete(listener);
     };

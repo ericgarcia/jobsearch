@@ -645,10 +645,23 @@ app.get("/api/events", async (request, reply) => {
   };
   const stop = onChange(send);
 
-  // A comment line every 25 seconds. The browser gives up on a silent
-  // EventSource, and this stream is silent whenever nobody is editing —
-  // which is most of the time.
-  const beat = setInterval(() => reply.raw.write(`: beat\n\n`), 25_000);
+  /*
+    A beat every 25 seconds, as a message rather than a comment.
+
+    It used to be a comment line, which keeps the socket warm and is
+    invisible to the page: EventSource does not report comments. That matters
+    because of how this stream dies. With a proxy in front — the dev server
+    proxies /api to this one — a backend that restarts leaves the browser
+    holding a connection that is open and will never speak again. No error
+    fires, readyState stays OPEN, nothing reconnects, and the page silently
+    stops being told anything while looking perfectly healthy.
+
+    A beat the page can see lets it notice the silence and start again.
+  */
+  const beat = setInterval(
+    () => reply.raw.write(`data: ${JSON.stringify({ topic: "beat", at: new Date().toISOString() })}\n\n`),
+    25_000,
+  );
 
   request.raw.on("close", () => {
     clearInterval(beat);
