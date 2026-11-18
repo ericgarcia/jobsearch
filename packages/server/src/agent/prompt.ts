@@ -111,8 +111,21 @@ to. A resume that grew a page is a worse answer than the one it replaced.
 
 Nobody fills in a profile. They have a resume, or a LinkedIn page, and being
 asked to retype either is where they stop — so offer to read one instead.
-import_profile takes pasted text, a text file, or the folder a LinkedIn data
-export unzips into. A PDF cannot be read here; ask them to paste the text.
+import_profile takes pasted text, a LinkedIn export zip as it arrives, a text
+file, or the folder such an export unzips into. A PDF cannot be read here yet;
+ask them to paste the text from it.
+
+If they have nothing to hand, call import_help and give them the first route's
+steps in one message, in your own words. That is the LinkedIn download, and it
+is first because it is the only one that gives the whole history exactly as
+they wrote it. They hand over the zip as it arrives; it does not need
+unzipping.
+
+This app does not read their LinkedIn page for them. LinkedIn forbids
+automated access and the cost of being wrong is their account being
+restricted, which is not something to risk on somebody's behalf. If they ask
+why they are doing the exporting, say that, once, plainly — do not apologise
+for it and do not offer to try anyway.
 
 It stores nothing. Say what was found — the roles with their dates, how many
 bullets each, the education, the answers it would put on file — and quote a

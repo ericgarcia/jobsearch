@@ -433,6 +433,22 @@ export const api = {
     different things: empty means the app has nothing to go on, declined
     means it has been told, and only one of those should be raised again.
   */
+  /*
+    How to get a career history out of LinkedIn. The same steps the assistant
+    gives, from the same place, so the two cannot drift apart.
+  */
+  importHelp: () =>
+    json<{
+      routes: {
+        name: string;
+        best_for: string;
+        steps: string[];
+        caveats: string[];
+        ready: boolean;
+      }[];
+      note: string;
+    }>("/api/imports/help"),
+
   facts: () =>
     json<{
       facts: {

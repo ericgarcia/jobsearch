@@ -6,6 +6,7 @@ import { all, get, run } from "./db/client.js";
 import { changed } from "./notify.js";
 import { credentialEnv, readCredential } from "./settings.js";
 import { candidateFacts, getFact, listFacts, seedQuestions, setFact } from "./apply/facts.js";
+import { isZip, list, readText } from "./zip.js";
 import { vet, worthAsking } from "./apply/keep.js";
 import * as profile from "./profile.js";
 
@@ -150,8 +151,36 @@ const NEVER = /visa|sponsor|authoriz|authoris|immigration|right_to_work|work_per
 /** What can be read without a dependency this app does not have. */
 const READABLE = new Set([".txt", ".md", ".markdown", ".csv", ".json", ".html", ".htm", ".tsv"]);
 
-/* LinkedIn's own export, once it is unzipped. Named files, in a useful order. */
-const LINKEDIN = ["Profile.csv", "Positions.csv", "Education.csv", "Skills.csv", "Certifications.csv"];
+/*
+  The files in LinkedIn's own export that say anything about a career.
+
+  Named, and in a useful order, because the archive holds far more than this —
+  messages, invitations, ad preferences, every reaction — and none of that
+  belongs in a prompt. Reading the whole zip would mean sending somebody's
+  private correspondence to a model to find out where they went to school.
+*/
+const LINKEDIN = [
+  "Profile.csv",
+  "Positions.csv",
+  "Education.csv",
+  "Skills.csv",
+  "Certifications.csv",
+  "Languages.csv",
+  "Projects.csv",
+  "Publications.csv",
+  "Honors.csv",
+  "Courses.csv",
+  "Patents.csv",
+];
+
+/* The archive nests its files one folder deep in some versions. */
+const wantedInZip = (name: string): boolean => {
+  const base = name.split("/").pop() ?? name;
+  return LINKEDIN.some((file) => file.toLowerCase() === base.toLowerCase());
+};
+
+const joined = (files: { name: string; text: string }[]): string =>
+  files.map((file) => `--- ${file.name}\n${file.text}`).join("\n\n").slice(0, MOST);
 
 const MOST = 400_000;
 
@@ -173,14 +202,37 @@ export function readSource(at: string): { text: string; source: ImportSource; or
         `No LinkedIn export files in ${where}. Expected some of: ${LINKEDIN.join(", ")}. If it is still a zip, unzip it first.`,
       );
     }
-    const text = found
-      .map((name) => `--- ${name}\n${fs.readFileSync(path.join(where, name), "utf8")}`)
-      .join("\n\n")
-      .slice(0, MOST);
+    const text = joined(
+      found.map((name) => ({ name, text: fs.readFileSync(path.join(where, name), "utf8") })),
+    );
     return { text, source: "linkedin", origin: where };
   }
 
   const extension = path.extname(where).toLowerCase();
+
+  /*
+    The archive as it arrives, rather than after they unzip it. Telling someone
+    to unzip first is a small instruction and also exactly where people stop,
+    which matters here because this route exists instead of reading their
+    LinkedIn page for them — so it has to be no more work than that would have
+    been.
+  */
+  if (extension === ".zip") {
+    const bytes = fs.readFileSync(where);
+    if (!isZip(bytes)) throw new Error(`${where} is named .zip but is not one.`);
+    const inside = readText(bytes, wantedInZip);
+    if (inside.length === 0) {
+      const has = list(bytes)
+        .map((entry) => entry.name.split("/").pop())
+        .filter(Boolean)
+        .slice(0, 12);
+      throw new Error(
+        `No LinkedIn career files in that archive. Expected some of: ${LINKEDIN.slice(0, 5).join(", ")}. It holds: ${has.join(", ")}${has.length === 12 ? ", …" : ""}`,
+      );
+    }
+    return { text: joined(inside), source: "linkedin", origin: where };
+  }
+
   if (extension === ".pdf" || extension === ".docx" || extension === ".doc") {
     throw new Error(
       `${extension} files cannot be read here — this app has no text extractor for them. Open it, copy the text, and paste that instead.`,
@@ -654,5 +706,93 @@ export async function whatIsMissing(): Promise<Missing> {
     gaps,
     unanswered,
     asked: await worthAsking(rows.map((row) => row.label)),
+  };
+}
+
+/* ------------------------------------------------------ how to get started */
+
+export interface Route {
+  name: string;
+  best_for: string;
+  steps: string[];
+  caveats: string[];
+  /** Whether this app can read what the route produces today. */
+  ready: boolean;
+}
+
+/**
+ * How to get a career history out of LinkedIn, and which way is best.
+ *
+ * Here rather than in the agent's prompt because the person's own page says
+ * the same thing, and two copies of a set of instructions is one copy that
+ * goes stale. The steps were checked against LinkedIn's help pages in
+ * November 2026; they move things, so treat a step that does not match what
+ * somebody sees as out of date rather than as them being lost.
+ *
+ * The export is recommended and the ordering is deliberate. Reading a
+ * LinkedIn page directly was considered and rejected: their terms forbid
+ * automated access, and the cost of being wrong is somebody's account being
+ * restricted, which is not a thing this app may risk on their behalf. Having
+ * chosen the slower route on principle, the least it can do is read the zip
+ * as it arrives rather than asking them to unpack it.
+ */
+export function importRoutes(): Route[] {
+  return [
+    {
+      name: "Download your LinkedIn data",
+      best_for:
+        "The complete history, exactly as you wrote it — every role, date, school and skill.",
+      steps: [
+        "In a desktop browser, open LinkedIn and click Me, then Settings & Privacy.",
+        "Open Data privacy in the list on the left.",
+        "Under “How LinkedIn uses your data”, click Get a copy of your data.",
+        "Choose the specific categories rather than the whole archive, and tick Profile, Positions, Education, Skills and Certifications.",
+        "LinkedIn emails a link within a few minutes for that selection. The whole archive instead takes up to 24 hours.",
+        "Download the zip and give me the file. There is no need to unzip it.",
+      ],
+      caveats: [
+        "Not available in the mobile app — it has to be a desktop browser.",
+        "LinkedIn may ask for your password when you make the request.",
+        "The download link expires after 72 hours.",
+      ],
+      ready: true,
+    },
+    {
+      name: "Save your profile as a PDF",
+      best_for: "Quicker, and enough to get started, though it leaves things out.",
+      steps: [
+        "Open your own LinkedIn profile in a desktop browser.",
+        "Click More in the top section — some accounts label it Resources.",
+        "Choose Save to PDF.",
+      ],
+      caveats: [
+        "Not available in the mobile app.",
+        "Only English characters come out correctly.",
+        "I cannot read a PDF yet: open it, copy the text, and paste that to me instead.",
+      ],
+      ready: false,
+    },
+    {
+      name: "Paste it, or point me at a file",
+      best_for: "A resume you already have, in any text form.",
+      steps: [
+        "Paste the text straight into the chat, or give me the path to a .txt, .md, .csv, .json or .html file.",
+        "An unzipped LinkedIn export folder works too.",
+      ],
+      caveats: ["A PDF or Word file cannot be read yet — paste the text from it."],
+      ready: true,
+    },
+  ];
+}
+
+export function importHelp(): { routes: Route[]; note: string } {
+  return {
+    routes: importRoutes(),
+    note:
+      "Offer the LinkedIn download first: it is the only route that gives the whole history exactly as they wrote it, " +
+      "and the zip can be handed over as it arrives. Nothing is stored by reading any of these — what is found is " +
+      "shown to them first, and only what they accept goes into the profile. This app does not read their LinkedIn " +
+      "page itself: LinkedIn forbids automated access and the price of being wrong is their account, which is not " +
+      "something to risk on their behalf. Say that plainly if they ask why they are doing the exporting.",
   };
 }
