@@ -433,7 +433,85 @@ const noKey = planFill(paged, { ...known, fillVoluntary: true, selfId: {} }, ver
 assert.ok(noKey.leftAlone.some((row) => /nothing stored/i.test(row.why)));
 ok("with nothing stored for it, it is blank and says so");
 
-console.log("\n11. The keyword layer is still there, and still fails safe");
+console.log("\n11. A resolved option is filled in the form's own words");
+
+/*
+  What the string rules cannot do. No part of "Mixed: White and Asian" looks
+  like the token `two_or_more`, and "Only with a visa" looks like neither
+  "Yes, now or in the future" nor "No". Both are read by apply/choose.ts,
+  which hands back the option text; from there it is treated as a stored
+  answer that happens to match exactly.
+
+  A token that a form's wording does begin with — "white" against "White:
+  Any other White background" — is settled by the string rules before any of
+  this, which is why they are kept.
+*/
+const HARD = `
+- radiogroup "What best describes your ethnicity?":
+  - radio "Asian/Asian British: Indian" [ref=e20]
+  - radio "Mixed: White and Asian" [ref=e21]
+  - radio "Prefer not to say" [ref=e22]
+- combobox "Do you require visa sponsorship?" [ref=e23]:
+  - option "Yes, now or in the future" [ref=e24]
+  - option "No" [ref=e25]
+`;
+
+const hard = readSnapshot(HARD);
+const hardKinds = new Map<string, Classified>([
+  ["What best describes your ethnicity?", { kind: "eeo", key: "race", by: "model" }],
+  ["Do you require visa sponsorship?", { kind: "standing", topic: "sponsorship", by: "model" }],
+]);
+
+const unresolved = planFill(
+  hard,
+  { ...known, fillVoluntary: true, selfId: { race: "two_or_more" }, standing: [{ topic: "sponsorship", answer: "Only with a visa" }] },
+  hardKinds,
+);
+assert.equal(unresolved.fill.length, 0);
+assert.equal(unresolved.leftAlone.length, 2);
+ok("without a reading, both are left alone rather than approximated");
+
+const resolved = planFill(
+  hard,
+  { ...known, fillVoluntary: true, selfId: { race: "two_or_more" }, standing: [{ topic: "sponsorship", answer: "Only with a visa" }] },
+  hardKinds,
+  new Map([
+    ["What best describes your ethnicity?", "Mixed: White and Asian"],
+    ["Do you require visa sponsorship?", "Yes, now or in the future"],
+  ]),
+);
+
+assert.equal(resolved.fill.find((field) => field.target === "e21")?.kind, "eeo");
+ok("the radio the stored token means is the one ticked");
+
+const sponsorship = resolved.fill.find((field) => field.name === "Do you require visa sponsorship?");
+assert.equal(sponsorship?.value, "Yes, now or in the future");
+assert.equal(sponsorship?.type, "combobox");
+ok("and a list is given the option, not the sentence the person wrote");
+
+assert.equal(resolved.leftAlone.length, 0);
+assert.equal(
+  JSON.stringify(reportOf(resolved)).includes("two_or_more"),
+  false,
+  "a stored token reached the report",
+);
+ok("nothing is left over, and the token never appears in what is reported");
+
+/*
+  A resolved option is still only an option. One that the page does not
+  offer cannot be clicked, and must not be typed in instead.
+*/
+const invented = planFill(
+  hard,
+  { ...known, fillVoluntary: true, selfId: { race: "two_or_more" } },
+  hardKinds,
+  new Map([["What best describes your ethnicity?", "Two or more races"]]),
+);
+assert.equal(invented.fill.some((field) => field.kind === "eeo"), false);
+assert.ok(invented.leftAlone.some((row) => /ethnicity/i.test(row.name)));
+ok("an option the form does not offer is left alone, not invented");
+
+console.log("\n12. The keyword layer is still there, and still fails safe");
 
 assert.equal(classifyByWords({ label: "What is your location?" }).kind, "identity");
 assert.equal(

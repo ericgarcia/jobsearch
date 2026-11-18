@@ -36,6 +36,7 @@ export function ApplicationAnswers() {
   const [topics, setTopics] = useState<Record<string, string>>({});
   const [selfId, setSelfId] = useState<Record<string, string>>({});
   const [keys, setKeys] = useState<string[]>([]);
+  const [choices, setChoices] = useState<Record<string, { token: string; label: string }[] | undefined>>({});
 
   const load = () => {
     void api.standingAnswers().then((data) => {
@@ -45,6 +46,7 @@ export function ApplicationAnswers() {
     void api.selfIdentification().then((data) => {
       setSelfId(data.values);
       setKeys([...data.keys]);
+      setChoices(data.options ?? {});
     });
   };
 
@@ -90,19 +92,46 @@ export function ApplicationAnswers() {
         on your profile — that one is a contact detail, and it is never used to answer this.
       </p>
 
-      {keys.map((key) => (
-        <label className="standing-row" key={key}>
-          <span className="standing-question">{SELF_ID_LABELS[key] ?? key}</span>
-          <input
-            defaultValue={selfId[key] ?? ""}
-            placeholder="—"
-            onBlur={(event) => {
-              if (event.target.value === (selfId[key] ?? "")) return;
-              void api.setSelfIdentification(key, event.target.value).then(load);
-            }}
-          />
-        </label>
-      ))}
+      {keys.map((key) => {
+        const offered = choices[key];
+        return (
+          <label className="standing-row" key={key}>
+            <span className="standing-question">{SELF_ID_LABELS[key] ?? key}</span>
+            {/*
+              A list, not a box, wherever there is a fixed set of answers.
+              Your answer is stored as one of these terms, and a form's own
+              wording is translated into the same terms — which is how an
+              application gets filled in without the answer itself ever being
+              sent anywhere. Year of birth and country stay free text, because
+              a form asking for those spells them out.
+            */}
+            {offered ? (
+              <select
+                value={selfId[key] ?? ""}
+                onChange={(event) => {
+                  void api.setSelfIdentification(key, event.target.value).then(load);
+                }}
+              >
+                <option value="">—</option>
+                {offered.map((choice) => (
+                  <option key={choice.token} value={choice.token}>
+                    {choice.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                defaultValue={selfId[key] ?? ""}
+                placeholder="—"
+                onBlur={(event) => {
+                  if (event.target.value === (selfId[key] ?? "")) return;
+                  void api.setSelfIdentification(key, event.target.value).then(load);
+                }}
+              />
+            )}
+          </label>
+        );
+      })}
     </>
   );
 }
