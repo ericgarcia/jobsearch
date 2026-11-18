@@ -16,6 +16,17 @@ import { DATA_DIR } from "../config.js";
 
 const PORT = Number(process.env.JOBSEARCH_BROWSER_PORT ?? 8931);
 
+/*
+  Where Playwright writes, and the only directory it will read a file from.
+
+  Playwright refuses a path outside its allowed roots, so a resume rendered
+  to the system temp directory could not be attached — the file chooser
+  opened and the upload was refused. Exported, because the side that renders
+  the file and the side that tells Playwright where to work have to agree,
+  and they did not.
+*/
+export const BROWSER_FILES = path.join(DATA_DIR, "playwright");
+
 // Playwright MCP binds IPv6 loopback, so 127.0.0.1 does not reach it.
 export const BROWSER_MCP_URL = `http://localhost:${PORT}/mcp`;
 
@@ -52,7 +63,7 @@ function args(): string[] {
     // .playwright-mcp/ in whatever directory the server was started from,
     // which is inside the repository.
     "--output-dir",
-    path.join(DATA_DIR, "playwright"),
+    BROWSER_FILES,
     // Every MCP client session otherwise gets its own browser context, and so
     // its own tab. Sharing the context is what keeps one tab across turns.
     "--shared-browser-context",
