@@ -62,6 +62,24 @@ async function firstOffer() {
  * the right first offer: it is what the person is looking at, and in a pair
  * it is the driver, from which the stage is one command away.
  */
+/**
+ * Close the connect pages, except the one asking.
+ *
+ * Playwright opens one per server, and a server that went away leaves its
+ * page behind. They are harmless to look at and not harmless to keep: each
+ * one still holds a relay address, and reloading it dials a port that is not
+ * there any more.
+ */
+async function closeConnectPages(keep) {
+  const page = chrome.runtime.getURL("connect.html");
+  const tabs = await chrome.tabs.query({ url: `${page}*` });
+  await Promise.all(
+    tabs
+      .filter((tab) => tab.id !== undefined && tab.id !== keep)
+      .map((tab) => chrome.tabs.remove(tab.id).catch(() => {})),
+  );
+}
+
 async function connectRelay(relayUrl) {
   relay?.close("Replaced by a new connection");
 
@@ -552,8 +570,27 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           in every listing Playwright makes.
         */
         if (page !== undefined) setTimeout(() => void chrome.tabs.remove(page).catch(() => {}), 500);
+        // Only one relay at a time, so every other connect page is stale.
+        void closeConnectPages(page);
       },
-      (error) => respond({ ok: false, error: error.message }),
+      (error) => {
+        respond({ ok: false, error: error.message });
+        /*
+          A refused connect page is closed too, after long enough to read.
+
+          It used to stay, showing what went wrong, which seemed kind. What
+          it actually did was leave a tab holding the address of a relay that
+          no longer exists — and a tab is reloaded eventually, by the person
+          or by Chrome restoring the session. Then it dials a dead port again
+          and fills the extension's error log with ERR_CONNECTION_REFUSED
+          against a port and a session id that have been gone for hours. The
+          page cannot be made to work: the server it names is dead, and the
+          live one will open a connect page of its own.
+        */
+        if (page !== undefined) {
+          setTimeout(() => void chrome.tabs.remove(page).catch(() => {}), 8000);
+        }
+      },
     );
     return true;
   }
