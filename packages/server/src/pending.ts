@@ -171,8 +171,34 @@ export async function proposeEdit(
     throw new Error("Nothing to set. To remove it, propose a deletion instead.");
   }
 
+  /*
+    One slot, but a second thought about the same line is not a second
+    question.
+
+    The slot stops six questions arriving at once, which is what it is for.
+    It also used to stop the most natural request there is: the person looks
+    at a proposed line, says "make it better", and the assistant cannot put a
+    better version in the box because the box is occupied by the version they
+    just asked it to improve. The only way through was withdraw_edit, which
+    its own description forbids for this, so the assistant did the one thing
+    left and talked about the line instead of rewriting it.
+
+    So a proposal on the same field of the same thing replaces what is
+    waiting. The question it was answering is carried over unless the new one
+    names its own, since it is still that question being answered. Anything
+    aimed elsewhere is a second question and still waits its turn.
+  */
   const waiting = await pendingEdit();
-  if (waiting) return { pending: waiting, waiting };
+  if (waiting) {
+    const sameThing =
+      waiting.target === proposal.target &&
+      (waiting.target_id ?? null) === (proposal.target_id ?? null) &&
+      (waiting.target_key ?? null) === (proposal.target_key ?? null) &&
+      waiting.field === proposal.field;
+    if (!sameThing) return { pending: waiting, waiting };
+    await clearEdit();
+    proposal = { ...proposal, question_id: proposal.question_id ?? waiting.question_id };
+  }
 
   await run(
     `INSERT INTO pending_edit

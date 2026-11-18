@@ -19,6 +19,7 @@ import { evaluateCompanies } from "./discover.js";
 import { getInterests, setInterests } from "./interests.js";
 import { assessTopJobs, ASSESS_MODEL } from "./assess.js";
 import { browserEnabled, runAgent, verifyCredential } from "./agent/session.js";
+import { RULES_AT } from "./agent/prompt.js";
 import { APP_URL, SPLIT_EXTENSION_ID } from "./config.js";
 import { openStage } from "./agent/split.js";
 import { formForJob } from "./apply/read.js";
@@ -1170,6 +1171,7 @@ app.post("/api/chat", async (request, reply) => {
     for await (const event of runAgent({
       prompt: body.message,
       resume: await repo.getSdkSessionId(conversationId),
+      rulesChanged: await repo.rulesChanged(conversationId, RULES_AT),
       signal: controller.signal,
     })) {
       if (event.type === "session") await repo.setSdkSessionId(conversationId, event.sessionId);
