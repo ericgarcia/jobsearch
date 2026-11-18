@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
@@ -148,8 +149,34 @@ export const IMPORT_MODEL = process.env.JOBSEARCH_IMPORT_MODEL ?? "claude-opus-5
 */
 const NEVER = /visa|sponsor|authoriz|authoris|immigration|right_to_work|work_permit|citizen/i;
 
-/** What can be read without a dependency this app does not have. */
+/** Read as text, because they are text. */
 const READABLE = new Set([".txt", ".md", ".markdown", ".csv", ".json", ".html", ".htm", ".tsv"]);
+
+/**
+ * Handed over whole, because the model reads these better than any parser.
+ *
+ * A PDF goes up as a document and an image of a page goes up as an image.
+ * There is no extractor in between and no file tool involved: the bytes are
+ * a block in the message, exactly as the text would be.
+ *
+ * This is the second design. The first gave a scoped call the Read tool and
+ * an allow-list of one path, which a probe showed does not hold — the SDK
+ * auto-approves a tool named in allowedTools before the permission callback
+ * is consulted, and with the name removed the callback still did not fire and
+ * the model read a second file it was pointed at. Sending the bytes removes
+ * the question rather than answering it: there is no tool to confine.
+ */
+const HANDED_OVER: Record<string, string> = {
+  ".pdf": "application/pdf",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+};
+
+/** The most a document may weigh, before base64 inflates it by a third. */
+const HEAVIEST = 12_000_000;
 
 /*
   The files in LinkedIn's own export that say anything about a career.
@@ -191,7 +218,11 @@ const MOST = 400_000;
  * rather than guessed at: there is no text extractor in this app, and a
  * resume read as mojibake would be proposed as the person's own words.
  */
-export function readSource(at: string): { text: string; source: ImportSource; origin: string } {
+export type Document =
+  | { kind: "text"; text: string; source: ImportSource; origin: string }
+  | { kind: "file"; bytes: Buffer; media: string; source: ImportSource; origin: string };
+
+export function readSource(at: string): Document {
   const where = path.resolve(at.replace(/^~(?=\/|$)/, process.env.HOME ?? "~"));
   if (!fs.existsSync(where)) throw new Error(`Nothing at ${where}`);
 
@@ -199,16 +230,35 @@ export function readSource(at: string): { text: string; source: ImportSource; or
     const found = LINKEDIN.filter((name) => fs.existsSync(path.join(where, name)));
     if (found.length === 0) {
       throw new Error(
-        `No LinkedIn export files in ${where}. Expected some of: ${LINKEDIN.join(", ")}. If it is still a zip, unzip it first.`,
+        `No LinkedIn export files in ${where}. Expected some of: ${LINKEDIN.join(", ")}. If it is still a zip, hand over the zip itself.`,
       );
     }
     const text = joined(
       found.map((name) => ({ name, text: fs.readFileSync(path.join(where, name), "utf8") })),
     );
-    return { text, source: "linkedin", origin: where };
+    return { kind: "text", text, source: "linkedin", origin: where };
   }
 
-  const extension = path.extname(where).toLowerCase();
+  return documentFrom(path.basename(where), fs.readFileSync(where), where);
+}
+
+/**
+ * What a file is, from its name and its bytes.
+ *
+ * Shared by the two ways a document arrives — a path this process reads, and
+ * an upload the person dropped into the chat — so that both go through one
+ * set of rules about what may be read and how large it may be.
+ */
+export function documentFrom(named: string, bytes: Buffer, origin = named): Document {
+  const extension = path.extname(named).toLowerCase();
+  const source: ImportSource = /linkedin|profile/i.test(named) ? "linkedin" : "resume";
+
+  if (bytes.length === 0) throw new Error(`${named} is empty.`);
+  if (bytes.length > HEAVIEST) {
+    throw new Error(
+      `${named} is ${Math.round(bytes.length / 1_000_000)}MB, which is too large to send. A profile or resume should be well under ${HEAVIEST / 1_000_000}MB.`,
+    );
+  }
 
   /*
     The archive as it arrives, rather than after they unzip it. Telling someone
@@ -217,9 +267,8 @@ export function readSource(at: string): { text: string; source: ImportSource; or
     LinkedIn page for them — so it has to be no more work than that would have
     been.
   */
-  if (extension === ".zip") {
-    const bytes = fs.readFileSync(where);
-    if (!isZip(bytes)) throw new Error(`${where} is named .zip but is not one.`);
+  if (extension === ".zip" || isZip(bytes)) {
+    if (!isZip(bytes)) throw new Error(`${named} is named .zip but is not one.`);
     const inside = readText(bytes, wantedInZip);
     if (inside.length === 0) {
       const has = list(bytes)
@@ -230,21 +279,79 @@ export function readSource(at: string): { text: string; source: ImportSource; or
         `No LinkedIn career files in that archive. Expected some of: ${LINKEDIN.slice(0, 5).join(", ")}. It holds: ${has.join(", ")}${has.length === 12 ? ", …" : ""}`,
       );
     }
-    return { text: joined(inside), source: "linkedin", origin: where };
+    return { kind: "text", text: joined(inside), source: "linkedin", origin };
   }
 
-  if (extension === ".pdf" || extension === ".docx" || extension === ".doc") {
+  const media = HANDED_OVER[extension];
+  if (media) return { kind: "file", bytes, media, source, origin };
+
+  if (extension === ".docx" || extension === ".doc" || extension === ".pages") {
     throw new Error(
-      `${extension} files cannot be read here — this app has no text extractor for them. Open it, copy the text, and paste that instead.`,
+      `${extension} files cannot be read here. Export it as a PDF, or open it and paste the text.`,
     );
   }
   if (!READABLE.has(extension)) {
     throw new Error(`Cannot read ${extension || "a file with no extension"}. Paste the text instead.`);
   }
 
-  const text = fs.readFileSync(where, "utf8").slice(0, MOST);
-  const source: ImportSource = /linkedin/i.test(path.basename(where)) ? "linkedin" : "resume";
-  return { text, source, origin: where };
+  return { kind: "text", text: bytes.toString("utf8").slice(0, MOST), source, origin };
+}
+
+/* ------------------------------------------------------------- what they hand over */
+
+/*
+  Where a dropped file lands.
+
+  Inside the data directory, which is outside the repository and readable only
+  by this user. Kept rather than deleted, so a proposal can be read again and
+  so they can see what was actually handed over; nothing else in the app looks
+  in here.
+*/
+const UPLOADS = path.join(DATA_DIR, "uploads");
+
+export interface Upload {
+  id: string;
+  name: string;
+  size: number;
+}
+
+/** Strip a name down to something that cannot climb out of the folder. */
+function safely(named: string): string {
+  const base = path.basename(named).replace(/[^A-Za-z0-9._ -]/g, "_").slice(0, 120);
+  return base.replace(/^\.+/, "") || "document";
+}
+
+export function saveUpload(named: string, bytes: Buffer): Upload {
+  if (bytes.length === 0) throw new Error("That file is empty.");
+  if (bytes.length > HEAVIEST) {
+    throw new Error(
+      `That file is ${Math.round(bytes.length / 1_000_000)}MB, which is too large. A profile or resume should be well under ${HEAVIEST / 1_000_000}MB.`,
+    );
+  }
+  fs.mkdirSync(UPLOADS, { recursive: true });
+  const id = `${Date.now().toString(36)}-${crypto.randomBytes(4).toString("hex")}`;
+  const name = safely(named);
+  fs.writeFileSync(path.join(UPLOADS, `${id}__${name}`), bytes, { mode: 0o600 });
+  return { id, name, size: bytes.length };
+}
+
+/**
+ * The document behind an upload id.
+ *
+ * The id is matched against the folder's own listing rather than being joined
+ * into a path, so nothing a caller sends can name a file outside it. This is
+ * the only way the agent reaches a file at all: it has no filesystem, and
+ * import_profile takes an id from something the person handed over rather
+ * than a path it chose.
+ */
+export function documentForUpload(id: string): Document {
+  if (!/^[a-z0-9]+-[a-f0-9]+$/i.test(id)) throw new Error(`No file was handed over with id ${id}.`);
+  const found = fs.existsSync(UPLOADS)
+    ? fs.readdirSync(UPLOADS).find((entry) => entry.startsWith(`${id}__`))
+    : undefined;
+  if (!found) throw new Error(`No file was handed over with id ${id}.`);
+  const at = path.join(UPLOADS, found);
+  return documentFrom(found.slice(id.length + 2), fs.readFileSync(at), found);
 }
 
 function line(value: unknown, most = 400): string | undefined {
@@ -374,12 +481,13 @@ export async function vetFacts(
  * document and has to not invent anything while doing it, which is the sort
  * of care that is worth paying for once per onboarding.
  */
-export async function proposeFrom(
-  text: string,
-  source: ImportSource,
-  origin?: string,
-): Promise<Import> {
-  if (!text.trim()) throw new Error("There is nothing to read.");
+export async function proposeFrom(document: Document): Promise<Import> {
+  if (document.kind === "text" && !document.text.trim()) {
+    throw new Error("There is nothing to read.");
+  }
+  if (document.kind === "file" && document.bytes.length === 0) {
+    throw new Error("That file is empty.");
+  }
 
   const credential = await readCredential();
   if (!credential) {
@@ -398,9 +506,57 @@ export async function proposeFrom(
   for (const fact of await candidateFacts()) named.set(fact.slug, fact.question);
   const known = [...named].map(([slug, question]) => `- ${slug}: ${question}`).join("\n");
 
+  /*
+    The document as a block beside the question, rather than as text somebody
+    extracted first. A PDF goes up as a PDF and a photograph of a page goes up
+    as an image, and in both cases the thing reading it is the thing that will
+    report what it says — so nothing is lost between a parser and a reader.
+
+    `tools: []` as everywhere else in this app. The bytes are in the message;
+    there is nothing to go and fetch, and so nothing to confine.
+  */
+  const asked = `QUESTIONS ALREADY NAMED\n${known}\n\n${
+    document.kind === "text"
+      ? `DOCUMENT\n\n${document.text.slice(0, MOST)}`
+      : "The document is attached. Read it and report what it says."
+  }`;
+
+  const content =
+    document.kind === "text"
+      ? asked
+      : [
+          document.media === "application/pdf"
+            ? {
+                type: "document" as const,
+                source: {
+                  type: "base64" as const,
+                  media_type: "application/pdf" as const,
+                  data: document.bytes.toString("base64"),
+                },
+              }
+            : {
+                type: "image" as const,
+                source: {
+                  type: "base64" as const,
+                  media_type: document.media as "image/png",
+                  data: document.bytes.toString("base64"),
+                },
+              },
+          { type: "text" as const, text: asked },
+        ];
+
+  async function* sent() {
+    yield {
+      type: "user" as const,
+      parent_tool_use_id: null,
+      session_id: "",
+      message: { role: "user" as const, content },
+    };
+  }
+
   let answered = "";
   for await (const message of query({
-    prompt: `QUESTIONS ALREADY NAMED\n${known}\n\nDOCUMENT\n\n${text.slice(0, MOST)}`,
+    prompt: sent() as never,
     options: {
       model: IMPORT_MODEL,
       cwd: DATA_DIR,
@@ -436,8 +592,8 @@ export async function proposeFrom(
 
   const written = await run(
     `INSERT INTO imports (source, origin, proposal, at) VALUES (?, ?, ?, datetime('now'))`,
-    source,
-    origin ?? null,
+    document.source,
+    document.origin || null,
     JSON.stringify(proposal),
   );
 
@@ -739,16 +895,31 @@ export interface Route {
 export function importRoutes(): Route[] {
   return [
     {
-      name: "Download your LinkedIn data",
-      best_for:
-        "The complete history, exactly as you wrote it — every role, date, school and skill.",
+      name: "Save your LinkedIn profile as a PDF",
+      best_for: "The fastest way in: three clicks, and I can read the PDF itself.",
+      steps: [
+        "Open your own LinkedIn profile in a desktop browser.",
+        "Click the … button in the top section, to the right of Enhance profile.",
+        "Choose Save to PDF.",
+        "Give me the file it downloads — drag it into the chat, or use the paperclip.",
+      ],
+      caveats: [
+        "Not available in the mobile app.",
+        "Only English characters come out correctly.",
+        "It is a tidied-up version of your profile, so it can leave out detail you have written. If something is missing afterwards, tell me and I will add it.",
+      ],
+      ready: true,
+    },
+    {
+      name: "Download your full LinkedIn data",
+      best_for: "The complete history, exactly as you wrote it, when the PDF has left things out.",
       steps: [
         "In a desktop browser, open LinkedIn and click Me, then Settings & Privacy.",
         "Open Data privacy in the list on the left.",
         "Under “How LinkedIn uses your data”, click Get a copy of your data.",
         "Choose the specific categories rather than the whole archive, and tick Profile, Positions, Education, Skills and Certifications.",
         "LinkedIn emails a link within a few minutes for that selection. The whole archive instead takes up to 24 hours.",
-        "Download the zip and give me the file. There is no need to unzip it.",
+        "Give me the zip as it arrives. There is no need to unzip it.",
       ],
       caveats: [
         "Not available in the mobile app — it has to be a desktop browser.",
@@ -758,28 +929,13 @@ export function importRoutes(): Route[] {
       ready: true,
     },
     {
-      name: "Save your profile as a PDF",
-      best_for: "Quicker, and enough to get started, though it leaves things out.",
+      name: "A resume you already have",
+      best_for: "Anything you have written yourself, in most formats.",
       steps: [
-        "Open your own LinkedIn profile in a desktop browser.",
-        "Click More in the top section — some accounts label it Resources.",
-        "Choose Save to PDF.",
+        "Drag the file into the chat, use the paperclip, or paste the text straight in.",
+        "A PDF or a photograph of a page is fine. So is .txt, .md, .csv, .json or .html.",
       ],
-      caveats: [
-        "Not available in the mobile app.",
-        "Only English characters come out correctly.",
-        "I cannot read a PDF yet: open it, copy the text, and paste that to me instead.",
-      ],
-      ready: false,
-    },
-    {
-      name: "Paste it, or point me at a file",
-      best_for: "A resume you already have, in any text form.",
-      steps: [
-        "Paste the text straight into the chat, or give me the path to a .txt, .md, .csv, .json or .html file.",
-        "An unzipped LinkedIn export folder works too.",
-      ],
-      caveats: ["A PDF or Word file cannot be read yet — paste the text from it."],
+      caveats: ["Word and Pages files are not readable — export one as a PDF first."],
       ready: true,
     },
   ];
@@ -789,10 +945,11 @@ export function importHelp(): { routes: Route[]; note: string } {
   return {
     routes: importRoutes(),
     note:
-      "Offer the LinkedIn download first: it is the only route that gives the whole history exactly as they wrote it, " +
-      "and the zip can be handed over as it arrives. Nothing is stored by reading any of these — what is found is " +
-      "shown to them first, and only what they accept goes into the profile. This app does not read their LinkedIn " +
-      "page itself: LinkedIn forbids automated access and the price of being wrong is their account, which is not " +
-      "something to risk on their behalf. Say that plainly if they ask why they are doing the exporting.",
+      "Offer the first route: Save to PDF is three clicks and the PDF can be read as it is. The full download is " +
+      "there for when the PDF turns out to have left something out — do not lead with it, it means a request, an " +
+      "email and a wait. Nothing is stored by reading any of these: what is found is shown to them first, and only " +
+      "what they accept goes into the profile. This app does not read their LinkedIn page itself — LinkedIn forbids " +
+      "automated access and the price of being wrong is their account, which is not something to risk on their " +
+      "behalf. Say that plainly if they ask why they are doing the exporting.",
   };
 }

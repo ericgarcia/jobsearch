@@ -47,11 +47,13 @@ import {
 import { describe as describeForm } from "./apply/form.js";
 import {
   applyImport,
+  documentForUpload,
   importHelp,
   listImports,
   proposeFrom,
-  readSource,
+  saveUpload,
   whatIsMissing,
+  type Document,
 } from "./onboard.js";
 import { pdfFilename, renderPdf } from "./layout/pdf.js";
 import { changed, onChange } from "./notify.js";
@@ -92,6 +94,17 @@ await seedLayouts();
 
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
 await app.register(cors, { origin: true });
+
+/*
+  Files arrive as raw bytes on their own content types, so that a dropped PDF
+  needs no multipart parser — a dependency for one field. Anything else keeps
+  fastify's own JSON handling.
+*/
+app.addContentTypeParser(
+  ["application/pdf", "application/zip", "image/png", "image/jpeg", "image/gif", "image/webp", "application/octet-stream"],
+  { parseAs: "buffer" },
+  (_request, body, done) => done(null, body),
+);
 
 /* ------------------------------------------------------------------- queries */
 
@@ -402,16 +415,42 @@ app.post("/api/self-identification/:key/decline", async (request) => {
 app.get("/api/imports", async () => ({ imports: await listImports() }));
 
 app.post("/api/imports", async (request, reply) => {
-  const body = (request.body ?? {}) as { text?: string; path?: string };
+  const body = (request.body ?? {}) as { text?: string; upload_id?: string };
   try {
-    const read = body.path
-      ? readSource(body.path)
-      : { text: body.text ?? "", source: "pasted" as const, origin: null };
-    return { import: await proposeFrom(read.text, read.source, read.origin ?? undefined) };
+    const read: Document = body.upload_id
+      ? documentForUpload(body.upload_id)
+      : { kind: "text", text: body.text ?? "", source: "pasted", origin: "" };
+    return { import: await proposeFrom(read) };
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }
 });
+
+/*
+  A file dropped into the chat, or chosen with the paperclip.
+
+  Raw bytes rather than a multipart form, because a parser for one field is a
+  dependency for nothing. The browser hands over the contents and never a
+  path, so this is the only way a file reaches the app — the agent has no
+  filesystem, and import_profile takes an id from here rather than a path it
+  chose. The picker is the permission.
+*/
+app.post(
+  "/api/uploads",
+  { bodyLimit: 16_000_000 },
+  async (request, reply) => {
+    const named = String((request.query as { name?: string }).name ?? "document");
+    const bytes = request.body;
+    if (!Buffer.isBuffer(bytes)) {
+      return reply.code(400).send({ error: "Send the file's bytes as the request body." });
+    }
+    try {
+      return { upload: saveUpload(named, bytes) };
+    } catch (error) {
+      return reply.code(400).send({ error: (error as Error).message });
+    }
+  },
+);
 
 app.post("/api/imports/:id/apply", async (request, reply) => {
   const body = (request.body ?? {}) as Record<string, unknown>;

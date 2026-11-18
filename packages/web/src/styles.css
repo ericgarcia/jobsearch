@@ -380,6 +380,16 @@ a { color: var(--accent); }
   margin: 5px 0 0; padding-left: 18px;
   font-size: 11px; color: var(--text-faint); line-height: 1.5;
 }
+/* Handing a document over: the paperclip, and the whole composer as a target. */
+.chat-clip {
+  flex: none; align-self: stretch; width: 30px;
+  border: 1px solid var(--line); border-radius: 6px; background: none;
+  color: var(--text-dim); font-size: 16px; line-height: 1; cursor: pointer;
+}
+.chat-clip:hover:not(:disabled) { color: var(--text); border-color: var(--text-faint); }
+.chat-clip:disabled { opacity: 0.4; cursor: default; }
+.chat-form-drop { outline: 1px dashed var(--text-faint); outline-offset: 4px; border-radius: 8px; }
+
 .import-route-why {
   border-top: 1px solid var(--line); padding-top: 8px;
   font-size: 11px; color: var(--text-faint);

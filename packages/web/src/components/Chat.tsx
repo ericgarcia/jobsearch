@@ -155,6 +155,9 @@ export function Chat({
 }) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [draft, setDraft] = useState(() => readDraft(threadId));
+  const [dragging, setDragging] = useState(false);
+  const [sending, setSending] = useState(false);
+  const picker = useRef<HTMLInputElement>(null);
   const [running, setRunning] = useState(false);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [listOpen, setListOpen] = useState(false);
@@ -315,12 +318,46 @@ export function Chat({
     loadThreads();
   }
 
-  async function send() {
-    const message = draft.trim();
+  /*
+    Handing a document over.
+
+    The browser gives the file's contents and never its location, so this is
+    the only way a document reaches the app — the assistant has no filesystem
+    and reads what it is given, by id. Dropping and picking are the same path:
+    both end here, and both are the person choosing, which is the permission.
+
+    The turn it starts says what was handed over in the person's own voice,
+    because that is what it is. The assistant then reads it and says what it
+    found before anything is stored.
+  */
+  async function hand(files: FileList | File[]) {
+    const chosen = [...files].slice(0, 4);
+    if (chosen.length === 0 || running) return;
+
+    setSending(true);
+    try {
+      const handed = [];
+      for (const file of chosen) handed.push(await api.upload(file));
+      await send(
+        `I have given you ${handed.length === 1 ? "a file" : `${handed.length} files`}: ` +
+          handed.map((one) => `${one.name} (upload_id ${one.id})`).join(", ") +
+          ". Read it with import_profile and tell me what you found.",
+      );
+    } catch (error) {
+      setEntries((prior) => [...prior, { kind: "error", text: (error as Error).message }]);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function send(said?: string) {
+    const message = (said ?? draft).trim();
     if (!message || running) return;
 
-    setDraft("");
-    writeDraft(threadId, "");
+    if (said === undefined) {
+      setDraft("");
+      writeDraft(threadId, "");
+    }
     setEntries((prior) => [...prior, { kind: "user", text: message }]);
     setRunning(true);
 
@@ -497,15 +534,50 @@ export function Chat({
       </div>
 
       <form
-        className="chat-form"
+        className={`chat-form${dragging ? " chat-form-drop" : ""}`}
         onSubmit={(event) => {
           event.preventDefault();
           void send();
         }}
+        onDragOver={(event) => {
+          if (!event.dataTransfer.types.includes("Files")) return;
+          event.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={(event) => {
+          if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+          setDragging(false);
+        }}
+        onDrop={(event) => {
+          if (!event.dataTransfer.types.includes("Files")) return;
+          event.preventDefault();
+          setDragging(false);
+          void hand(event.dataTransfer.files);
+        }}
       >
+        <input
+          ref={picker}
+          type="file"
+          multiple
+          hidden
+          accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.zip,.txt,.md,.csv,.json,.html"
+          onChange={(event) => {
+            if (event.target.files) void hand(event.target.files);
+            event.target.value = "";
+          }}
+        />
+        <button
+          type="button"
+          className="chat-clip"
+          title="Give the assistant a resume or a LinkedIn export"
+          disabled={running || sending}
+          onClick={() => picker.current?.click()}
+        >
+          {sending ? "…" : "+"}
+        </button>
         <textarea
           value={draft}
-          placeholder="Ask the assistant…"
+          placeholder={dragging ? "Drop it here" : "Ask the assistant, or drop in a resume…"}
           onChange={(event) => {
             setDraft(event.target.value);
             writeDraft(threadId, event.target.value);

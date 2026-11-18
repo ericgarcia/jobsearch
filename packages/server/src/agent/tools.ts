@@ -17,7 +17,14 @@ import { startApplication } from "../apply/start.js";
 import { fillApplication } from "../apply/fill.js";
 import { listAnswers, markApplied, recordAnswers } from "../apply/record.js";
 import { keepable } from "../apply/keep.js";
-import { applyImport, importHelp, proposeFrom, readSource, whatIsMissing } from "../onboard.js";
+import {
+  applyImport,
+  documentForUpload,
+  importHelp,
+  proposeFrom,
+  whatIsMissing,
+  type Document,
+} from "../onboard.js";
 import {
   coverage,
   listStandingAnswers,
@@ -366,18 +373,18 @@ const recordAnswerTool = tool(
 
 const importProfileTool = tool(
   "import_profile",
-  "Read a resume or a LinkedIn export and report what it says, without storing any of it. Pass `text` for something they pasted, or `path` for a file on this machine — a LinkedIn data export zip as it arrives from them, a .txt, .md, .csv, .json or .html file, or the folder such an export unzips into. PDFs and Word files cannot be read here; ask them to paste the text. Call import_help if they do not have a document to hand: it has the steps for getting one out of LinkedIn. Nothing is written to the profile by this call: the reply is a proposal, you put it to them, and apply_import stores whatever they accept. Quote the bullets back to them exactly as this reply gives them — they are their own sentences, and rewording one while relaying it means they approve something they did not write. It never reports anything about their right to work, sponsorship or visa status, and never anything a voluntary survey asks, whatever the document says: those they type themselves.",
+  "Read a document the person handed over and report what it says, without storing any of it. Pass `upload_id` for a file they dropped into the chat or chose with the paperclip — a PDF, a photograph of a page, a LinkedIn export zip as it arrives, or a text file — or `text` for something they pasted. You cannot name a path: the only files you can read are the ones they gave you, which is what the picker is for. Word and Pages files are not readable; ask them to export a PDF. Quote the bullets back exactly as this reply gives them — they are their own sentences, and rewording one while relaying it means they approve something they did not write. It never reports anything about their right to work, sponsorship or visa status, and never anything a voluntary survey asks, whatever the document says: those they type themselves. Call import_help if they have nothing to hand.",
   {
+    upload_id: z.string().optional().describe("The id of a file they handed over in the chat"),
     text: z.string().optional().describe("The document's text, as they pasted it"),
-    path: z.string().optional().describe("A file on this machine, or an unzipped LinkedIn export folder"),
   },
   async (args) =>
     guard(async () => {
-      if (!args.text && !args.path) throw new Error("Pass either text or path.");
-      const read = args.path
-        ? readSource(args.path)
-        : { text: args.text!, source: "pasted" as const, origin: null };
-      const proposed = await proposeFrom(read.text, read.source, read.origin ?? undefined);
+      if (!args.text && !args.upload_id) throw new Error("Pass either text or upload_id.");
+      const read: Document = args.upload_id
+        ? documentForUpload(args.upload_id)
+        : { kind: "text", text: args.text!, source: "pasted", origin: "" };
+      const proposed = await proposeFrom(read);
       return {
         import_id: proposed.id,
         source: proposed.source,
