@@ -188,11 +188,20 @@ export function isVoluntarySection(section: string | undefined): boolean {
   return section !== undefined && VOLUNTARY_SECTION.test(section);
 }
 
+/*
+  A permission, which is not a disclosure.
+
+  Tested before the section, because employers print the marketing tick
+  inside the demographic survey and the section rule would otherwise call it
+  self-identification. Asking to contact someone is a request about the
+  employer's intentions, not a fact about the person — and calling it eeo
+  told them a marketing box was a voluntary disclosure.
+*/
+const CONSENT =
+  /\b(?:consent|opt[-\s]?in|marketing email|subscribe|keep me informed|future (?:roles|opportunities|job opportunities))/i;
+
 const PATTERNS: [FieldKind, RegExp][] = [
-  [
-    "consent",
-    /\b(?:consent|opt[-\s]?in|marketing email|subscribe|keep me informed|future (?:roles|opportunities))/i,
-  ],
+  ["consent", CONSENT],
   [
     "document",
     /\b(?:resum|résum|cv\b|cover letter|portfolio file|transcript|writing sample)/i,
@@ -225,7 +234,9 @@ const PATTERNS: [FieldKind, RegExp][] = [
 export function byWords(label: string, section?: string): FieldKind {
   const text = label.trim();
 
-  // The heading first, because it outranks the label: see VOLUNTARY_SECTION.
+  if (CONSENT.test(text)) return "consent";
+
+  // The heading next, because it outranks the label: see VOLUNTARY_SECTION.
   if (isVoluntarySection(section)) return "eeo";
 
   if (EEO.test(text)) return "eeo";
