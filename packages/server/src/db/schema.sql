@@ -554,9 +554,49 @@ CREATE TABLE IF NOT EXISTS pending_edit (
   field      TEXT    NOT NULL,
   value      TEXT    NOT NULL,
   why        TEXT    NOT NULL,
+  -- Which queued question this answers, when it answers one.
+  question_id INTEGER,
   -- "set" or "delete". Dropping a line is as much an edit as changing one,
   -- and the case that asked for it was a role carrying a company's sales
   -- copy among its achievements.
   action     TEXT    NOT NULL DEFAULT 'set',
   at         TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+/*
+  The things still worth asking somebody about their profile, in order.
+
+  This exists because of one screenshot. An import had been read, and the
+  assistant put six numbered decisions on the screen at once and asked for
+  the answers to one and two — which is a form, and a form is what somebody
+  was avoiding by handing over a resume. The questions were all good. There
+  were just six of them at once, because the whole list arrived at once and
+  nothing metered it.
+
+  So the list is a queue. One row comes out at a time, is asked about, and is
+  settled; the rest wait. What fills it is the import's own "unsure" notes —
+  the things the reader could not decide — then the gaps in the profile, then
+  the questions real employers asked that nothing on file could answer.
+
+  A row carries a note in prose rather than a ready-made change, because the
+  assistant still has to read it and decide what to put in front of the
+  person. Where the thing to change is already known, the target columns say
+  so and save it guessing.
+*/
+CREATE TABLE IF NOT EXISTS question_queue (
+  id         INTEGER PRIMARY KEY,
+  /** import:3, gap, or asked — where this came from. */
+  source     TEXT    NOT NULL,
+  note       TEXT    NOT NULL,
+  target     TEXT,
+  target_id  INTEGER,
+  target_key TEXT,
+  field      TEXT,
+  state      TEXT    NOT NULL DEFAULT 'waiting',
+  /** What happened, once it is settled. */
+  outcome    TEXT,
+  at         TEXT    NOT NULL DEFAULT (datetime('now')),
+  settled_at TEXT,
+  CHECK (state IN ('waiting', 'done')),
+  UNIQUE (source, note)
 );

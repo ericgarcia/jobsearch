@@ -687,6 +687,8 @@ export interface Choices {
 }
 
 export interface Applied {
+  /** Notes the reader could not settle, now queued to ask about. */
+  to_ask?: number;
   roles: number;
   bullets: number;
   /** Bullets that were read and deliberately not kept. */
@@ -864,6 +866,18 @@ export async function applyImport(id: number, choices: Choices = {}): Promise<Ap
   }
 
   await run(`UPDATE imports SET applied_at = datetime('now') WHERE id = ?`, id);
+
+  /*
+    What the reader could not settle becomes things to ask about, one at a
+    time, now that the rows exist and a question can point at one. Queued
+    here rather than when the document was read, because before it is applied
+    there is nothing on the page for a question to be about.
+  */
+  // Imported here, not at the top: the queue reads this module for what is
+  // missing, so a static import either way round would be a cycle.
+  const { enqueueFromImport } = await import("./queue.js");
+  applied.to_ask = await enqueueFromImport(id, stored.proposal.unsure);
+
   changed("profile");
   return applied;
 }

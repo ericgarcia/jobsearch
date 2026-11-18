@@ -46,6 +46,7 @@ import {
 } from "./apply/facts.js";
 import { describe as describeForm } from "./apply/form.js";
 import { clearEdit, pendingEdit, proposeEdit, resolveEdit } from "./pending.js";
+import { clearQueue, waitingQuestions } from "./queue.js";
 import {
   applyImport,
   documentForUpload,
@@ -425,6 +426,7 @@ app.post("/api/pending-edit", async (request, reply) => {
     target_id?: number;
     target_key?: string;
     action?: "set" | "delete";
+    question_id?: number;
   };
   try {
     return await proposeEdit({
@@ -435,6 +437,7 @@ app.post("/api/pending-edit", async (request, reply) => {
       ...(body.target_id !== undefined ? { target_id: body.target_id } : {}),
       ...(body.target_key !== undefined ? { target_key: body.target_key } : {}),
       ...(body.action !== undefined ? { action: body.action } : {}),
+      ...(body.question_id !== undefined ? { question_id: body.question_id } : {}),
     });
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
@@ -454,6 +457,15 @@ app.delete("/api/pending-edit", async () => {
   await clearEdit();
   return { pending: null };
 });
+
+/*
+  What is still worth asking about, for the person's own page. The assistant
+  takes these one at a time through next_question; this is so they can see
+  how many are left without being read the list. See queue.ts.
+*/
+app.get("/api/questions", async () => ({ waiting: await waitingQuestions() }));
+
+app.delete("/api/questions", async () => ({ put_away: await clearQueue() }));
 
 /* --------------------------------------------------------------- onboarding */
 
