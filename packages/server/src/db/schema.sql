@@ -91,6 +91,12 @@ CREATE TABLE IF NOT EXISTS conversations (
   -- selected in it, the search. A conversation is a piece of work, and
   -- coming back to it should put back what you were looking at.
   workspace      TEXT,
+  -- A fingerprint of the rules the assistant was last run under in this
+  -- conversation. A conversation carries its own precedent: once the
+  -- assistant has said it cannot do something, it goes on saying so for the
+  -- rest of the thread, and editing the rules does not retract it. This is
+  -- how a thread finds out the rules changed under it. See agent/prompt.ts.
+  rules_at       TEXT,
   created_at     TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );

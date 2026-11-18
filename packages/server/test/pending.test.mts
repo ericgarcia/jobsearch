@@ -265,4 +265,58 @@ await clearEdit();
 assert.equal((await get<{ n: number }>(`SELECT COUNT(*) AS n FROM pending_edit`))?.n, 0);
 ok("one row at most, which is what makes one question at a time structural");
 
+console.log("\nA second thought about the line they are looking at");
+
+/*
+  The request the one-slot rule used to make impossible: they look at a
+  proposed line and ask for a better one. Replacing it is not a second
+  question, and refusing left the assistant with nothing to do but describe
+  the edits it would have made.
+*/
+await clearEdit();
+const role2 = await profile.addRole({
+  company: "Superviber",
+  title: "Founder",
+  location: null,
+  start_date: "2026-01",
+  end_date: null,
+  summary: null,
+});
+const openLine = await profile.addBullet(role2.id, "A long line that reads like a product description.");
+
+const firstGo = await proposeEdit({
+  target: "bullet",
+  target_id: openLine.id,
+  field: "text",
+  value: "A long line that reads like a product description.",
+  why: "From the import.",
+  question_id: 4242,
+});
+assert.equal(firstGo.waiting, undefined);
+
+const better = await proposeEdit({
+  target: "bullet",
+  target_id: openLine.id,
+  field: "text",
+  value: "Designed and published it, and what it is for.",
+  why: "Leads with the purpose and cuts the spec detail.",
+});
+assert.equal(better.waiting, undefined, "a better version of the same line was refused");
+assert.equal(better.pending.value, "Designed and published it, and what it is for.");
+ok("a better version of the open line replaces it rather than being handed back");
+
+assert.equal(better.pending.question_id, 4242);
+ok("and it answers the same question, which the new proposal did not have to name");
+
+/* What the slot is actually for still holds. */
+const elsewhere = await proposeEdit({
+  target: "profile",
+  field: "headline",
+  value: "Something unrelated",
+  why: "A different question entirely.",
+});
+assert.ok(elsewhere.waiting, "a proposal about something else was allowed through");
+assert.equal(elsewhere.pending.target_id, openLine.id);
+ok("a proposal aimed anywhere else still waits its turn");
+
 console.log(`\n${passed} passed, 0 failed`);

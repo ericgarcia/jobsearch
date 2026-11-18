@@ -527,6 +527,22 @@ export async function getSdkSessionId(conversationId: number): Promise<string | 
   return row?.sdk_session_id ?? null;
 }
 
+/**
+ * Whether the rules changed since this conversation last ran, and stamp it.
+ *
+ * Returns true once per change. A conversation that has never run is stamped
+ * and returns false: there is no precedent to correct on a first turn, and a
+ * note about rules changing would be about nothing.
+ */
+export async function rulesChanged(conversationId: number, rulesAt: string): Promise<boolean> {
+  const row = (await dbGet(
+    `SELECT rules_at FROM conversations WHERE id = ?`,
+    conversationId,
+  )) as { rules_at: string | null } | undefined;
+  await dbRun(`UPDATE conversations SET rules_at = ? WHERE id = ?`, rulesAt, conversationId);
+  return row?.rules_at != null && row.rules_at !== rulesAt;
+}
+
 export async function setSdkSessionId(conversationId: number, sessionId: string): Promise<void> {
   (await dbRun(`UPDATE conversations SET sdk_session_id = ?, updated_at = datetime('now') WHERE id = ?`, sessionId, conversationId));
 }

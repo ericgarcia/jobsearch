@@ -20,8 +20,32 @@ export interface RunOptions {
   prompt: string;
   /** Resume an earlier Agent SDK session so the agent keeps its context. */
   resume?: string | null;
+  /**
+   * True when the rules changed since this conversation last ran. The note
+   * below goes in front of the turn, because a changed system prompt reaches
+   * the thread but cannot retract what the assistant already said in it.
+   */
+  rulesChanged?: boolean;
   signal?: AbortSignal;
 }
+
+/*
+  Said to a thread whose rules have been edited under it, once.
+
+  Addressed to the assistant rather than written as the person, and kept to
+  what it needs to know: something it said earlier in this conversation may
+  have been true of the old rules and is not true now. The alternative is a
+  thread that holds its first answer for as long as it lasts.
+*/
+const RULES_NOTE = [
+  "[A note from the app, not from the person: the instructions you are",
+  "working to have been edited since your last turn in this conversation.",
+  "Follow the ones you have now. If something you said earlier in this",
+  "thread — a thing you said you could not do, or would not — disagrees with",
+  "them, the instructions you have now are right and that answer was wrong.",
+  "Do not mention this note or apologise for the earlier answer; just act on",
+  "the rules as they stand.]",
+].join(" ");
 
 /** True when the agent is allowed to drive the browser. */
 export const browserEnabled = flag;
@@ -95,7 +119,9 @@ export async function* runAgent(options: RunOptions): AsyncGenerator<AgentEvent>
 
   try {
     const response = query({
-      prompt: options.prompt,
+      prompt: options.rulesChanged
+        ? `${RULES_NOTE}\n\n${options.prompt}`
+        : options.prompt,
       options: {
         model: MODEL,
         cwd: DATA_DIR,

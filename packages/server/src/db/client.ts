@@ -146,6 +146,26 @@ export async function migrate(): Promise<void> {
 
   await backfillLocationTokens();
   await backfillFacts();
+  await stampOlderConversations();
+}
+
+/*
+  A conversation that ran before its rules were ever stamped.
+
+  It has precedent — it has answers in it — and those answers were given
+  under rules older than the ones running now, since the stamp did not exist
+  when they were given. So it is stamped with a value nothing will match, and
+  its next turn is told the rules changed. That is true, and it is the only
+  honest value: what those rules actually said is not recorded anywhere.
+
+  A conversation that never ran is left alone. There is nothing in it to
+  correct, and a note about changed rules would be about nothing.
+*/
+async function stampOlderConversations(): Promise<void> {
+  await run(
+    `UPDATE conversations SET rules_at = 'before-rules-were-stamped'
+      WHERE rules_at IS NULL AND sdk_session_id IS NOT NULL`,
+  );
 }
 
 /**
@@ -222,6 +242,8 @@ async function addMissingColumns(): Promise<void> {
     ["profile_bullets", "project_id", "INTEGER REFERENCES profile_projects (id) ON DELETE SET NULL"],
     // What the app was showing in a conversation. Null until it says.
     ["conversations", "workspace", "TEXT"],
+    // The rules this conversation was last run under. Null means never run.
+    ["conversations", "rules_at", "TEXT"],
     /*
       Which stored thing answers an identity or link field, and the two
       columns a cached classification expires by. Added here because the

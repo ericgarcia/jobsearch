@@ -459,7 +459,7 @@ const importHelpTool = tool(
 
 const proposeEditTool = tool(
   "propose_edit",
-  "Put one change to their profile in front of them, on the thing it would change. The page brings the profile forward, scrolls to that row and paints the question over it; nothing is stored until they keep it, and what gets stored is whatever is in the box at that moment. Use this instead of listing what you would change — ask about one thing, propose it, and wait. There is one slot: if something is already waiting this call returns it instead, which means finish that one first. Write the value. If they ask you to improve a line, propose an improved line rather than a list of changes you would make; drafting is safe here because the proposal is not stored — they read it in the box, edit it there, and press Keep. What you may not add is substance: a figure, a date, an employer, a result or anything else that is in neither the profile nor what they just said, however much better it would read. Reword freely, invent nothing, and keep every figure exactly as stored. If the line needs a fact you do not have, propose your best version from what is on file and ask for the fact beside it. Say in `why`, in one line, what this is and where it came from; it is shown with the question.",
+  "Put one change to their profile in front of them, on the thing it would change. The page brings the profile forward, scrolls to that row and paints the question over it; nothing is stored until they keep it, and what gets stored is whatever is in the box at that moment. Use this instead of listing what you would change — ask about one thing, propose it, and wait. There is one slot, so a proposal about something else while one is waiting returns the waiting one instead, which means finish that one first. A better version of the line already in the box is not something else: propose it the same way and it replaces what is there, keeping the same question. That is the right move when they ask you to improve what they are looking at. Write the value. If they ask you to improve a line, propose an improved line rather than a list of changes you would make; drafting is safe here because the proposal is not stored — they read it in the box, edit it there, and press Keep. What you may not add is substance: a figure, a date, an employer, a result or anything else that is in neither the profile nor what they just said, however much better it would read. Reword freely, invent nothing, and keep every figure exactly as stored. If the line needs a fact you do not have, propose your best version from what is on file and ask for the fact beside it. Say in `why`, in one line, what this is and where it came from; it is shown with the question.",
   {
     target: z
       .enum(["profile", "role", "bullet", "fact"])
@@ -580,7 +580,7 @@ const pendingEditTool = tool(
 
 const withdrawEditTool = tool(
   "withdraw_edit",
-  "Take back what you proposed without them answering it. Use it when the conversation has moved on, or when they have said no in passing — not to clear the way for a different proposal while they are still looking at this one.",
+  "Take back what you proposed without them answering it. Use it when the conversation has moved on, or when they have said no in passing. You do not need it to revise your own proposal: propose the better version of the same field and it replaces what is in the box.",
   {},
   async () =>
     guard(async () => {

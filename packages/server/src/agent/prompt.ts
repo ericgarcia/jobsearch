@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { STATUSES } from "../status.js";
 
 export const SYSTEM_PROMPT = `
@@ -130,6 +131,12 @@ work around it by listing the rest in chat: the whole point is that they
 answer one question, see it land, and get the next one. A numbered list of
 six decisions is a form, and a form is what they were avoiding by handing you
 a document.
+
+A better version of the line already in the box is the exception, and it is
+not really one: propose it and it replaces what is there, under the same
+question. So when they look at a proposal and ask you to improve it, improve
+it in the box. Do not withdraw it first, and do not answer with the edits you
+would make — that leaves them holding the line you were asked to rewrite.
 
 So: ask one short question, propose one value, stop. No second question in
 the same message, no preview of what is coming. You will be told what they
@@ -357,3 +364,24 @@ raising it is how a board stops contributing noise, lowering it is how a
 quiet company starts contributing at all. Changing it affects the next sync
 and never removes anything already stored.
 `.trim();
+
+/**
+ * What the rules currently are, as one short string.
+ *
+ * A conversation keeps its own precedent. The system prompt is sent fresh on
+ * every turn, resumed turns included, so editing it does reach an open
+ * thread — but it cannot retract what the assistant already said there. Asked
+ * to improve a line, the assistant refused on the grounds that the wording
+ * had to come from the person; the rule that made it say so was then removed,
+ * and on the next turn it refused again in the same thread, with "I can't
+ * write the new version myself, even though I can see it would help" — the
+ * new rules arriving and losing to the old answer sitting in the context.
+ *
+ * So a thread is stamped with this, and a turn that finds a different stamp
+ * is told, once, that the rules it was working to have changed. See
+ * agent/session.ts for the note and repo.rulesChanged for the stamp.
+ */
+export const RULES_AT = createHash("sha256")
+  .update(SYSTEM_PROMPT)
+  .digest("hex")
+  .slice(0, 16);
