@@ -115,6 +115,24 @@ export async function shareableFacts(): Promise<Fact[]> {
   return rows.map(factOf);
 }
 
+/**
+ * The facts a form's question could be asking for.
+ *
+ * Wider than shareableFacts on purpose: a question the person has refused is
+ * still a question with a name, and matching a field to it is how the app can
+ * say "you asked not to be asked this" instead of "nothing on file answers
+ * this". A fact in the `asked` state is left out — there is neither an answer
+ * nor a refusal to report.
+ */
+export async function candidateFacts(): Promise<Fact[]> {
+  const rows = await all<Row>(
+    `SELECT ${COLUMNS} FROM facts
+       WHERE sensitivity = 'open' AND state IN ('answered', 'declined')
+       ORDER BY slug`,
+  );
+  return rows.map(factOf);
+}
+
 interface Written {
   slug: string;
   question?: string;

@@ -529,4 +529,66 @@ assert.equal(
 assert.equal(classifyByWords({ label: "What are your pronouns?" }).key, "pronouns");
 ok("the fallback classifies by words, section first, and says which route it was");
 
+console.log("\n13. A question outside the eight topics is answered from the store");
+
+/*
+  What the fact store is for, at the point it matters. Both of these are the
+  employer's own questions as far as the classifier is concerned; one of them
+  is a fact about the person that they have already given, and before there
+  was anywhere to keep one it was answered for that employer and thrown away.
+
+  The match comes from apply/match.ts, which reads the questions rather than
+  matching their names — the reason a clearance can be found at all, since no
+  topic in the code is called that.
+*/
+const OWN = `
+- document:
+  - form "Application":
+    - textbox "Do you hold an active security clearance?" [ref=e90]
+    - textbox "Why do you want to work here?" [ref=e91]
+`;
+
+const own = readSnapshot(OWN);
+const theirs = new Map<string, Classified>([
+  ["Do you hold an active security clearance?", { kind: "custom", by: "model" }],
+  ["Why do you want to work here?", { kind: "custom", by: "model" }],
+]);
+
+const stored = planFill(
+  own,
+  {
+    ...known,
+    standing: [{ topic: "security_clearance", answer: "Yes — Secret, active since 2024" }],
+  },
+  theirs,
+  undefined,
+  new Map([["Do you hold an active security clearance?", "security_clearance"]]),
+);
+
+assert.equal(
+  stored.fill.find((field) => /clearance/i.test(field.name))?.value,
+  "Yes — Secret, active since 2024",
+);
+ok("the matched question is filled from the fact, though its kind is custom");
+
+assert.equal(stored.fill.some((field) => /want to work/i.test(field.name)), false);
+assert.ok(
+  stored.leftAlone.some(
+    (row) => /want to work/i.test(row.name) && /written for this application/i.test(row.why),
+  ),
+);
+ok("and the one that matched nothing is still theirs to write");
+
+/*
+  Without the match the same form fills nothing. Worth stating, because it is
+  the difference the model call buys and it should be visible in a test
+  rather than assumed.
+*/
+const unmatched = planFill(own, {
+  ...known,
+  standing: [{ topic: "security_clearance", answer: "Yes — Secret, active since 2024" }],
+}, theirs);
+assert.equal(unmatched.fill.length, 0);
+ok("with nothing matched, a stored answer no pattern can name goes unused");
+
 console.log(`\n${passed} passed, 0 failed`);

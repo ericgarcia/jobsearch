@@ -17,6 +17,7 @@ import {
   type Classified,
   type Slot,
 } from "./classify.js";
+import { matchFacts } from "./match.js";
 import { callBrowser } from "../agent/browserClient.js";
 import { BROWSER_FILES } from "../agent/browserServer.js";
 import { openOnStage, withPane } from "../agent/split.js";
@@ -353,12 +354,17 @@ export function askedOf(controls: Control[]): Asked[] {
  * rules could not settle it — see resolveChoices below, and apply/choose.ts.
  * It is the form's own wording, so from here on it is treated exactly like a
  * stored answer that happened to match.
+ *
+ * `matches` is which stored answer each question was read to be asking for —
+ * see apply/match.ts. Without it a question is answered only if its topic is
+ * one of the eight the patterns know, which is the limit this replaced.
  */
 export function planFill(
   controls: Control[],
   known: Known,
   kinds?: Map<string, Classified>,
   chosen?: Map<string, string>,
+  matches?: Map<string, string>,
 ): Plan {
   const fill: Filling[] = [];
   const leftAlone: Plan["leftAlone"][number][] = [];
@@ -530,20 +536,37 @@ export function planFill(
       continue;
     }
 
-    if (kind === "standing") {
-      const topic = verdict.topic ?? topicOf(label);
-      const stored = topic === "other" ? undefined : byTopic.get(topic);
-      if (!stored) {
-        leftAlone.push({ name: label, kind, why: "No standing answer stored for this." });
+    if (kind === "standing" || kind === "custom") {
+      /*
+        The match first, then the topic its words suggest.
+
+        The order matters: the match was read against what is actually on
+        file, and the topic is a guess from a pattern. A question the
+        matcher settled is settled, and a question outside the eight topics
+        can only be answered this way.
+
+        A custom field reaches here for the same reason. "Do you hold a
+        clearance?" asked inside a company's own section is still a fact
+        about the person; before there was anywhere to store one, it was
+        answered for that employer and thrown away. Nothing matched means
+        nothing changes — it falls through to the writing-needed branch
+        below.
+      */
+      const slug = matches?.get(asks) ?? (kind === "standing" ? (verdict.topic ?? topicOf(label)) : "other");
+      const stored = slug === "other" ? undefined : byTopic.get(slug);
+      if (stored) {
+        resolve(
+          control,
+          stored,
+          kind,
+          `Stored answer "${stored}" does not clearly match any option offered.`,
+        );
         continue;
       }
-      resolve(
-        control,
-        stored,
-        kind,
-        `Stored answer "${stored}" does not clearly match any option offered.`,
-      );
-      continue;
+      if (kind === "standing") {
+        leftAlone.push({ name: label, kind, why: "No stored answer matches this question." });
+        continue;
+      }
     }
 
     if (kind === "eeo") {
@@ -710,6 +733,7 @@ export async function resolveChoices(
   controls: Control[],
   known: Known,
   kinds: Map<string, Classified>,
+  matches?: Map<string, string>,
 ): Promise<Map<string, string>> {
   const chosen = new Map<string, string>();
   const env = await canChoose();
@@ -743,9 +767,9 @@ export async function resolveChoices(
         continue;
       }
 
-      if (verdict.kind === "standing") {
-        const topic = verdict.topic;
-        const stored = topic && topic !== "other" ? byTopic.get(topic) : undefined;
+      if (verdict.kind === "standing" || verdict.kind === "custom") {
+        const slug = matches?.get(asks) ?? (verdict.kind === "standing" ? verdict.topic : undefined);
+        const stored = slug && slug !== "other" ? byTopic.get(slug) : undefined;
         if (!stored) continue;
         // The string rules first: free, and they settle most of these.
         if (chooseOption(stored, optionsOf(controls, control.name))) continue;
@@ -863,14 +887,29 @@ export async function fillApplication(jobId: number): Promise<unknown> {
     }
 
     /*
-      Read the page's questions, then ask what they mean.
+      Read the page's questions, then ask what they mean, then ask which of
+      this person's stored answers each one wants.
 
-      One call for the whole form, on the form's own words. Nothing the
-      person stored is in it: see apply/classify.ts.
+      Two calls for the whole form, both on the form's own words and the
+      names of the questions already answered. Neither carries an answer:
+      see apply/classify.ts and apply/match.ts.
     */
-    const kinds = await classifyAsked(askedOf(controls));
+    const asked = askedOf(controls);
+    const kinds = await classifyAsked(asked);
+    const matches = await matchFacts(
+      asked.filter((question) => {
+        const kind = kinds.get(question.label)?.kind;
+        return kind === "standing" || kind === "custom";
+      }),
+    );
     const known = await knownAnswers(jobId);
-    const plan = planFill(controls, known, kinds, await resolveChoices(controls, known, kinds));
+    const plan = planFill(
+      controls,
+      known,
+      kinds,
+      await resolveChoices(controls, known, kinds, matches),
+      matches,
+    );
 
     const outcome = await fillFields(plan.fill);
 
