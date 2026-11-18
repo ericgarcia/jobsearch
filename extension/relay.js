@@ -57,6 +57,53 @@ const EVENTS = [
 const NEVER_FOCUS = new Set(["Page.bringToFront", "Target.activateTarget"]);
 
 /*
+  The tabs the bridge opened, which are the only ones it may close.
+
+  A session is offered a tab to work with as it connects, and that tab is the
+  person's — whatever they had in view. Playwright closes the tabs of a
+  session when its client disconnects, and the close arrives here as an
+  ordinary chrome.tabs.remove with a tab id in it, indistinguishable from
+  closing a stage the session opened a moment ago. So a short-lived client
+  took the person's pages down with it: a window of tabs, Gmail and a
+  document among them, closed by a tool that had merely been shown them.
+
+  The register is the difference between the two. It is kept in session
+  storage rather than on the connection, because a stage outlives the
+  connection that opened it: the server reconnects after a restart and still
+  has to be able to sweep up the blank tabs it left behind.
+*/
+const OPENED = "bridgeTabs";
+
+async function openedByBridge() {
+  const stored = await chrome.storage.session.get(OPENED);
+  return new Set(stored[OPENED] ?? []);
+}
+
+/** Record a tab the bridge opened, and forget the ones that have closed. */
+async function rememberOpened(tabId) {
+  const ids = await openedByBridge();
+  ids.add(tabId);
+
+  const alive = [];
+  for (const id of ids) {
+    const there = await chrome.tabs.get(id).then(
+      () => true,
+      () => false,
+    );
+    if (there) alive.push(id);
+  }
+  await chrome.storage.session.set({ [OPENED]: alive });
+}
+
+/** Whether every tab in a remove is one the bridge opened. */
+async function mayClose(args) {
+  const asked = Array.isArray(args[0]) ? args[0] : [args[0]];
+  if (asked.length === 0) return false;
+  const ours = await openedByBridge();
+  return asked.every((id) => ours.has(id));
+}
+
+/*
   chrome.debugger drops its attachment when a tab navigates across certain
   boundaries, reporting target_closed for a tab that is still very much open.
   Re-attaching immediately works; re-attaching forever does not, so a tab that
@@ -262,9 +309,22 @@ export class RelayConnection {
         failed command, and the tool would stop rather than carry on with the
         work it was selecting the tab for.
       */
+      /*
+        Refused, not quietly ignored. The tool is asking to close a page it
+        does not own, and saying so puts the refusal in its own log rather
+        than leaving it to believe a page of the person's is gone.
+      */
+      if (message.method === "chrome.tabs.remove" && !(await mayClose(args))) {
+        throw new Error("Split Pilot closes only the tabs this bridge opened.");
+      }
+
       const result = raisesTheWindow(message.method, args)
         ? {}
         : await invoke(message.method, args);
+
+      if (message.method === "chrome.tabs.create" && result?.id !== undefined) {
+        await rememberOpened(result.id);
+      }
 
       if (message.method === "chrome.debugger.attach") {
         const tabId = args[0]?.tabId;

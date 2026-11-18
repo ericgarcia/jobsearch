@@ -10,6 +10,7 @@ import { formForJob } from "./read.js";
 import { pdfFilename, renderPdf } from "../layout/pdf.js";
 import * as repo from "../repo.js";
 import * as resumeStore from "../resume.js";
+import { recordAnswers } from "./record.js";
 
 /**
  * Turning a page into a list of things to type.
@@ -387,6 +388,15 @@ export async function fillApplication(jobId: number): Promise<unknown> {
       return { error: `The form could not be filled: ${text(filled)}` };
     }
   }
+
+  /*
+    Written down as it goes on, not afterwards: once the form is sent it is
+    gone, and a record made from memory is the thing this exists to replace.
+  */
+  await recordAnswers(
+    jobId,
+    plan.fill.map((entry) => ({ label: entry.name, kind: entry.kind, value: entry.value })),
+  );
 
   return { url: form.url, ...reportOf(plan), resume: await attachResume(jobId, controls) };
 }

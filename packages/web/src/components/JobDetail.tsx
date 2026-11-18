@@ -190,6 +190,33 @@ export function JobDetail({
             ))}
           </div>
         )}
+        {job.answers.length > 0 && (
+          /*
+            What went on the form. Once an application is sent it cannot be
+            opened again, and this is the only copy of what it said.
+          */
+          <div className="form-needs">
+            <div className="form-needs-head">
+              What you told them{job.applied_at ? `, sent ${job.applied_at.slice(0, 10)}` : ""}
+            </div>
+            {job.answers.map((answer) => (
+              <div className="form-field" key={answer.label}>
+                <span className="form-label" style={{ flex: "0 0 45%" }}>
+                  {answer.label}
+                </span>
+                <span className="form-label" style={{ color: "var(--text)" }}>
+                  {answer.kind === "eeo" ? (
+                    <i style={{ color: "var(--text-faint)" }}>
+                      answered from what you stored, not recorded here
+                    </i>
+                  ) : (
+                    answer.value
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
         {job.fit_score != null && (
           <div className="assessment">
             <b style={{ color: "var(--text)" }}>Fit {job.fit_score}/100</b>

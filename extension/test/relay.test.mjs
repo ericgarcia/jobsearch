@@ -25,6 +25,13 @@ function ok(what) {
 const sent = [];
 /** Every tabs.create the relay passed to Chrome, with its arguments. */
 const created = [];
+/** Every tab the relay actually closed. */
+const removed = [];
+/** Session storage, as the worker sees it. */
+const session = new Map();
+/** The tabs Chrome has, so a remembered id can be checked for existence. */
+const living = new Set([3, 4]);
+let nextTabId = 20;
 
 function listenable() {
   return { addListener: () => {}, removeListener: () => {} };
@@ -44,12 +51,30 @@ globalThis.chrome = {
   tabs: {
     create: async (properties) => {
       created.push(properties);
-      return { id: 7, ...properties };
+      const id = nextTabId++;
+      living.add(id);
+      return { id, ...properties };
     },
-    remove: async () => {},
-    get: async (id) => ({ id }),
+    remove: async (id) => {
+      for (const one of Array.isArray(id) ? id : [id]) {
+        removed.push(one);
+        living.delete(one);
+      }
+    },
+    get: async (id) => {
+      if (!living.has(id)) throw new Error(`No tab with id: ${id}`);
+      return { id };
+    },
     onCreated: listenable(),
     onRemoved: listenable(),
+  },
+  storage: {
+    session: {
+      get: async (key) => (session.has(key) ? { [key]: session.get(key) } : {}),
+      set: async (patch) => {
+        for (const [key, value] of Object.entries(patch)) session.set(key, value);
+      },
+    },
   },
 };
 
@@ -71,9 +96,22 @@ class SocketStub {
   /** A command from Playwright, answered. */
   async ask(id, method, params) {
     await this.onmessage({ data: JSON.stringify({ id, method, params }) });
-    // The handler is async all the way down; let its last await settle.
-    await new Promise((done) => setImmediate(done));
-    return this.written.find((message) => message.id === id);
+
+    /*
+      Wait for the answer, rather than for a tick.
+
+      This used to let one setImmediate pass and then look. The handler is
+      async all the way down and some paths await more than once, so the
+      answer was usually there and occasionally was not — a test that fails
+      about one run in ten teaches people to re-run it rather than to read
+      it, which costs more than the bug it would have caught.
+    */
+    for (let tries = 0; tries < 200; tries += 1) {
+      const answer = this.written.find((message) => message.id === id);
+      if (answer) return answer;
+      await new Promise((done) => setImmediate(done));
+    }
+    return undefined;
   }
 }
 
@@ -136,9 +174,40 @@ await socket.ask(5, "chrome.tabs.create", [{ url: "https://example.com/", active
 assert.equal(created.at(-1)?.active, false, "an explicit active: true was obeyed");
 ok("an explicit request to activate is overridden");
 
-console.log("\n4. A method outside the five is still refused");
+console.log("\n4. A tab the bridge did not open cannot be closed");
 
-reply = await socket.ask(6, "chrome.windows.update", [1, { focused: true }]);
+/*
+  Tab 3 is the person's: the extension offers the session a tab to work with
+  as it connects, and that is whatever they had in view. A disconnecting
+  client asking to close it is how a window of their pages was lost.
+*/
+reply = await socket.ask(7, "chrome.tabs.remove", [3]);
+assert.match(reply?.error ?? "", /only the tabs this bridge opened/);
+assert.deepEqual(removed, [], "it closed a tab belonging to the person");
+ok("closing an offered tab is refused");
+
+console.log("\n5. A tab it did open still closes");
+
+reply = await socket.ask(8, "chrome.tabs.create", [{ url: "about:blank" }]);
+const stage = reply?.result?.id;
+assert.equal(typeof stage, "number", "the stage must come back with an id");
+reply = await socket.ask(9, "chrome.tabs.remove", [stage]);
+assert.equal(reply?.error, undefined, reply?.error ?? "");
+assert.deepEqual(removed, [stage], "the stage must be the only thing closed");
+ok("closing a tab the bridge opened works");
+
+console.log("\n6. And a mixed list closes nothing");
+
+const second = (await socket.ask(10, "chrome.tabs.create", [{ url: "about:blank" }]))?.result?.id;
+removed.length = 0;
+reply = await socket.ask(11, "chrome.tabs.remove", [[second, 4]]);
+assert.match(reply?.error ?? "", /only the tabs this bridge opened/);
+assert.deepEqual(removed, [], "one of the person's tabs went with the batch");
+ok("a remove naming one tab of theirs is refused whole");
+
+console.log("\n7. A method outside the five is still refused");
+
+reply = await socket.ask(12, "chrome.windows.update", [1, { focused: true }]);
 assert.match(reply?.error ?? "", /Unknown method/);
 ok("the allowed list is unchanged");
 

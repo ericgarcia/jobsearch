@@ -305,3 +305,21 @@ CREATE TABLE IF NOT EXISTS self_identification (
   value      TEXT NOT NULL,
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- What went on the form, so "what did I tell them?" has an answer in three
+-- weeks' time. Written as the form is filled and frozen when the person says
+-- they have sent it.
+--
+-- A self-identification field is recorded as having been filled and never
+-- with what: those values live in one table and stay there. The row exists
+-- so the record is complete — it says the section was answered — without
+-- copying someone's disability status into a second place.
+CREATE TABLE IF NOT EXISTS application_answers (
+  id      INTEGER PRIMARY KEY,
+  job_id  INTEGER NOT NULL REFERENCES jobs (id) ON DELETE CASCADE,
+  label   TEXT    NOT NULL,
+  kind    TEXT    NOT NULL,
+  value   TEXT,
+  at      TEXT    NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (job_id, label)
+);

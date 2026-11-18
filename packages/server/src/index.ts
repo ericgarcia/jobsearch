@@ -22,6 +22,7 @@ import { browserEnabled, runAgent, verifyCredential } from "./agent/session.js";
 import { APP_URL, SPLIT_EXTENSION_ID } from "./config.js";
 import { openStage } from "./agent/split.js";
 import { formForJob } from "./apply/read.js";
+import { listAnswers } from "./apply/record.js";
 import {
   coverage,
   listStandingAnswers,
@@ -645,6 +646,7 @@ app.get("/api/jobs/:id", async (request, reply) => {
   return {
     ...job,
     history: repo.applicationHistory(id),
+    answers: await listAnswers(id),
     drafts: {
       resumes: (resumes as { id: number; label: string | null }[]).map((row) => ({
         id: row.id,

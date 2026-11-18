@@ -319,7 +319,7 @@ export async function findJob(
 }
 
 export async function getJob(id: number): Promise<JobWithStatus | undefined> {
-  return (await dbGet(`SELECT j.*, a.status, s.fit_score, s.reasoning, s.model, m.score AS match_score
+  return (await dbGet(`SELECT j.*, a.status, a.applied_at, s.fit_score, s.reasoning, s.model, m.score AS match_score
          FROM jobs j
          LEFT JOIN applications a ON a.job_id = j.id
          LEFT JOIN job_assessments s ON s.job_id = j.id

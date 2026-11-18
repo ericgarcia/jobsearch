@@ -17,6 +17,10 @@ export interface Job {
 
 export interface JobDetail extends Job {
   history: { from_status: string | null; to_status: string; note: string | null; at: string }[];
+  /** When the person said they sent it. */
+  applied_at?: string | null;
+  /** What was put on the application form, as it was filled in. */
+  answers: { label: string; kind: string; value: string | null; at: string }[];
   /** What has been written for this application. */
   drafts: {
     resumes: { id: number; label: string | null }[];
