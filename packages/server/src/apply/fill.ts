@@ -4,7 +4,7 @@ import path from "node:path";
 import { classify, topicOf, type FieldKind } from "./form.js";
 import { listStandingAnswers, readSelfIdentification, selfIdKeyOf } from "./answers.js";
 import { callBrowser } from "../agent/browserClient.js";
-import { openOnStage } from "../agent/split.js";
+import { openOnStage, withPane } from "../agent/split.js";
 import { get } from "../db/client.js";
 import { formForJob } from "./read.js";
 import { pdfFilename, renderPdf } from "../layout/pdf.js";
@@ -31,7 +31,16 @@ import { recordAnswers } from "./record.js";
 export interface Control {
   role: string;
   name: string;
-  ref: string;
+  /*
+    What the browser tools call `target`: "exact target element reference
+    from the page snapshot". It was named `ref` here, after the snapshot's own
+    `[ref=e42]`, and the payload was built from the field names of this
+    interface — so every fill went out with `ref` where the tool requires
+    `target`, and was rejected whole. The tests asserted the same wrong name
+    and passed. It is called `target` now, so the thing being built and the
+    thing being sent cannot drift apart again.
+  */
+  target: string;
   /** For a radio or a checkbox, the group it belongs to. */
   group?: string;
 }
@@ -68,14 +77,14 @@ export function readSnapshot(snapshot: string): Control[] {
     if (!found) continue;
     const [, indent = "", role = "", name = "", rest = ""] = found;
     const depth = indent.length;
-    const ref = REF.exec(rest)?.[1];
+    const target = REF.exec(rest)?.[1];
 
     while (stack.length > 0 && stack[stack.length - 1]!.indent >= depth) stack.pop();
     const group = stack.length > 0 ? stack[stack.length - 1]!.name : undefined;
 
     // Everything named can be a question; only something with a ref can be
     // answered.
-    controls.push({ role, name, ref: ref ?? "", ...(group ? { group } : {}) });
+    controls.push({ role, name, target: target ?? "", ...(group ? { group } : {}) });
     if (name) stack.push({ indent: depth, name });
   }
 
@@ -98,7 +107,7 @@ export interface Known {
 
 export interface Filling {
   element: string;
-  ref: string;
+  target: string;
   name: string;
   type: "textbox" | "checkbox" | "radio" | "combobox" | "slider";
   value: string;
@@ -163,11 +172,11 @@ export function planFill(controls: Control[], known: Known): Plan {
     );
 
   const put = (control: Control, value: string, kind: FieldKind) => {
-    if (!value || answered.has(control.ref)) return;
-    answered.add(control.ref);
+    if (!value || answered.has(control.target)) return;
+    answered.add(control.target);
     fill.push({
       element: control.name || control.role,
-      ref: control.ref,
+      target: control.target,
       name: control.name || control.role,
       type:
         control.role === "radio"
@@ -361,44 +370,70 @@ export async function fillApplication(jobId: number): Promise<unknown> {
   if (!job) throw new Error(`No job with id ${jobId}`);
 
   const form = await formForJob(jobId);
-  await openOnStage(form.url);
-
-  const snapshot = text(await callBrowser("browser_snapshot", {}));
-  const controls = readSnapshot(snapshot);
-  if (controls.length === 0) {
-    return {
-      error:
-        "Nothing could be read on that page. It may still be loading, or it may want a sign-in. Take a snapshot and look before trying again.",
-    };
-  }
-
-  const plan = planFill(controls, await knownAnswers());
-
-  if (plan.fill.length > 0) {
-    const filled = await callBrowser("browser_fill_form", {
-      fields: plan.fill.map(({ element, ref, name, type, value }) => ({
-        element,
-        ref,
-        name,
-        type,
-        value,
-      })),
-    });
-    if (filled.isError === true) {
-      return { error: `The form could not be filled: ${text(filled)}` };
-    }
-  }
 
   /*
-    Written down as it goes on, not afterwards: once the form is sent it is
-    gone, and a record made from memory is the thing this exists to replace.
-  */
-  await recordAnswers(
-    jobId,
-    plan.fill.map((entry) => ({ label: entry.name, kind: entry.kind, value: entry.value })),
-  );
+    What the arrangement answered, kept rather than dropped.
 
-  return { url: form.url, ...reportOf(plan), resume: await attachResume(jobId, controls) };
+    This used to be `await openOnStage(...)` with the answer thrown away, so
+    when the pane could not be made the only thing the person was told was
+    "Nothing is open in the pane" — true, and no help at all: it names the
+    symptom and hides the reason, which was sitting in the discarded reply.
+  */
+  const stage = await openOnStage(form.url);
+
+  /*
+    Everything from here on happens on the page in the pane, and the browser
+    tools act on whichever tab is in view — which is the app. So the whole
+    sequence goes inside withPane: read, fill, attach. Doing the read there
+    and the fill outside it would type the person's details into the app.
+  */
+  const done = await withPane(async () => {
+    const snapshot = text(await callBrowser("browser_snapshot", {}));
+    const controls = readSnapshot(snapshot);
+    if (controls.length === 0) {
+      return {
+        error:
+          "Nothing could be read on that page. It may still be loading, or it may want a sign-in. Take a snapshot and look before trying again.",
+      };
+    }
+
+    const plan = planFill(controls, await knownAnswers());
+
+    if (plan.fill.length > 0) {
+      const filled = await callBrowser("browser_fill_form", {
+        fields: plan.fill.map(({ element, target, name, type, value }) => ({
+          element,
+          target,
+          name,
+          type,
+          value,
+        })),
+      });
+      if (filled.isError === true) {
+        return { error: `The form could not be filled: ${text(filled)}` };
+      }
+    }
+
+    /*
+      Written down as it goes on, not afterwards: once the form is sent it is
+      gone, and a record made from memory is the thing this exists to replace.
+    */
+    await recordAnswers(
+      jobId,
+      plan.fill.map((entry) => ({ label: entry.name, kind: entry.kind, value: entry.value })),
+    );
+
+    return { url: form.url, ...reportOf(plan), resume: await attachResume(jobId, controls) };
+  });
+
+  if (done !== null && typeof done === "object" && "error" in done) {
+    return {
+      error: `${(done as { error: string }).error}`,
+      stage: `Asking for the page to be shown in the pane answered: ${stage}`,
+      hint: "The pane is made by the extension in the person's own window. If it cannot be, nothing here can read or fill the form — ask them to open the posting from the app and say what they see.",
+    };
+  }
+  return done;
 }
 
 /**
@@ -436,7 +471,7 @@ async function attachResume(
     const file = path.join(os.tmpdir(), pdfFilename(me?.name ?? null, draft.label ?? undefined));
     fs.writeFileSync(file, pdf);
 
-    await callBrowser("browser_click", { element: control.name, ref: control.ref });
+    await callBrowser("browser_click", { element: control.name, target: control.target });
     const uploaded = await callBrowser("browser_file_upload", { paths: [file] });
     if (uploaded.isError === true) {
       return { attached: false, note: `The upload was refused: ${text(uploaded)}` };
