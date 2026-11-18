@@ -53,6 +53,8 @@ export interface PendingEdit {
   target_id: number | null;
   /** For a fact, whose key is a slug rather than a row id. */
   target_key: string | null;
+  /** The queued question this answers, when it answers one. */
+  question_id: number | null;
   field: string;
   action: EditAction;
   /** What would be stored, if they keep it as it stands. */
@@ -68,6 +70,7 @@ interface Row {
   target: string;
   target_id: number | null;
   target_key: string | null;
+  question_id: number | null;
   field: string;
   action: string;
   value: string;
@@ -104,7 +107,7 @@ async function currently(row: {
 
 export async function pendingEdit(): Promise<PendingEdit | null> {
   const row = await get<Row>(
-    `SELECT target, target_id, target_key, field, action, value, why, at
+    `SELECT target, target_id, target_key, question_id, field, action, value, why, at
        FROM pending_edit WHERE id = 1`,
   );
   if (!row) return null;
@@ -123,6 +126,8 @@ export interface Proposal {
   target_id?: number | null;
   target_key?: string | null;
   action?: EditAction;
+  /** The queued question this is an answer to, from next_question. */
+  question_id?: number | null;
 }
 
 /**
@@ -161,11 +166,13 @@ export async function proposeEdit(
   if (waiting) return { pending: waiting, waiting };
 
   await run(
-    `INSERT INTO pending_edit (id, target, target_id, target_key, field, action, value, why, at)
-          VALUES (1, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+    `INSERT INTO pending_edit
+            (id, target, target_id, target_key, question_id, field, action, value, why, at)
+          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
     proposal.target,
     proposal.target_id ?? null,
     proposal.target_key ?? null,
+    proposal.question_id ?? null,
     proposal.field,
     action,
     proposal.value.trim(),
@@ -200,6 +207,16 @@ export async function resolveEdit(keep: boolean, value?: string): Promise<Resolv
 
   await run(`DELETE FROM pending_edit WHERE id = 1`);
   changed("focus");
+
+  /*
+    The question it came from is settled either way. Somebody saying "leave
+    that one" has answered it as surely as somebody changing it, and a
+    question that comes back because they said no is the app asking twice.
+  */
+  if (waiting.question_id != null) {
+    const { settleQuestion } = await import("./queue.js");
+    await settleQuestion(waiting.question_id, keep ? "changed" : "left as it was");
+  }
 
   if (!keep) return { field: waiting.field, kept: false };
 

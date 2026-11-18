@@ -18,6 +18,7 @@ import { fillApplication } from "../apply/fill.js";
 import { listAnswers, markApplied, recordAnswers } from "../apply/record.js";
 import { keepable } from "../apply/keep.js";
 import { clearEdit, pendingEdit, proposeEdit } from "../pending.js";
+import { clearQueue, nextQuestion, settleQuestion } from "../queue.js";
 import {
   applyImport,
   documentForUpload,
@@ -475,6 +476,11 @@ const proposeEditTool = tool(
       .string()
       .optional()
       .describe("The fact's topic, such as notice_period. Required for a fact."),
+    question_id: z
+      .number()
+      .int()
+      .optional()
+      .describe("The queued question this answers, from next_question. It is settled when they reply."),
     action: z
       .enum(["set", "delete"])
       .optional()
@@ -492,6 +498,7 @@ const proposeEditTool = tool(
         ...(args.target_id !== undefined ? { target_id: args.target_id } : {}),
         ...(args.target_key !== undefined ? { target_key: args.target_key } : {}),
         ...(args.action !== undefined ? { action: args.action } : {}),
+        ...(args.question_id !== undefined ? { question_id: args.question_id } : {}),
       });
       return waiting
         ? {
@@ -502,6 +509,54 @@ const proposeEditTool = tool(
             proposed: pending,
             note: "It is on their screen now, on the row it would change. Say what you are asking in one short line and stop — do not propose anything else, and do not ask a second question in the same message. They will keep it, edit it, or skip it, and you will be told which.",
           };
+    }),
+);
+
+const nextQuestionTool = tool(
+  "next_question",
+  "The next thing worth asking them about their profile, one at a time. It comes from what a document you read could not settle, then the gaps in their profile, then the questions real employers asked that nothing on file could answer — already ordered, so take what you are given rather than choosing. Read the note, ask them about it in one short line, and propose the change with propose_edit passing this question_id. If it needs no change, settle_question says so. Call this again only once the current one is answered. The reply says how many are left: offer to stop after a handful, because a profile filled in over two sittings is better than one abandoned in the middle of a long one.",
+  {},
+  async () =>
+    guard(async () => {
+      const waiting = await nextQuestion();
+      return waiting.question
+        ? {
+            ...waiting,
+            note: "Ask about this one thing, in one short line, and propose it with propose_edit and this question_id. Do not read the rest of the list out.",
+          }
+        : { ...waiting, note: "Nothing is waiting. Say so and let them get on with applying for things." };
+    }),
+  { annotations: { readOnlyHint: true } },
+);
+
+const settleQuestionTool = tool(
+  "settle_question",
+  "Mark a queued question as dealt with when it ends in no change — they said it is fine as it is, or it turned out not to apply. A question answered by an edit settles itself when they keep or skip it, so do not call this as well. Say what the outcome was in a few words; it is kept so the same thing is not asked again.",
+  {
+    question_id: z.number().int(),
+    outcome: z.string().describe("A few words: what they decided"),
+  },
+  async (args) =>
+    guard(async () => {
+      const settled = await settleQuestion(args.question_id, args.outcome);
+      const waiting = await nextQuestion();
+      return settled
+        ? { settled: true, left: waiting.left }
+        : { settled: false, note: "That one was already dealt with. Call next_question." };
+    }),
+);
+
+const stopAskingTool = tool(
+  "stop_asking",
+  "Put the rest of the questions away when they have had enough for now, or say they want to get on with something else. Everything still waiting is marked as left for another time. Offer this yourself after a handful rather than working through a long list — and use it the moment they sound finished, rather than asking one more.",
+  {},
+  async () =>
+    guard(async () => {
+      const put = await clearQueue();
+      return {
+        put_away: put,
+        note: "Say that is fine and that the rest can wait. Do not list what was left.",
+      };
     }),
 );
 
@@ -812,6 +867,9 @@ export const jobsearchServer = createSdkMcpServer({
     applyImportTool,
     whatIsMissingTool,
     proposeEditTool,
+    nextQuestionTool,
+    settleQuestionTool,
+    stopAskingTool,
     pendingEditTool,
     withdrawEditTool,
     applicationRecordTool,
