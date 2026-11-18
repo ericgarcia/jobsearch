@@ -378,11 +378,33 @@ a { color: var(--accent); }
   scrolls here on its own; a highlight somebody has to go and find is a
   highlight that does nothing.
 */
-.field-asked {
-  position: relative; border-radius: 8px; padding: 8px 10px; margin: -8px -10px;
-  background: var(--line-soft); outline: 1px solid var(--accent, #4a6fa5);
+/*
+  The field the assistant is asking about.
+
+  It keeps its place and its size; the question is painted over it. Nothing
+  here is in the flow, so marking a field cannot move the one below it — a
+  question that shoves the rest of the form down moves whatever somebody was
+  about to read.
+*/
+.field-asked { position: relative; z-index: 5; }
+
+/*
+  One card around the whole question: the name, the box, the reason and the
+  two answers. The border goes round all of it rather than round the input,
+  because it is one thing being asked — an outline on the box alone reads as
+  a validation error.
+
+  Sized from the field it covers, so it never reaches past the column it
+  belongs to however narrow the pane is.
+*/
+.field-card {
+  position: absolute; top: -9px; left: -11px; right: -11px;
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 8px 10px; border-radius: 10px;
+  background: var(--bg-raised);
+  border: 2px solid var(--accent);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.45);
 }
-.field-proposal { display: flex; flex-direction: column; gap: 5px; }
 .field-why { font-size: 11px; color: var(--text-dim); line-height: 1.45; }
 .field-was { font-size: 11px; color: var(--text-faint); }
 .field-answer { display: flex; gap: 6px; margin-top: 2px; }
