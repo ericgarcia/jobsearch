@@ -45,6 +45,7 @@ import {
   type Share,
 } from "./apply/facts.js";
 import { describe as describeForm } from "./apply/form.js";
+import { applyImport, listImports, proposeFrom, readSource, whatIsMissing } from "./onboard.js";
 import { pdfFilename, renderPdf } from "./layout/pdf.js";
 import { changed, onChange } from "./notify.js";
 import { clearState, reportState } from "./appState.js";
@@ -381,6 +382,43 @@ app.post("/api/self-identification/:key/decline", async (request) => {
   await declineSelfIdentification((request.params as { key: string }).key);
   return { values: await readSelfIdentification(), facts: await listFacts() };
 });
+
+/* --------------------------------------------------------------- onboarding */
+
+/*
+  Reading a resume or a LinkedIn export, and what is still missing.
+
+  A proposal is stored and applied in two steps on purpose: the profile is
+  checked against every resume this app writes, so what goes into it is the
+  person's own document, reviewed. See onboard.ts.
+*/
+app.get("/api/imports", async () => ({ imports: await listImports() }));
+
+app.post("/api/imports", async (request, reply) => {
+  const body = (request.body ?? {}) as { text?: string; path?: string };
+  try {
+    const read = body.path
+      ? readSource(body.path)
+      : { text: body.text ?? "", source: "pasted" as const, origin: null };
+    return { import: await proposeFrom(read.text, read.source, read.origin ?? undefined) };
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.post("/api/imports/:id/apply", async (request, reply) => {
+  const body = (request.body ?? {}) as Record<string, unknown>;
+  try {
+    return {
+      applied: await applyImport(Number((request.params as { id: string }).id), body as never),
+      imports: await listImports(),
+    };
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.get("/api/missing", async () => await whatIsMissing());
 
 /* ------------------------------------------------------------------- facts */
 
