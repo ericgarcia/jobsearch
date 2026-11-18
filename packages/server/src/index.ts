@@ -588,6 +588,37 @@ app.get("/api/render/:surface", async (request, reply) => {
   );
 });
 
+/**
+ * The same document as data, for a client that renders it itself.
+ *
+ * The editor holds the layout it is editing, so fetching HTML for every
+ * moved slider meant a round trip to see a colour change. This hands over
+ * the three things `renderDocument` takes, and the page composes them with
+ * the same function this server uses — the one in `@jobsearch/layout`, which
+ * touches no Node API for exactly this reason.
+ *
+ * It is not a second renderer. `document.test.mts` renders this payload and
+ * compares the result with what `/api/render/:surface` serves; the two
+ * strings must be identical, or one of them is wrong.
+ */
+app.get("/api/document/:surface", async (request, reply) => {
+  const surface = (request.params as { surface: string }).surface;
+  if (surface !== "profile" && surface !== "resume") {
+    return reply.code(404).send({ error: "surface must be profile or resume" });
+  }
+
+  const query = request.query as { resume?: string };
+  try {
+    const layout = await defaultLayout(surface);
+    const content = await gatherContent(query.resume ? Number(query.resume) : null);
+    return { surface, layout: { id: layout.id, spec: layout.spec, tokens: layout.tokens }, content };
+  } catch (error) {
+    // The usual cause is a resume id that is not there, which is a request
+    // about something that does not exist rather than a fault here.
+    return reply.code(404).send({ error: (error as Error).message });
+  }
+});
+
 app.get("/api/prefs", async () => ({ home_location: await homeLocation() }));
 
 app.put("/api/prefs", async (request) => {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Layout, type LayoutSection, type TokenDef, type Vocabulary } from "../api.ts";
 import { useChanges } from "../changes.ts";
+import { Document, type Pages } from "./Document.tsx";
 
 /**
  * Styling the profile and the resume.
@@ -291,15 +292,13 @@ export function LayoutEditor({ onSurface }: { onSurface?: (surface: Surface) => 
   const [layout, setLayout] = useState<Layout | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [version, setVersion] = useState(0);
-  const [pages, setPages] = useState<{ count: number; fill: number } | null>(null);
+  const [pages, setPages] = useState<Pages | null>(null);
 
-  const frame = useRef<HTMLIFrameElement>(null);
   const pending = useRef<number | undefined>(undefined);
 
   /*
     The agent styles through the same calls this panel makes, so its changes
-    land on the controls and in the preview. Held while a save of ours is in
+    land on the controls and in the document. Held while a save of ours is in
     flight: taking the server's copy mid-write would show the value we are
     about to replace, then flip back a moment later.
   */
@@ -310,19 +309,11 @@ export function LayoutEditor({ onSurface }: { onSurface?: (surface: Surface) => 
         .layouts(surface)
         .then((list) => {
           if (list[0]) setLayout(list[0]);
-          setVersion((n) => n + 1);
         })
         .catch(() => undefined);
     },
     () => saving,
   );
-
-  // The content can change under a layout that did not, so the preview has
-  // to follow those too.
-  const bumpPreview = () => setVersion((n) => n + 1);
-  useChanges("profile", bumpPreview);
-  useChanges("projects", bumpPreview);
-  useChanges("sections", bumpPreview);
 
   useEffect(() => {
     void api.vocabulary().then(setVocabulary).catch(() => setError("Could not read what can be styled."));
@@ -339,10 +330,11 @@ export function LayoutEditor({ onSurface }: { onSurface?: (surface: Surface) => 
   /*
     Saved after a pause, not on every drag of a slider.
 
-    A range input fires continuously, and each save is a write plus a
-    re-render of the document beside it. Waiting until the hand stops turns
-    forty writes into one, and the preview still feels immediate because the
-    pause is shorter than the gap between two deliberate changes.
+    A range input fires continuously, and a save is a write to the database.
+    Waiting until the hand stops turns forty writes into one. The document
+    does not wait for any of them: it is rendered from the state above, so a
+    dragged slider shows while it is being dragged, and the save is only how
+    it is kept.
   */
   const save = useCallback(
     (patch: { spec?: unknown; tokens?: Record<string, string> }, immediate = false) => {
@@ -355,7 +347,6 @@ export function LayoutEditor({ onSurface }: { onSurface?: (surface: Surface) => 
           const next = await api.saveLayout(layout.id, patch);
           setLayout(next);
           setError(null);
-          setVersion((n) => n + 1);
         } catch (problem) {
           // The server's message names the token or section it refused, and
           // it is written to be read. Show it rather than a generic failure.
@@ -371,27 +362,8 @@ export function LayoutEditor({ onSurface }: { onSurface?: (surface: Surface) => 
     [layout],
   );
 
-  /*
-    Count the pages from the document itself.
-
-    The preview is served from this origin, so the page can read into the
-    frame and measure what the browser actually laid out. That is the same
-    number the printer will produce, and it costs nothing — no extra tab, no
-    round trip, no estimate from character counts that is wrong in exactly
-    the case that matters.
-  */
-  const measure = useCallback(() => {
-    if (surface !== "resume") return setPages(null);
-    try {
-      const doc = frame.current?.contentDocument?.querySelector(".doc");
-      if (!doc) return;
-      const height = doc.getBoundingClientRect().height;
-      const page = 11 * 96;
-      setPages({ count: Math.max(1, Math.ceil(height / page)), fill: (height % page || page) / page });
-    } catch {
-      // A cross-origin frame cannot be measured. Nothing is lost but the count.
-    }
-  }, [surface]);
+  // The page count is measured in the document itself, which reports it on
+  // every change. See Document.tsx.
 
   const setSections = (sections: LayoutSection[]) => {
     setLayout((current) => (current ? { ...current, spec: { sections } } : current));
@@ -426,7 +398,6 @@ export function LayoutEditor({ onSurface }: { onSurface?: (surface: Surface) => 
     return <div className="empty">{error ?? "Loading…"}</div>;
   }
 
-  const previewUrl = `/api/render/${surface}?paged=1&v=${version}`;
   const notes = Object.fromEntries(vocabulary.sections.map((s) => [s.kind, s.note]));
 
   return (
@@ -525,12 +496,13 @@ export function LayoutEditor({ onSurface }: { onSurface?: (surface: Surface) => 
             </a>
           )}
         </div>
-        <iframe
-          ref={frame}
-          key={previewUrl}
-          src={previewUrl}
-          title={`${surface} preview`}
-          onLoad={measure}
+        <Document
+          surface={surface}
+          paged
+          spec={layout.spec}
+          tokens={layout.tokens}
+          onPages={setPages}
+          onError={setError}
         />
       </div>
     </div>
