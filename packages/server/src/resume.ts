@@ -145,6 +145,92 @@ export async function getResume(id: number) {
   };
 }
 
+/**
+ * Reword one line of a saved draft.
+ *
+ * The line still names the bullet it came from — that cannot be changed
+ * here, and nothing in this file lets a resume state a fact the profile does
+ * not hold. What changes is how that fact is put for this posting, and the
+ * new wording is checked against the stored one exactly as `draftResume`
+ * checks it. The warnings come back with the line, because the person who
+ * typed it is the one who should see them.
+ *
+ * Empty, or identical to the stored wording, puts the line back to the
+ * stored text rather than keeping a reworded copy that says the same thing.
+ */
+export async function updateLine(
+  resumeId: number,
+  lineId: number,
+  renderedText: string | null,
+): Promise<ResumeLineView> {
+  const row = (await dbGet(
+    `SELECT l.id, l.source_bullet_id, b.text AS source_text, b.role_id
+       FROM resume_lines l
+       JOIN profile_bullets b ON b.id = l.source_bullet_id
+      WHERE l.id = ? AND l.resume_id = ?`,
+    lineId,
+    resumeId,
+  )) as { id: number; source_bullet_id: number; source_text: string; role_id: number | null } | undefined;
+
+  if (!row) throw new Error(`No line ${lineId} on resume ${resumeId}`);
+
+  const typed = (renderedText ?? "").trim();
+  const rendered = typed === "" || typed === row.source_text ? null : typed;
+  const warnings = rendered ? checkRendering(row.source_text, rendered) : [];
+
+  await dbRun(
+    `UPDATE resume_lines SET rendered_text = ?, warnings = ? WHERE id = ?`,
+    rendered,
+    JSON.stringify(warnings),
+    lineId,
+  );
+  changed("resumes");
+
+  return {
+    id: lineId,
+    source_bullet_id: row.source_bullet_id,
+    source_text: row.source_text,
+    rendered_text: rendered,
+    text: rendered ?? row.source_text,
+    warnings,
+    role_id: row.role_id,
+  };
+}
+
+/**
+ * Change a draft's summary or its label.
+ *
+ * The summary is free prose rather than a restated bullet, so it is checked
+ * against every stored fact — the same check it gets when a draft is first
+ * written. A figure that is not in the profile is a figure on a resume that
+ * nothing supports.
+ */
+export async function updateResume(
+  id: number,
+  patch: { summary?: string | null; label?: string | null },
+): Promise<{ id: number; summary: string | null; label: string | null; summary_warnings: string[] }> {
+  const existing = (await dbGet(`SELECT id, summary, label FROM resumes WHERE id = ?`, id)) as
+    | { id: number; summary: string | null; label: string | null }
+    | undefined;
+  if (!existing) throw new Error(`No resume with id ${id}`);
+
+  const summary =
+    patch.summary === undefined ? existing.summary : (patch.summary?.trim() || null);
+  const label = patch.label === undefined ? existing.label : (patch.label?.trim() || null);
+  const warnings = summary ? checkAgainstCorpus(await profile.profileCorpus(), summary) : [];
+
+  await dbRun(
+    `UPDATE resumes SET summary = ?, label = ?, warnings = ? WHERE id = ?`,
+    summary,
+    label,
+    JSON.stringify(warnings),
+    id,
+  );
+  changed("resumes");
+
+  return { id, summary, label, summary_warnings: warnings };
+}
+
 export async function listResumes(jobId?: number) {
   const where = jobId == null ? "" : "WHERE r.job_id = ?";
   return (await dbAll(`SELECT r.id, r.job_id, r.label, r.created_at, j.company, j.title,

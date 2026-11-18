@@ -136,6 +136,7 @@ export function Chat({
   threadId,
   onOpenThread,
   onOpenJob,
+  ask,
 }: {
   onDataChanged: () => void;
   /** Split Pilot's id, or null when it is not installed. */
@@ -152,6 +153,13 @@ export function Chat({
   onOpenThread: (id: number | null) => void;
   /** Show a posting the assistant put a card in the thread for. */
   onOpenJob: (id: number) => void;
+  /*
+    A question started somewhere else in the app, such as "ask about this"
+    on a selected part of the resume. It arrives in the box rather than
+    being sent: what to ask about it is the person's to write, and a
+    message sent on their behalf is not a question they asked.
+  */
+  ask?: { text: string; at: number } | null;
 }) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [draft, setDraft] = useState(() => readDraft(threadId));
@@ -164,6 +172,7 @@ export function Chat({
 
   const abort = useRef<AbortController | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
+  const composer = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
@@ -204,6 +213,29 @@ export function Chat({
   useEffect(() => {
     setDraft(readDraft(threadId));
   }, [threadId]);
+
+  /*
+    A question asked from elsewhere in the app lands in the box, after
+    whatever is already in it rather than over it. Half a sentence someone
+    is in the middle of is theirs, and a button pressed on another pane is
+    not a reason to lose it. The caret goes to the end, where they will
+    write what they actually want to ask.
+  */
+  useEffect(() => {
+    if (!ask?.text) return;
+    setDraft((current) => {
+      const next = current.trim() ? `${current.trim()}\n${ask.text}` : ask.text;
+      writeDraft(threadId, next);
+      return next;
+    });
+    const box = composer.current;
+    if (box) {
+      box.focus();
+      requestAnimationFrame(() => box.setSelectionRange(box.value.length, box.value.length));
+    }
+    // On the time, not the text: asking about the same thing twice is two
+    // questions, and the second one should still arrive.
+  }, [ask?.at]);
 
   /*
     The thread's pages: asked for once, then pushed.
@@ -504,6 +536,7 @@ export function Chat({
         }}
       >
         <textarea
+          ref={composer}
           value={draft}
           placeholder="Ask the assistant…"
           onChange={(event) => {

@@ -53,10 +53,20 @@ export async function measurePages(path: string): Promise<PageMeasurement> {
     if (index !== null) await callBrowser("browser_tabs", { action: "select", index });
 
     const measured = await callBrowser("browser_evaluate", {
+      /*
+        The content's extent, not the page box around it. `.doc` has a
+        min-height of one page in the preview, so measuring the box reported
+        every short resume as a page filled exactly — and the agent was told
+        a nearly empty resume was nearly full.
+      */
       function: `() => {
         const doc = document.querySelector(".doc");
         if (!doc) return { error: "no document" };
-        const height = doc.getBoundingClientRect().height;
+        const last = doc.lastElementChild;
+        const padding = parseFloat(getComputedStyle(doc).paddingBottom) || 0;
+        const height = last
+          ? last.getBoundingClientRect().bottom - doc.getBoundingClientRect().top + padding
+          : doc.getBoundingClientRect().height;
         return { heightPx: Math.round(height) };
       }`,
     });

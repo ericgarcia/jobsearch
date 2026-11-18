@@ -16,6 +16,27 @@ import { useEffect } from "react";
 /** Often enough that two missed beats are still inside the server's window. */
 const BEAT_MS = 20_000;
 
+/**
+ * The part of a document someone has hold of.
+ *
+ * Enough for the agent to act on "this": which section, which stored row,
+ * and — for a bullet on a tailored draft — the line as well as the fact, so
+ * it edits the draft rather than the person's history. The words are there
+ * too, because the id names a row and the person means a sentence.
+ */
+export interface SelectionReport {
+  section: string;
+  field?: string;
+  role?: number;
+  bullet?: number;
+  line?: number;
+  project?: number;
+  education?: number;
+  skill?: number;
+  prose?: number;
+  text?: string;
+}
+
 export interface Showing {
   tab: string;
   selected: {
@@ -23,6 +44,9 @@ export interface Showing {
     resume?: number | null;
     coverLetter?: number | null;
     surface?: string | null;
+    /** The draft being shown on the Design tab, if it is not the profile. */
+    draft?: number | null;
+    selection?: SelectionReport | null;
   };
 }
 
@@ -84,5 +108,15 @@ export function useReportState(showing: Showing): void {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", onLeave);
     };
-  }, [showing.tab, showing.selected.job, showing.selected.resume, showing.selected.coverLetter, showing.selected.surface]);
+    // The selection is an object, so it is compared by what it says rather
+    // than by identity: a render that rebuilt the same selection is not news.
+  }, [
+    showing.tab,
+    showing.selected.job,
+    showing.selected.resume,
+    showing.selected.coverLetter,
+    showing.selected.surface,
+    showing.selected.draft,
+    JSON.stringify(showing.selected.selection ?? null),
+  ]);
 }

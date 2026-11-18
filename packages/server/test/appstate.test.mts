@@ -42,5 +42,42 @@ check("reported", currentState().looking === true);
 clearState();
 check("and gone", currentState().looking === false);
 
+/*
+  A bullet selected on a tailored draft has two ids, and the agent must not
+  pick between them by guessing. Rewording the line changes one resume;
+  rewriting the bullet changes the person's stored history and every resume
+  that cites it. The second is not undone by noticing afterwards.
+*/
+console.log("\n5. A part of the document, selected");
+reportState({
+  tab: "design",
+  selected: {
+    surface: "resume",
+    draft: 3,
+    selection: { section: "experience", field: "bullet", role: 2, bullet: 11, line: 44, text: "Cut p95 latency" },
+  },
+});
+answer = currentState();
+check("the selection comes through", answer.selected?.selection?.line === 44);
+check("the note names the part", /bullet of the experience/.test(answer.note), answer.note);
+check("and both ids", /bullet 11/.test(answer.note) && /line 44/.test(answer.note), answer.note);
+check("it quotes the words", /Cut p95 latency/.test(answer.note), answer.note);
+check("and says to edit the line", /resume line, not the stored bullet/.test(answer.note), answer.note);
+
+console.log("\n6. The same bullet with no draft open is the fact itself");
+reportState({
+  tab: "design",
+  selected: { surface: "resume", selection: { section: "experience", field: "bullet", bullet: 11 } },
+});
+answer = currentState();
+check("it says so", /stored fact itself/.test(answer.note), answer.note);
+check("and warns what it reaches", /every resume that cites it/.test(answer.note), answer.note);
+
+console.log("\n7. Nothing selected still answers plainly");
+reportState({ tab: "design", selected: { surface: "resume" } });
+answer = currentState();
+check('"this one" still resolves', /This one/.test(currentState().note), answer.note);
+check("and nothing is invented about a selection", !/selected the/.test(answer.note), answer.note);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

@@ -3,7 +3,7 @@ import { changed } from "../notify.js";
 import { getInterests } from "../interests.js";
 import * as profile from "../profile.js";
 import { getResume } from "../resume.js";
-import type { RenderContent, Surface } from "@jobsearch/layout";
+import type { Bullet, RenderContent, Surface } from "@jobsearch/layout";
 import {
   checkSpec,
   checkTokens,
@@ -214,7 +214,7 @@ export async function gatherContent(resumeId?: number | null): Promise<RenderCon
   // A tailored resume replaces both the summary and the bullets; anything it
   // does not mention falls back to what is stored.
   let summary = me.summary;
-  let chosen: Map<number, string[]> | null = null;
+  let chosen: Map<number, Bullet[]> | null = null;
 
   if (resumeId != null) {
     const draft = await getResume(resumeId);
@@ -222,7 +222,15 @@ export async function gatherContent(resumeId?: number | null): Promise<RenderCon
     chosen = new Map();
     for (const line of draft.lines) {
       const key = line.role_id ?? -1;
-      chosen.set(key, [...(chosen.get(key) ?? []), line.text]);
+      /*
+        Both ids travel with the line. The fact is the profile bullet; the
+        wording is this draft's line. An editor that had only one of them
+        could not tell "fix this resume" from "change my history".
+      */
+      chosen.set(key, [
+        ...(chosen.get(key) ?? []),
+        { text: line.text, bulletId: line.source_bullet_id, lineId: line.id },
+      ]);
     }
   }
 
@@ -236,7 +244,7 @@ export async function gatherContent(resumeId?: number | null): Promise<RenderCon
     summary,
     values: sections
       .filter((section) => section.is_public === 1)
-      .map((section) => ({ heading: section.heading, body: section.body })),
+      .map((section) => ({ id: section.id, heading: section.heading, body: section.body })),
     interests: { titles: interests.titles, include: interests.include, note: interests.note },
     roles: roles
       .map((role) => ({
@@ -249,13 +257,15 @@ export async function gatherContent(resumeId?: number | null): Promise<RenderCon
         summary: role.summary,
         bullets: chosen
           ? (chosen.get(role.id) ?? [])
-          : bullets.filter((b) => b.role_id === role.id).map((b) => b.text),
+          : bullets
+              .filter((b) => b.role_id === role.id)
+              .map((b) => ({ text: b.text, bulletId: b.id, lineId: null })),
         // The blurb, never the narrative: a project line beside a role has
         // to be one line. The long form belongs to the profile's own
         // projects section, and only when its author published it.
         projects: projects
           .filter((project) => project.role_id === role.id)
-          .map((project) => ({ name: project.name, blurb: project.blurb })),
+          .map((project) => ({ id: project.id, name: project.name, blurb: project.blurb })),
       }))
       // A tailored resume names a subset of roles. A role with nothing to say
       // on this resume is not a gap to explain, it is a role left out.
@@ -267,16 +277,18 @@ export async function gatherContent(resumeId?: number | null): Promise<RenderCon
       for their own use.
     */
     projects: projects.map((project) => ({
+      id: project.id,
       name: project.name,
       blurb: project.narrative_public === 1 && project.narrative ? project.narrative : project.blurb,
       role: roles.find((role) => role.id === project.role_id)?.company ?? null,
     })),
     education: education.map((item) => ({
+      id: item.id,
       school: item.school,
       degree: item.degree,
       field: item.field,
       end: item.end_date,
     })),
-    skills: skills.map((skill) => ({ name: skill.name, category: skill.category })),
+    skills: skills.map((skill) => ({ id: skill.id, name: skill.name, category: skill.category })),
   };
 }
