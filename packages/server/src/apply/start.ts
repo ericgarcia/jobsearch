@@ -1,6 +1,12 @@
 import * as repo from "../repo.js";
 import * as resume from "../resume.js";
-import { coverage, listStandingAnswers, selfIdentificationKeysSet } from "./answers.js";
+import {
+  coverage,
+  listStandingAnswers,
+  selfIdentificationKeysSet,
+  voluntarySection,
+  type VoluntarySection,
+} from "./answers.js";
 import { describe as describeForm } from "./form.js";
 import { formForJob } from "./read.js";
 
@@ -41,6 +47,15 @@ export interface Started {
     answerable: number;
     total: number;
     needs_you: { label: string; required: boolean; missing?: string }[];
+    /**
+     * The voluntary part, and what has been decided about it.
+     *
+     * Here because it is a question to put to the person at the start, in
+     * one sentence, rather than something to discover halfway through
+     * filling the form in. The labels are the employer's questions; none of
+     * the person's answers is in this, and none is reachable from it.
+     */
+    voluntary: VoluntarySection;
   };
   /** Present when the form could not be read, with the reason. */
   form_error?: string;
@@ -99,7 +114,7 @@ export async function startApplication(jobId: number): Promise<Started> {
   */
   try {
     const form = await formForJob(jobId);
-    const seen = await coverage(form);
+    const [seen, voluntary] = await Promise.all([coverage(form), voluntarySection(form, jobId)]);
     started.form = {
       ats: form.ats,
       url: form.url,
@@ -111,6 +126,7 @@ export async function startApplication(jobId: number): Promise<Started> {
         required: field.required,
         ...(field.missing ? { missing: field.missing } : {}),
       })),
+      voluntary,
     };
   } catch (error) {
     started.form_error = error instanceof Error ? error.message : String(error);
@@ -149,6 +165,40 @@ function instructions(started: Started): string {
     );
   } else if (started.form) {
     steps.push("Everything the form asks can be answered from what is stored.");
+  }
+
+  /*
+    The one question about the voluntary section, asked at the start.
+
+    It is asked here because this is where the form is read, and because
+    asking it later means asking it after the decision has already been made
+    by default. One sentence, a yes or a no, and never a question about what
+    the answers are: the agent does not see them and has no business
+    collecting them.
+  */
+  const voluntary = started.form?.voluntary;
+  if (voluntary && voluntary.questions.length > 0) {
+    const many = voluntary.questions.length === 1 ? "" : "s";
+    if (voluntary.choice === null) {
+      steps.push(
+        `This form has a voluntary section: ${voluntary.questions.length} self-identification question${many} ` +
+          `(${voluntary.questions.map((question) => question.label).join(" / ")}), of which ${voluntary.answerable} ` +
+          "could be answered from what they have stored. Ask them once, in one sentence, whether they want it filled " +
+          "in for this application, and record the answer with set_voluntary_answers. It is blank until they say yes. " +
+          "Do not ask what the answers are and do not offer to work any of them out: you never see them, and the app " +
+          "matches what they stored to the form's own options itself.",
+      );
+    } else if (voluntary.choice === "fill") {
+      steps.push(
+        `They have asked for the voluntary section to be filled in for this application; ${voluntary.answerable} of ` +
+          `its ${voluntary.questions.length} question${many} can be answered from what they stored, and the rest stay ` +
+          "blank unless they add them on their own page.",
+      );
+    } else {
+      steps.push(
+        "They have asked for the voluntary section to be left blank on this application. Leave it, and do not raise it again.",
+      );
+    }
   }
 
   if (started.form_error) {

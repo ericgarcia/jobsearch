@@ -25,6 +25,10 @@ const SELF_ID_LABELS: Record<string, string> = {
   veteran: "Veteran status",
   disability: "Disability status",
   pronouns: "Pronouns",
+  transgender: "Transgender identity",
+  sexual_orientation: "Sexual orientation",
+  age: "Age or year of birth",
+  location: "Country, when a survey asks",
 };
 
 export function ApplicationAnswers() {
@@ -78,6 +82,12 @@ export function ApplicationAnswers() {
         always allowed, and it cannot count against you. Stored here only so your applications can
         be filled in: <b>these are never sent to the assistant</b>, which is told only which ones
         you have set. Leave any of them empty and it stays blank on every form.
+      </p>
+      <p className="editor-note">
+        Storing one is not permission to send it. Each application asks you once whether to fill
+        its voluntary section, and it is left blank unless you say yes that time. The country here
+        is the one a demographic survey asks for, which is a different question from the location
+        on your profile — that one is a contact detail, and it is never used to answer this.
       </p>
 
       {keys.map((key) => (

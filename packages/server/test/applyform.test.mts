@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { classify, describe as describeForm } from "../src/apply/form.js";
+import { byWords, describe as describeForm, isVoluntarySection } from "../src/apply/form.js";
 import { parseAshby, parseGreenhouse, parseLever } from "../src/apply/parse.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -126,7 +126,7 @@ assert.equal(kindOf(ashby, /visa sponsorship/i), "standing");
 assert.equal(kindOf(ashby, /college\/university/i), "custom");
 ok("their own question is custom; the sponsorship one is not");
 
-console.log("\n4. the classification fails safe");
+console.log("\n4. the keyword fallback fails safe");
 
 for (const label of [
   "Gender",
@@ -136,16 +136,49 @@ for (const label of [
   "Voluntary Self-Identification of Disability",
   "What are your pronouns?",
 ]) {
-  assert.equal(classify(label), "eeo", `${label} was not treated as self-identification`);
+  assert.equal(byWords(label), "eeo", `${label} was not treated as self-identification`);
 }
 ok("every self-identification wording lands in eeo");
 
 for (const label of ["What is your favourite build tool?", "Tell us about a hard bug", ""]) {
-  assert.equal(classify(label), "custom", `${label} should fall through to custom`);
+  assert.equal(byWords(label), "custom", `${label} should fall through to custom`);
 }
 ok("anything unrecognised falls through to the person");
 
-console.log("\n5. it can say what an application wants, in a sentence");
+console.log("\n5. a heading outranks a label");
+
+/*
+  The bug this is here for: the demographic survey on Spotify's form opens by
+  asking for a country, in the same words as the contact field at the top of
+  the same page. Read as a label it is an address, and it was filled from the
+  profile.
+*/
+assert.equal(byWords("What is your location?"), "identity");
+assert.equal(byWords("What is your location?", "Demographic Survey"), "eeo");
+ok("the same question is a contact detail in one section and a disclosure in another");
+
+assert.ok(isVoluntarySection("Demographic Questions for Spotify"));
+assert.ok(isVoluntarySection("U.S. Equal Employment Opportunity information"));
+assert.ok(isVoluntarySection("Voluntary Self-Identification"));
+assert.ok(!isVoluntarySection("Previous Spotify Employment"));
+assert.ok(!isVoluntarySection(undefined));
+ok("a voluntary heading is recognised and an ordinary one is not");
+
+const location = lever.fields.find((field) => /what is your location/i.test(field.label));
+assert.ok(location, "the survey's country select was not reported at all");
+assert.equal(location?.kind, "eeo");
+assert.equal(location?.section, "Demographic Survey");
+ok("lever's nameless country select is read, and read as part of the survey");
+
+const surveyed = lever.fields.filter((field) => field.kind === "eeo");
+assert.ok(surveyed.length >= 4, `only ${surveyed.length} voluntary fields found`);
+assert.ok(
+  surveyed.every((field) => field.section !== undefined),
+  "a voluntary field came through with no section",
+);
+ok("every question in a lever survey carries the heading it was asked under");
+
+console.log("\n6. it can say what an application wants, in a sentence");
 
 const summary = describeForm(greenhouse);
 assert.match(summary, /greenhouse/);

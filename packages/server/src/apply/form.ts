@@ -60,6 +60,15 @@ export interface FormField {
   options?: string[];
   /** The board's own handle for the field, for the step that fills it. */
   ref?: string;
+  /**
+   * The heading the field sits under, when the form has one.
+   *
+   * It is part of the question. "What is your location?" is a contact
+   * detail at the top of a form and a demographic disclosure under the
+   * heading "Demographic Survey", and the words of the label cannot tell
+   * the two apart.
+   */
+  section?: string;
 }
 
 export interface ApplicationForm {
@@ -157,6 +166,28 @@ export function topicOf(label: string): Topic {
 const EEO =
   /\b(?:gender|sex\b|race\b|racial|ethnic|hispanic|latin|veteran|disabilit|self[-\s]?identif|eeoc?\b|protected (?:class|veteran)|pronoun)/i;
 
+/*
+  A heading that makes everything under it voluntary.
+
+  Boards put the equal-opportunity questions in a section of their own and
+  say so at the top of it. That heading carries information no label does:
+  Lever's demographic survey opens by asking for a country, and read on its
+  own "What is your location?" is indistinguishable from the contact field
+  of the same name twenty lines above. One was filled from the profile.
+
+  So the section is read, and a field inside a voluntary one is voluntary
+  whatever its label says. The cost of being wrong here is a field left
+  blank and reported as left blank, which is the direction this file has
+  always failed in.
+*/
+const VOLUNTARY_SECTION =
+  /\b(?:demographic|voluntary|self[-\s]?identif|equal (?:employment )?opportunit|eeoc?\b|diversity|protected veteran)/i;
+
+/** Is this heading the top of a voluntary section? */
+export function isVoluntarySection(section: string | undefined): boolean {
+  return section !== undefined && VOLUNTARY_SECTION.test(section);
+}
+
 const PATTERNS: [FieldKind, RegExp][] = [
   [
     "consent",
@@ -176,8 +207,26 @@ const PATTERNS: [FieldKind, RegExp][] = [
   ],
 ];
 
-export function classify(label: string): FieldKind {
+/**
+ * What a field is, judged from its words alone.
+ *
+ * This used to be the classification. It is now the fallback: apply/classify.ts
+ * reads the form with a model, because what a question means is not a
+ * property of the characters in its label — "What is your location?" is a
+ * contact field in one section of a form and a demographic disclosure in
+ * another, and no pattern over that string can know which.
+ *
+ * It is kept, and kept working, for the case where there is no credential or
+ * the call fails. An app that cannot classify a form cannot fill one in, and
+ * filling one slightly worse beats that. The patterns below therefore still
+ * fail safe: anything that might be self-identification is eeo, and anything
+ * unrecognised is custom, which is the kind that goes to the person.
+ */
+export function byWords(label: string, section?: string): FieldKind {
   const text = label.trim();
+
+  // The heading first, because it outranks the label: see VOLUNTARY_SECTION.
+  if (isVoluntarySection(section)) return "eeo";
 
   if (EEO.test(text)) return "eeo";
 

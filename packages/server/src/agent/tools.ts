@@ -21,6 +21,8 @@ import {
   listStandingAnswers,
   selfIdentificationKeysSet,
   setStandingAnswer,
+  setVoluntaryChoice,
+  voluntarySection,
 } from "../apply/answers.js";
 import { assessTopJobs, ASSESS_MODEL } from "../assess.js";
 import { SOURCES } from "../sources/index.js";
@@ -234,7 +236,7 @@ const setStandingAnswerTool = tool(
 
 const selfIdStatusTool = tool(
   "self_identification_status",
-  "Whether the person has stored answers for the voluntary self-identification questions — gender, race, veteran status, disability, pronouns. Answers with which of them are set and NEVER with a value: those are theirs, they are not sent to you, and you must not ask for them, infer them from a name or a history, or answer such a question on a form. When a form asks one, say it is voluntary and that stored answers are filled in without you seeing them.",
+  "Whether the person has stored answers for the voluntary self-identification questions — gender, race, veteran status, disability, pronouns, transgender identity, sexual orientation, age, and the country a demographic survey asks for. Answers with which of them are set and NEVER with a value: those are theirs, they are not sent to you, and you must not ask for them, infer them from a name or a history, or answer such a question on a form. When a form asks one, say it is voluntary and that stored answers are filled in without you seeing them.",
   {},
   async () =>
     guard(async () => ({
@@ -242,6 +244,31 @@ const selfIdStatusTool = tool(
       note: "Values are never shown to the assistant. They are filled into forms by the app itself.",
     })),
   { annotations: { readOnlyHint: true } },
+);
+
+const voluntaryAnswersTool = tool(
+  "set_voluntary_answers",
+  "Record whether the person wants this application's voluntary self-identification section filled in from what they have already stored. Ask them once per application, in one sentence, when start_application says the form has such a section: it is left blank until they say yes, because declining to disclose is a complete answer to every question in it. Never ask what the answers are, never offer to work one out, and never put a value in this call: you do not see those, and the app matches what they stored to the form's own options itself. A no is final for this application — record it and do not raise it again.",
+  {
+    job_id: z.number().int(),
+    fill: z
+      .boolean()
+      .describe("True if they asked for it to be filled in, false if they want it left blank"),
+  },
+  async (args) =>
+    guard(async () => {
+      await setVoluntaryChoice(args.job_id, args.fill);
+      const form = await formForJob(args.job_id);
+      const voluntary = await voluntarySection(form, args.job_id);
+      return {
+        choice: voluntary.choice,
+        questions: voluntary.questions.length,
+        answerable: voluntary.answerable,
+        note: args.fill
+          ? "It will be filled from what they stored, by the app, without showing you the values. Anything they have not stored stays blank."
+          : "It stays blank on this application.",
+      };
+    }),
 );
 
 const startApplicationTool = tool(
@@ -253,7 +280,7 @@ const startApplicationTool = tool(
 
 const fillApplicationTool = tool(
   "fill_application",
-  "Fill in the application form for a job, in the pane beside the app, from what is already known: name, email and links from the profile, situation questions from the standing answers, and the voluntary self-identification fields from whatever the person stored — those are filled by the app itself and their values are not shown to you. Attaches the resume drafted for this job. Answers with what was filled and what was left, including the employer's own questions, which still need writing. It does not send anything: the control that sends an application is refused by the app, not by instruction, because an application cannot be taken back.",
+  "Fill in the application form for a job, in the pane beside the app, from what is already known: name, email and links from the profile, situation questions from the standing answers, and, only if they have asked for it on this application, the voluntary self-identification section from whatever they stored — those are filled by the app itself and their values are not shown to you. Attaches the resume drafted for this job. Answers with what was filled and what was left, including the employer's own questions, which still need writing. It does not send anything: the control that sends an application is refused by the app, not by instruction, because an application cannot be taken back.",
   { job_id: z.number().int() },
   async (args) => guard(async () => await fillApplication(args.job_id)),
 );
@@ -550,6 +577,7 @@ export const jobsearchServer = createSdkMcpServer({
     standingAnswersTool,
     setStandingAnswerTool,
     selfIdStatusTool,
+    voluntaryAnswersTool,
     matchBarTool,
     getMatchBarTool,
     rankJobs,

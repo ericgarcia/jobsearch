@@ -1,5 +1,6 @@
 import { originOf } from "../importing.js";
 import * as repo from "../repo.js";
+import { classifyForm } from "./classify.js";
 import type { ApplicationForm } from "./form.js";
 import { parseAshby, parseGreenhouse, parseLever } from "./parse.js";
 
@@ -44,7 +45,21 @@ export async function formForJob(jobId: number): Promise<ApplicationForm> {
   return await formForUrl(job.url);
 }
 
+/**
+ * Read a form and then work out what it is asking.
+ *
+ * Two steps, because they are two different things. Parsing is text in,
+ * fields out, and is tested against saved postings. What a field means is a
+ * judgement, and it is made by a model on the form's own words — see
+ * apply/classify.ts, and the reason it is not a pile of regular expressions
+ * any more.
+ */
 export async function formForUrl(url: string): Promise<ApplicationForm> {
+  const form = await parseForm(url);
+  return { ...form, fields: await classifyForm(form.fields) };
+}
+
+async function parseForm(url: string): Promise<ApplicationForm> {
   const origin = originOf(url);
   if (!origin) {
     throw new Error(

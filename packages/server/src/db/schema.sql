@@ -306,6 +306,52 @@ CREATE TABLE IF NOT EXISTS self_identification (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+/*
+  What an application field was judged to be asking, and by which model.
+
+  Classification is a model call on the form's own words (apply/classify.ts),
+  so it is cached by the question and the heading above it. Employers ask the
+  same questions as each other — "Are you legally authorized to work…" is one
+  sentence shared by thousands of forms — so the second application that asks
+  it costs nothing. Nothing of the person's is in this table: a label is the
+  employer's words, and the answer is not stored here.
+
+  A row expires three ways, because a judgement cached forever is a judgement
+  that can never be corrected. It expires by age; it expires when the model
+  changes; and it expires when the rules it was made under change, which is
+  what `rules` is — a fingerprint of the instructions the model was given. A
+  wrong classification is therefore fixed by editing the prompt, not by
+  finding and deleting rows.
+*/
+CREATE TABLE IF NOT EXISTS field_classifications (
+  fingerprint TEXT PRIMARY KEY,
+  label       TEXT NOT NULL,
+  section     TEXT,
+  kind        TEXT NOT NULL,
+  topic       TEXT,
+  self_id_key TEXT,
+  slot        TEXT,
+  model       TEXT NOT NULL,
+  rules       TEXT NOT NULL,
+  at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+/*
+  Whether the person asked for an application's voluntary section to be
+  filled in.
+
+  One row per application, written only when they say. No row means blank,
+  because declining is a complete answer to every question in that section
+  and nobody should have it answered for them by default. The answers
+  themselves are in self_identification; this says only yes or no, about one
+  employer.
+*/
+CREATE TABLE IF NOT EXISTS voluntary_answers (
+  job_id INTEGER PRIMARY KEY REFERENCES jobs (id) ON DELETE CASCADE,
+  fill   INTEGER NOT NULL,
+  at     TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
 -- What went on the form, so "what did I tell them?" has an answer in three
 -- weeks' time. Written as the form is filled and frozen when the person says
 -- they have sent it.

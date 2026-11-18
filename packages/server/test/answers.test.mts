@@ -21,7 +21,7 @@ import {
   TOPIC_QUESTIONS,
 } from "../src/apply/answers.js";
 import type { ApplicationForm } from "../src/apply/form.js";
-import { classify } from "../src/apply/form.js";
+import { byWords } from "../src/apply/form.js";
 
 await migrate();
 
@@ -35,7 +35,7 @@ const field = (label: string, required = true) => ({
   label,
   type: "text" as const,
   required,
-  kind: classify(label),
+  kind: byWords(label),
 });
 
 console.log("\n1. Two questions with the same words and opposite meanings");
@@ -79,7 +79,7 @@ console.log("\n1b. The app's own wording matches its own matcher");
 */
 for (const [topic, question] of Object.entries(TOPIC_QUESTIONS)) {
   assert.equal(topicOf(question), topic, `"${question}" does not match its own topic`);
-  assert.equal(classify(question), "standing", `"${question}" is not classified as standing`);
+  assert.equal(byWords(question), "standing", `"${question}" is not classified as standing`);
 }
 ok("every topic the app asks about is recognised when it asks it");
 
