@@ -164,6 +164,20 @@ assert.ok(!isVoluntarySection("Previous Spotify Employment"));
 assert.ok(!isVoluntarySection(undefined));
 ok("a voluntary heading is recognised and an ordinary one is not");
 
+/*
+  Spotify prints the marketing tick inside its demographic survey, and the
+  heading rule called it a voluntary disclosure — so the person was told a
+  box asking to contact them was theirs to self-identify with.
+*/
+assert.equal(
+  byWords(
+    "Spotify has my consent to contact me about future job opportunities.",
+    "Demographic Questions from Spotify",
+  ),
+  "consent",
+);
+ok("a consent printed inside a demographic section is still a consent");
+
 const location = lever.fields.find((field) => /what is your location/i.test(field.label));
 assert.ok(location, "the survey's country select was not reported at all");
 assert.equal(location?.kind, "eeo");

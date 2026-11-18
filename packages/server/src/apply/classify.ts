@@ -171,7 +171,10 @@ Rules, in order of precedence:
    Opportunity", and the like — is "eeo" whatever it asks. A country asked
    inside a demographic survey is a demographic question, not an address.
    This is the rule the form's own structure gives you, and it outranks the
-   words of the label.
+   words of the label. A consent tick is the one exception: asking permission
+   to make contact, or to keep an application on file, is a request and not a
+   disclosure about the person, so it is "consent" even when it is printed
+   inside a demographic section — which employers do.
 2. A question about this employer in particular — whether they have worked
    there before, how they heard of the company, why this job — is "custom",
    not "standing". A standing answer is one that is the same at every
