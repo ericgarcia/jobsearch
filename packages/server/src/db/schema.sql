@@ -392,3 +392,78 @@ CREATE TABLE IF NOT EXISTS application_answers (
   at      TEXT    NOT NULL DEFAULT (datetime('now')),
   UNIQUE (job_id, label)
 );
+
+/* ------------------------------------------------------------------- facts */
+
+/*
+  What the person has told this app about themselves, as rows rather than a
+  closed list.
+
+  This replaces an enum of eight topics, and the enum was the bug. A question
+  outside it — a security clearance, years with a language, a degree, whether
+  they are over 18 — had nowhere to go, so it was answered once, for one
+  employer, written to application_answers and never seen again. The next
+  form asking the same thing asked the person again. Employers ask what they
+  ask; the store has to be open or it cannot learn.
+
+  Three things a row carries that an answer on its own cannot:
+
+    state   answered, declined, or asked and not yet answered. A decline is
+            not a missing answer. Asking again on the next application is the
+            app overriding them, so the refusal is written down and read
+            back.
+
+    share   whether the answer may be offered to an employer at all. An
+            answer kept for their own records is not an answer to send. For
+            an open fact this is 'always' or 'never'; for a private one it is
+            'ask' or 'never', because which voluntary details go on a form is
+            confirmed per application and a standing yes would answer for
+            every employer at once.
+
+    source  where it came from — onboarding, a resume, a particular
+            application. "Where did this answer come from" is the question
+            worth asking when a form was filled with something unexpected,
+            and it should have an answer.
+
+  A private row — the voluntary self-identification questions — carries all
+  of that and never the answer. Those values stay in self_identification,
+  which nothing but the person's own page and the form filler reads. The
+  semantics are shared; the storage is deliberately not.
+*/
+CREATE TABLE IF NOT EXISTS facts (
+  slug        TEXT PRIMARY KEY,
+  question    TEXT NOT NULL,
+  answer      TEXT,
+  state       TEXT NOT NULL DEFAULT 'answered',
+  sensitivity TEXT NOT NULL DEFAULT 'open',
+  share       TEXT NOT NULL DEFAULT 'always',
+  source      TEXT,
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  CHECK (state IN ('answered', 'declined', 'asked')),
+  CHECK (sensitivity IN ('open', 'private')),
+  CHECK (share IN ('always', 'ask', 'never')),
+  -- The invariant the separation rests on: a private fact has no answer here.
+  CHECK (sensitivity = 'open' OR answer IS NULL)
+);
+
+/*
+  Which voluntary questions the person wants included, on one application.
+
+  Per question and not per section. "Fill in the voluntary part" is not one
+  decision: someone may be glad to state their pronouns to an employer and
+  have no intention of stating a disability, and a single yes answers both.
+  So each question is confirmed on its own, and an absent row means not yet
+  decided, which means blank.
+
+  Confirmed again on every application, because the decision is about this
+  employer. The one standing answer the app will take is a refusal: see
+  voluntary_default in settings, which when set to 'never' stops both the
+  filling and the asking for good.
+*/
+CREATE TABLE IF NOT EXISTS voluntary_choices (
+  job_id  INTEGER NOT NULL REFERENCES jobs (id) ON DELETE CASCADE,
+  key     TEXT    NOT NULL,
+  include INTEGER NOT NULL,
+  at      TEXT    NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (job_id, key)
+);

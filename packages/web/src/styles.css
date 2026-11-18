@@ -357,6 +357,18 @@ a { color: var(--accent); }
 .standing-row { display: flex; align-items: center; gap: 10px; margin: 5px 0; }
 .standing-question { flex: none; width: 300px; font-size: 12px; color: var(--text-dim); }
 .standing-row input { flex: 1; }
+.standing-row select { flex: 1; }
+/*
+  A refusal has to be visible on the page that holds it. An answer the app
+  has been told not to ask for, with no way to see or undo it, reads as a
+  bug rather than as a decision.
+*/
+.standing-refused { flex: 1; font-size: 12px; color: var(--text-faint); font-style: italic; }
+.standing-aside {
+  flex: none; background: none; border: 0; padding: 0 2px;
+  font-size: 11px; color: var(--text-faint); cursor: pointer; text-decoration: underline;
+}
+.standing-aside:hover { color: var(--text-dim); }
 
 /* The resume and letter written for one application, shown with it. */
 .job-drafts {

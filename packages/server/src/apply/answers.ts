@@ -1,5 +1,7 @@
 import { all, get, run } from "../db/client.js";
 import { changed } from "../notify.js";
+import { voluntaryDefault, type VoluntaryDefault } from "../settings.js";
+import { declineFact, getFact, listFacts, recordFact, setFact, shareableFacts } from "./facts.js";
 import {
   topicOf,
   TOPIC_QUESTIONS,
@@ -34,6 +36,16 @@ export { topicOf, TOPIC_QUESTIONS, TOPICS, type Topic };
 
 /* ---------------------------------------------------------------- standing */
 
+/*
+  A standing answer is an open fact that may be sent.
+
+  These functions are the old shape over the new store, kept because every
+  caller — the person's page, the form filler, the agent tools — speaks in
+  topics, and because the eight topics are still the questions worth asking
+  first. What changed underneath is that they are no longer the only ones
+  there is room for. `topic` here is a fact's slug; a slug the list has never
+  heard of sits beside them with the same standing. See apply/facts.ts.
+*/
 export interface StandingAnswer {
   topic: string;
   question: string;
@@ -41,9 +53,10 @@ export interface StandingAnswer {
 }
 
 export async function listStandingAnswers(): Promise<StandingAnswer[]> {
-  return await all<StandingAnswer>(
-    `SELECT topic, question, answer FROM standing_answers ORDER BY topic`,
-  );
+  const facts = await shareableFacts();
+  return facts
+    .filter((fact) => fact.sensitivity === "open")
+    .map((fact) => ({ topic: fact.slug, question: fact.question, answer: fact.answer ?? "" }));
 }
 
 export async function setStandingAnswer(
@@ -53,23 +66,20 @@ export async function setStandingAnswer(
 ): Promise<void> {
   const asked =
     question ?? TOPIC_QUESTIONS[topic as (typeof TOPICS)[number]] ?? topic.replace(/_/g, " ");
+  await setFact({ slug: topic, question: asked, answer, sensitivity: "open", source: "profile" });
+}
 
-  if (!answer.trim()) {
-    await run(`DELETE FROM standing_answers WHERE topic = ?`, topic);
-  } else {
-    await run(
-      `INSERT INTO standing_answers (topic, question, answer, updated_at)
-            VALUES (?, ?, ?, datetime('now'))
-       ON CONFLICT (topic) DO UPDATE SET
-            question = excluded.question,
-            answer = excluded.answer,
-            updated_at = excluded.updated_at`,
-      topic,
-      asked,
-      answer.trim(),
-    );
-  }
-  changed("profile");
+/**
+ * Record that they would rather not answer a situation question.
+ *
+ * Separate from storing an empty answer, which only means the app has
+ * nothing. This means the app has been told, and the difference shows up as
+ * the next form either asking again or not.
+ */
+export async function declineStandingAnswer(topic: string, question?: string): Promise<void> {
+  const asked =
+    question ?? TOPIC_QUESTIONS[topic as (typeof TOPICS)[number]] ?? topic.replace(/_/g, " ");
+  await declineFact({ slug: topic, question: asked, sensitivity: "open", source: "profile" });
 }
 
 /* ------------------------------------------------------- self-identification */
@@ -101,6 +111,27 @@ export const SELF_ID_KEYS = [
   "location",
 ] as const;
 export type SelfIdKey = (typeof SELF_ID_KEYS)[number];
+
+/*
+  What the app calls each one when it has to name it.
+
+  Needed because these questions now have rows of their own in the fact
+  store, and a row with no question in it cannot be shown to the person whose
+  refusal it records. The wordings are the app's, not any employer's: a form
+  asks this in its own words, and the match between the two is made by
+  apply/classify.ts.
+*/
+export const SELF_ID_QUESTIONS: Record<SelfIdKey, string> = {
+  gender: "Gender",
+  race: "Race or ethnicity",
+  veteran: "Veteran status",
+  disability: "Disability status",
+  pronouns: "Pronouns",
+  transgender: "Whether you identify as transgender",
+  sexual_orientation: "Sexual orientation",
+  age: "Age or year of birth",
+  location: "The country a demographic survey asks you to give",
+};
 
 /*
   The answers themselves, as a fixed vocabulary.
@@ -236,7 +267,53 @@ export async function setSelfIdentification(key: string, value: string): Promise
       value.trim(),
     );
   }
+
+  /*
+    A row in the fact store beside it, carrying the state and never the
+    value. Without one there is nowhere to write a refusal, and nowhere to
+    say that this question was asked — which is what makes "stop asking me
+    this" possible at all. The CHECK on the table refuses an answer here.
+  */
+  await noteSelfIdFact(key, value.trim() ? "answered" : "asked");
   changed("profile");
+}
+
+async function noteSelfIdFact(key: string, state: "answered" | "asked"): Promise<void> {
+  const existing = await getFact(key);
+
+  /*
+    Clearing a value does not withdraw a refusal, and does not create one.
+    Someone deleting what they typed has left the app with nothing, which is
+    a different state from having told it not to ask.
+  */
+  if (state === "asked" && existing?.state === "declined") return;
+
+  await recordFact({
+    slug: key,
+    question: SELF_ID_QUESTIONS[key as SelfIdKey] ?? key.replace(/_/g, " "),
+    sensitivity: "private",
+    state,
+    // Typing a value is how a refusal is withdrawn, so sharing is offerable again.
+    ...(state === "answered" ? { share: "ask" as const } : {}),
+    source: "profile",
+  });
+}
+
+/**
+ * Record that they do not want to give a voluntary detail, ever.
+ *
+ * Not the same as the `decline` token, which is an answer the form itself
+ * offers and which gets ticked. This one means the app should stop asking:
+ * the question is left blank, it is not raised on the next application, and
+ * the stored value, if there was one, goes.
+ */
+export async function declineSelfIdentification(key: string): Promise<void> {
+  await declineFact({
+    slug: key,
+    question: SELF_ID_QUESTIONS[key as SelfIdKey] ?? key.replace(/_/g, " "),
+    sensitivity: "private",
+    source: "profile",
+  });
 }
 
 /** Which of them are set. The values themselves never leave this module. */
@@ -261,31 +338,89 @@ export async function selfIdentificationKeysSet(): Promise<string[]> {
  * applying to on a whim are not the same company, and a standing "yes"
  * would answer for both.
  */
-export async function voluntaryChoice(jobId: number): Promise<boolean | null> {
-  const row = await get<{ fill: number }>(
-    `SELECT fill FROM voluntary_answers WHERE job_id = ?`,
+export async function voluntaryChoices(jobId: number): Promise<Map<string, boolean>> {
+  const rows = await all<{ key: string; include: number }>(
+    `SELECT key, include FROM voluntary_choices WHERE job_id = ?`,
     jobId,
   );
-  return row ? row.fill === 1 : null;
+  return new Map(rows.map((row) => [row.key, row.include === 1]));
 }
 
-export async function setVoluntaryChoice(jobId: number, fill: boolean): Promise<void> {
-  await run(
-    `INSERT INTO voluntary_answers (job_id, fill, at) VALUES (?, ?, datetime('now'))
-       ON CONFLICT (job_id) DO UPDATE SET fill = excluded.fill, at = excluded.at`,
-    jobId,
-    fill ? 1 : 0,
-  );
+/**
+ * Record which voluntary questions to include on one application.
+ *
+ * Per question, because "fill in the voluntary part" is not one decision.
+ * Someone may be glad to give an employer their pronouns and have no
+ * intention of giving a disability status, and a single yes answers both. So
+ * both lists are explicit and a key in neither stays undecided, which means
+ * blank.
+ */
+export async function setVoluntaryChoices(
+  jobId: number,
+  include: string[],
+  exclude: string[] = [],
+): Promise<void> {
+  const wanted = new Map<string, boolean>();
+  for (const key of exclude) wanted.set(key, false);
+  for (const key of include) wanted.set(key, true);
+
+  for (const [key, yes] of wanted) {
+    await run(
+      `INSERT INTO voluntary_choices (job_id, key, include, at) VALUES (?, ?, ?, datetime('now'))
+         ON CONFLICT (job_id, key) DO UPDATE SET include = excluded.include, at = excluded.at`,
+      jobId,
+      key,
+      yes ? 1 : 0,
+    );
+  }
   changed("applications");
 }
 
+/**
+ * Which voluntary keys may be filled on this application.
+ *
+ * Three things have to agree, and any one of them is a no: the person has
+ * not said they never disclose, they have not told the app to stop asking
+ * this particular question, and they have said yes to it for this employer.
+ */
+export async function includedKeys(jobId: number): Promise<Set<string>> {
+  const standing = await voluntaryDefault();
+  if (standing === "never") return new Set();
+
+  const [chosen, facts] = await Promise.all([voluntaryChoices(jobId), listFacts("private")]);
+  const refused = new Set(
+    facts.filter((fact) => fact.state === "declined" || fact.share === "never").map((f) => f.slug),
+  );
+
+  const allowed = new Set<string>();
+  for (const [key, include] of chosen) {
+    if (include && !refused.has(key)) allowed.add(key);
+  }
+  return allowed;
+}
+
+export interface VoluntaryQuestion {
+  /** The employer's own words. Never an answer. */
+  label: string;
+  /** Which stored detail would answer it, if any. */
+  key: string | null;
+  required: boolean;
+  /** Whether something on file could answer it. */
+  stored: boolean;
+  /** Whether they have told the app not to ask this again. */
+  declined: boolean;
+  /** Their decision for this application: null until they make one. */
+  include: boolean | null;
+}
+
 export interface VoluntarySection {
-  /** The questions, which are the labels and never the answers. */
-  questions: { label: string; required: boolean; stored: boolean }[];
-  /** Which of them this app could answer from what is stored. */
+  questions: VoluntaryQuestion[];
+  /** How many could be answered from what is stored, refusals aside. */
   answerable: number;
-  /** What the person has decided for this application. */
-  choice: "fill" | "blank" | null;
+  /** How many still need confirming on this application. */
+  undecided: number;
+  /** "never" when they have said they do not disclose, anywhere. */
+  standing: VoluntaryDefault;
 }
 
 /**
@@ -299,43 +434,71 @@ export async function voluntarySection(
   form: ApplicationForm,
   jobId: number,
 ): Promise<VoluntarySection> {
-  const [keys, choice] = await Promise.all([
+  const [keys, chosen, privateFacts, standing] = await Promise.all([
     selfIdentificationKeysSet(),
-    voluntaryChoice(jobId),
+    voluntaryChoices(jobId),
+    listFacts("private"),
+    voluntaryDefault(),
   ]);
   const have = new Set(keys);
+  const refused = new Set(
+    privateFacts
+      .filter((fact) => fact.state === "declined" || fact.share === "never")
+      .map((fact) => fact.slug),
+  );
 
   /*
-    One question per question.
+    One row per detail, not per field.
 
-    Lever's page carries every survey the employer ever configured, and only
-    one of them is shown. Four of Spotify's five templates ask "What best
-    describes your gender?", so the person was told their form had nine
-    voluntary questions, the same one three times over. Same label, same
-    question.
+    Lever's page carries every survey the employer ever configured and shows
+    one of them, so the person was first told their form had nine voluntary
+    questions — the same one three times over. Collapsing repeated labels
+    fixed most of it and not all: Spotify asks "What best describes your
+    gender?" and "What gender do you identify with?", which is one thing to
+    decide and was listed as two.
+
+    So the key decides, where there is one. Two labels with the same key are
+    answered from the same stored detail by definition — it is the same
+    function the filler uses to choose a value — so a decision about one is a
+    decision about both. A question with no key falls back to its label,
+    which is all there is to go on.
   */
   const asked = new Set<string>();
   const questions = form.fields
     .filter((field) => field.kind === "eeo")
     .filter((field) => {
-      const once = field.label.trim().toLowerCase();
+      const once = selfIdKeyOf(field.label) ?? field.label.trim().toLowerCase();
       if (asked.has(once)) return false;
       asked.add(once);
       return true;
     })
     .map((field) => {
       const key = selfIdKeyOf(field.label);
+      const declined = key !== null && refused.has(key);
       return {
         label: field.label,
+        key,
         required: field.required,
-        stored: key !== null && have.has(key),
+        stored: key !== null && have.has(key) && !declined,
+        declined,
+        /*
+          A refusal settles the question without the person being asked
+          again. That is the point of writing one down: "no" is a decision,
+          not an absence, and re-asking it once per employer is the app
+          deciding it knows better.
+        */
+        include: declined ? false : key === null ? false : (chosen.get(key) ?? null),
       };
     });
 
   return {
     questions,
     answerable: questions.filter((question) => question.stored).length,
-    choice: choice === null ? null : choice ? "fill" : "blank",
+    undecided:
+      standing === "never"
+        ? 0
+        : questions.filter((question) => question.stored && question.include === null).length,
+    standing,
   };
 }
 
@@ -367,9 +530,17 @@ export interface Coverage {
  * and one that asks about notice is a thing to decide once and never again.
  */
 export async function coverage(form: ApplicationForm): Promise<Coverage> {
-  const [standing, selfIdKeys, profile] = await Promise.all([
+  const [standing, selfIdKeys, declined, profile] = await Promise.all([
     listStandingAnswers(),
     selfIdentificationKeysSet(),
+    listFacts().then(
+      (facts) =>
+        new Set(
+          facts
+            .filter((fact) => fact.state === "declined" || fact.share === "never")
+            .map((fact) => fact.slug),
+        ),
+    ),
     get<{ name: string | null; email: string | null; phone: string | null }>(
       `SELECT name, email, phone FROM profile WHERE id = 1`,
     ),
@@ -397,6 +568,12 @@ export async function coverage(form: ApplicationForm): Promise<Coverage> {
     if (field.kind === "standing") {
       const topic = topicOf(field.label);
       const have = topic !== "other" && haveTopic.has(topic);
+      /*
+        A refusal is reported as a refusal and not as a gap. Listed as
+        missing it would come back as a thing to do on every application,
+        which is the app asking a question it has already been answered.
+      */
+      const refused = topic !== "other" && declined.has(topic);
       return {
         label: field.label,
         required: field.required,
@@ -405,17 +582,19 @@ export async function coverage(form: ApplicationForm): Promise<Coverage> {
         ...(have
           ? {}
           : {
-              missing:
-                topic === "other"
-                  ? "Not one of the standing answers; it needs a decision."
-                  : `No standing answer stored for ${topic.replace(/_/g, " ")}.`,
+              missing: refused
+                ? "You have asked not to be asked this. Left blank."
+                : topic === "other"
+                  ? "Nothing on file answers this one; it needs a decision."
+                  : `No answer stored for ${topic.replace(/_/g, " ")}.`,
             }),
       };
     }
 
     if (field.kind === "eeo") {
       const key = selfIdKeyOf(field.label);
-      const have = key !== null && haveSelfId.has(key);
+      const refused = key !== null && declined.has(key);
+      const have = key !== null && haveSelfId.has(key) && !refused;
       return {
         label: field.label,
         required: field.required,
@@ -423,7 +602,11 @@ export async function coverage(form: ApplicationForm): Promise<Coverage> {
         from: have ? ("self_identification" as const) : null,
         ...(have
           ? {}
-          : { missing: "Voluntary, and not stored. It stays blank unless you say." }),
+          : {
+              missing: refused
+                ? "You have asked not to be asked this. Left blank."
+                : "Voluntary, and not stored. It stays blank unless you say.",
+            }),
       };
     }
 

@@ -425,6 +425,50 @@ export const api = {
     }),
 
   /*
+    The fact store behind the standing answers.
+
+    `facts` carries each question's state — answered, declined, or asked and
+    not yet answered — and, for a voluntary one, never its answer. A refusal
+    is here rather than implied by an empty box, because the two mean
+    different things: empty means the app has nothing to go on, declined
+    means it has been told, and only one of those should be raised again.
+  */
+  facts: () =>
+    json<{
+      facts: {
+        slug: string;
+        question: string;
+        answer: string | null;
+        state: "answered" | "declined" | "asked";
+        sensitivity: "open" | "private";
+        share: "always" | "ask" | "never";
+        source: string | null;
+      }[];
+      seeds: { slug: string; question: string }[];
+      voluntary_default: "ask" | "never";
+    }>("/api/facts"),
+
+  declineFact: (slug: string, question?: string) =>
+    json<unknown>(`/api/facts/${encodeURIComponent(slug)}/decline`, {
+      method: "POST",
+      body: JSON.stringify({ question }),
+    }),
+
+  reopenFact: (slug: string) =>
+    json<unknown>(`/api/facts/${encodeURIComponent(slug)}/reopen`, { method: "POST" }),
+
+  declineSelfIdentification: (key: string) =>
+    json<unknown>(`/api/self-identification/${encodeURIComponent(key)}/decline`, {
+      method: "POST",
+    }),
+
+  setVoluntaryDefault: (choice: "ask" | "never") =>
+    json<{ voluntary_default: "ask" | "never" }>("/api/voluntary-default", {
+      method: "PUT",
+      body: JSON.stringify({ choice }),
+    }),
+
+  /*
     Self-identification. Read and written by this page alone: no agent tool
     returns these values, and the server never puts them in a prompt.
   */

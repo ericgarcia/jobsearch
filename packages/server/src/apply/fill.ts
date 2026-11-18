@@ -6,7 +6,8 @@ import {
   listStandingAnswers,
   readSelfIdentification,
   selfIdKeyOf,
-  voluntaryChoice,
+  includedKeys,
+  type StandingAnswer,
 } from "./answers.js";
 import { canChoose, standingOption, voluntaryOption } from "./choose.js";
 import {
@@ -140,16 +141,20 @@ export interface Known {
   /** Read from the database and never shown to the agent. */
   selfId: Record<string, string>;
   /**
-   * Whether the person asked for this application's voluntary section to be
-   * filled in.
+   * Which voluntary questions the person asked to have filled in here.
    *
-   * False unless they said yes for this employer. Stored answers are not a
-   * standing instruction to disclose: declining is a complete answer to
-   * every question in that section, and an app that filled them because
-   * they were on file would be making that decision for them, once per
-   * company, without saying so.
+   * Empty unless they said yes, question by question, for this employer.
+   * Stored answers are not a standing instruction to disclose: declining is
+   * a complete answer to every question in that section, and an app that
+   * filled them because they were on file would be making that decision for
+   * them, once per company, without saying so.
+   *
+   * A set rather than a flag, because the section is not one decision.
+   * Pronouns and a disability status are different disclosures to the same
+   * employer, and a single yes would answer for both. See
+   * answers.includedKeys.
    */
-  fillVoluntary: boolean;
+  include: Set<string>;
 }
 
 export interface Filling {
@@ -544,13 +549,15 @@ export function planFill(
     if (kind === "eeo") {
       /*
         Nothing in a voluntary section is touched unless the person asked for
-        it to be, for this application. See Known.fillVoluntary.
+        this question to be filled in, on this application. See
+        Known.include.
       */
-      if (!known.fillVoluntary) {
+      const key = verdict.key ?? selfIdKeyOf(label);
+      if (!key || !known.include.has(key)) {
         leftAlone.push({
           name: asks,
           kind,
-          why: "Voluntary, and you have not asked for this section to be filled in. Left blank.",
+          why: "Voluntary, and you have not asked for this one to be included here. Left blank.",
         });
         continue;
       }
@@ -560,8 +567,7 @@ export function planFill(
         the browser; the plan records that the field was filled and never
         what with, and the agent is told a count and nothing else.
       */
-      const key = verdict.key ?? selfIdKeyOf(label);
-      const stored = key ? known.selfId[key] : undefined;
+      const stored = known.selfId[key];
       if (!stored) {
         leftAlone.push({ name: asks, kind, why: "Voluntary, and nothing stored. Left blank." });
         continue;
@@ -729,7 +735,7 @@ export async function resolveChoices(
           is prose, so the rules would fail on nearly all of them. The
           translation is cached per option list, so asking is cheap.
         */
-        if (!known.fillVoluntary || !verdict.key || !isTokenised(verdict.key)) continue;
+        if (!verdict.key || !known.include.has(verdict.key) || !isTokenised(verdict.key)) continue;
         const stored = known.selfId[verdict.key];
         if (!stored) continue;
         const option = await voluntaryOption(verdict.key, stored, asks, offered, env);
@@ -776,7 +782,7 @@ function failures(failed: Filled["failed"]): { name: string; why: string }[] {
 }
 
 async function knownAnswers(jobId: number): Promise<Known> {
-  const [row, standing, selfId, voluntary] = await Promise.all([
+  const [row, standing, selfId, include] = await Promise.all([
     get<{
       name: string | null;
       email: string | null;
@@ -786,7 +792,7 @@ async function knownAnswers(jobId: number): Promise<Known> {
     }>(`SELECT name, email, phone, location, links FROM profile WHERE id = 1`),
     listStandingAnswers(),
     readSelfIdentification(),
-    voluntaryChoice(jobId),
+    includedKeys(jobId),
   ]);
 
   let links: string[] = [];
@@ -807,9 +813,12 @@ async function knownAnswers(jobId: number): Promise<Known> {
       location: row?.location ?? null,
       links: links.filter(Boolean),
     },
-    standing: standing.map((answer) => ({ topic: answer.topic, answer: answer.answer })),
+    standing: standing.map((answer: StandingAnswer) => ({
+      topic: answer.topic,
+      answer: answer.answer,
+    })),
     selfId,
-    fillVoluntary: voluntary === true,
+    include,
   };
 }
 

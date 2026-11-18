@@ -145,6 +145,66 @@ export async function migrate(): Promise<void> {
   await run(`DELETE FROM settings WHERE key = 'split_on_load'`);
 
   await backfillLocationTokens();
+  await backfillFacts();
+}
+
+/**
+ * Bring the old closed-list answers into the fact store, once.
+ *
+ * Raw SQL and not apply/facts.ts, to keep the dependency pointing one way:
+ * the store reads this module, so this module must not read the store.
+ *
+ * Guarded by a marker row rather than by the table being empty, so deleting
+ * a fact does not resurrect it on the next start. The old tables are left
+ * where they are — a migration that drops the only copy of someone's answers
+ * to make a schema tidier is not worth the tidiness.
+ */
+async function backfillFacts(): Promise<void> {
+  const done = await get<{ value: string }>(
+    `SELECT value FROM settings WHERE key = 'facts_from_topics'`,
+  );
+  if (done) return;
+
+  await run(
+    `INSERT INTO facts (slug, question, answer, state, sensitivity, share, source)
+          SELECT topic, question, answer, 'answered', 'open', 'always', 'standing_answers'
+            FROM standing_answers
+           WHERE true
+     ON CONFLICT (slug) DO NOTHING`,
+  );
+
+  /*
+    A row each for the voluntary details, carrying their state and never
+    their value — the CHECK on the table refuses the value, and that is the
+    point. Without a row there is nowhere to record "stop asking me this",
+    which is the reason the store exists.
+  */
+  await run(
+    `INSERT INTO facts (slug, question, answer, state, sensitivity, share, source)
+          SELECT key, replace(key, '_', ' '), NULL, 'answered', 'private', 'ask', 'self_identification'
+            FROM self_identification
+           WHERE true
+     ON CONFLICT (slug) DO NOTHING`,
+  );
+
+  /*
+    And the one per-application decision that existed, which was a yes or no
+    for the whole section, becomes the same decision about each question in
+    it. Widening it would have been the wrong direction: a yes meant yes to
+    what was stored at the time, so that is what it is recorded as.
+  */
+  await run(
+    `INSERT INTO voluntary_choices (job_id, key, include)
+          SELECT va.job_id, si.key, va.fill
+            FROM voluntary_answers va, self_identification si
+           WHERE true
+     ON CONFLICT (job_id, key) DO NOTHING`,
+  );
+
+  await run(
+    `INSERT INTO settings (key, value) VALUES ('facts_from_topics', datetime('now'))
+       ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+  );
 }
 
 /**

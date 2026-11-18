@@ -19,6 +19,7 @@ import {
   type Known,
 } from "../src/apply/fill.js";
 import { classifyByWords, type Classified } from "../src/apply/classify.js";
+import { SELF_ID_KEYS } from "../src/apply/answers.js";
 import { refusal, wouldSend } from "../src/apply/guard.js";
 
 let passed = 0;
@@ -70,10 +71,12 @@ const known: Known = {
   selfId: { gender: "Prefer not to disclose" },
   /*
     The tests that follow are about the matching, so they are run with the
-    person having asked for the voluntary section. Section 9 is the one that
-    checks what happens when they have not, which is the default.
+    person having asked for every voluntary question. Section 9 is the one
+    that checks what happens when they have not, which is the default, and
+    the included set is per question rather than per section because that is
+    how the decision is actually made — see answers.includedKeys.
   */
-  fillVoluntary: true,
+  include: new Set<string>(SELF_ID_KEYS),
 };
 
 console.log("\n1. Reading a snapshot");
@@ -331,7 +334,7 @@ console.log("\n9. A voluntary section is blank unless they asked for it");
   values are on file, they match the form's options exactly, and nothing is
   filled because nobody said to for this employer.
 */
-const unasked = planFill(controls, { ...known, fillVoluntary: false });
+const unasked = planFill(controls, { ...known, include: new Set<string>() });
 assert.equal(unasked.fill.some((field) => field.kind === "eeo"), false);
 assert.equal(reportOf(unasked).self_identification_filled, 0);
 ok("a stored answer that matches perfectly is still not filled in");
@@ -379,7 +382,7 @@ const verdicts = new Map<string, Classified>([
   ["What is your location?", { kind: "eeo", key: "location", by: "model" }],
 ]);
 
-const judged = planFill(paged, { ...known, fillVoluntary: false }, verdicts);
+const judged = planFill(paged, { ...known, include: new Set<string>() }, verdicts);
 assert.equal(judged.fill.some((field) => field.target === "e2"), false);
 assert.ok(judged.leftAlone.some((row) => /what is your location/i.test(row.name)));
 ok("the survey's country is left blank, though its label reads as an address");
@@ -404,7 +407,7 @@ const COUNTRIES = `
 `;
 const addressed = planFill(
   readSnapshot(COUNTRIES),
-  { ...known, fillVoluntary: false },
+  { ...known, include: new Set<string>() },
   new Map<string, Classified>([
     ["Country", { kind: "identity", slot: "country", by: "model" }],
     ["Postcode", { kind: "identity", slot: "postcode", by: "model" }],
@@ -422,14 +425,14 @@ ok("a city answers a city, and nothing answers a country or a postcode");
 */
 const agreed = planFill(
   paged,
-  { ...known, fillVoluntary: true, selfId: { location: "United States" } },
+  { ...known, selfId: { location: "United States" } },
   verdicts,
 );
 assert.equal(agreed.fill.find((field) => field.target === "e2")?.value, "United States");
 assert.equal(agreed.fill.find((field) => field.target === "e2")?.kind, "eeo");
 ok("once they ask for it, the stored country answers it and the profile is not used");
 
-const noKey = planFill(paged, { ...known, fillVoluntary: true, selfId: {} }, verdicts);
+const noKey = planFill(paged, { ...known, selfId: {} }, verdicts);
 assert.ok(noKey.leftAlone.some((row) => /nothing stored/i.test(row.why)));
 ok("with nothing stored for it, it is blank and says so");
 
@@ -464,7 +467,7 @@ const hardKinds = new Map<string, Classified>([
 
 const unresolved = planFill(
   hard,
-  { ...known, fillVoluntary: true, selfId: { race: "two_or_more" }, standing: [{ topic: "sponsorship", answer: "Only with a visa" }] },
+  { ...known, selfId: { race: "two_or_more" }, standing: [{ topic: "sponsorship", answer: "Only with a visa" }] },
   hardKinds,
 );
 assert.equal(unresolved.fill.length, 0);
@@ -473,7 +476,7 @@ ok("without a reading, both are left alone rather than approximated");
 
 const resolved = planFill(
   hard,
-  { ...known, fillVoluntary: true, selfId: { race: "two_or_more" }, standing: [{ topic: "sponsorship", answer: "Only with a visa" }] },
+  { ...known, selfId: { race: "two_or_more" }, standing: [{ topic: "sponsorship", answer: "Only with a visa" }] },
   hardKinds,
   new Map([
     ["What best describes your ethnicity?", "Mixed: White and Asian"],
@@ -503,7 +506,7 @@ ok("nothing is left over, and the token never appears in what is reported");
 */
 const invented = planFill(
   hard,
-  { ...known, fillVoluntary: true, selfId: { race: "two_or_more" } },
+  { ...known, selfId: { race: "two_or_more" } },
   hardKinds,
   new Map([["What best describes your ethnicity?", "Two or more races"]]),
 );

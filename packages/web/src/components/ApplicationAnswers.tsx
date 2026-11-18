@@ -37,6 +37,8 @@ export function ApplicationAnswers() {
   const [selfId, setSelfId] = useState<Record<string, string>>({});
   const [keys, setKeys] = useState<string[]>([]);
   const [choices, setChoices] = useState<Record<string, { token: string; label: string }[] | undefined>>({});
+  const [refused, setRefused] = useState<Set<string>>(new Set());
+  const [standing, setStanding] = useState<"ask" | "never">("ask");
 
   const load = () => {
     void api.standingAnswers().then((data) => {
@@ -47,6 +49,16 @@ export function ApplicationAnswers() {
       setSelfId(data.values);
       setKeys([...data.keys]);
       setChoices(data.options ?? {});
+    });
+    void api.facts().then((data) => {
+      setRefused(
+        new Set(
+          data.facts
+            .filter((fact) => fact.state === "declined" || fact.share === "never")
+            .map((fact) => fact.slug),
+        ),
+      );
+      setStanding(data.voluntary_default);
     });
   };
 
@@ -64,19 +76,40 @@ export function ApplicationAnswers() {
         an application asks it.
       </p>
 
-      {Object.entries(topics).map(([topic, question]) => (
-        <label className="standing-row" key={topic}>
-          <span className="standing-question">{question}</span>
-          <input
-            defaultValue={answerFor(topic)}
-            placeholder="—"
-            onBlur={(event) => {
-              if (event.target.value === answerFor(topic)) return;
-              void api.setStandingAnswer(topic, event.target.value).then(load);
-            }}
-          />
-        </label>
-      ))}
+      {Object.entries(topics).map(([topic, question]) =>
+        refused.has(topic) ? (
+          <div className="standing-row" key={topic}>
+            <span className="standing-question">{question}</span>
+            <span className="standing-refused">You asked not to be asked this.</span>
+            <button className="standing-aside" onClick={() => void api.reopenFact(topic).then(load)}>
+              ask me again
+            </button>
+          </div>
+        ) : (
+          <label className="standing-row" key={topic}>
+            <span className="standing-question">{question}</span>
+            <input
+              defaultValue={answerFor(topic)}
+              placeholder="—"
+              onBlur={(event) => {
+                if (event.target.value === answerFor(topic)) return;
+                void api.setStandingAnswer(topic, event.target.value).then(load);
+              }}
+            />
+            {/*
+              Separate from leaving the box empty, and deliberately so. Empty
+              means the app has nothing and will ask you when a form wants
+              it. This means you have told it, and it stops asking.
+            */}
+            <button
+              className="standing-aside"
+              onClick={() => void api.declineFact(topic, question).then(load)}
+            >
+              rather not say
+            </button>
+          </label>
+        ),
+      )}
 
       <h3>Voluntary self-identification</h3>
       <p className="editor-note">
@@ -86,14 +119,52 @@ export function ApplicationAnswers() {
         you have set. Leave any of them empty and it stays blank on every form.
       </p>
       <p className="editor-note">
-        Storing one is not permission to send it. Each application asks you once whether to fill
-        its voluntary section, and it is left blank unless you say yes that time. The country here
-        is the one a demographic survey asks for, which is a different question from the location
-        on your profile — that one is a contact detail, and it is never used to answer this.
+        Storing one is not permission to send it. Every application asks which of these to
+        include, question by question, and anything you do not name stays blank — so giving an
+        employer your pronouns is not also giving them a disability status. The country here is the
+        one a demographic survey asks for, which is a different question from the location on your
+        profile: that one is a contact detail, and it is never used to answer this.
       </p>
+
+      {/*
+        The one standing decision this page offers about the section, and it
+        only goes one way. There is no "always": a standing yes would
+        disclose to every employer that asks, silently, which is what the
+        per-application question exists to prevent. A standing no is
+        different — it is a decision someone can make once and should not be
+        asked to make forty times.
+      */}
+      <label className="standing-row">
+        <span className="standing-question">Never raise any of this again</span>
+        <input
+          type="checkbox"
+          checked={standing === "never"}
+          onChange={(event) =>
+            void api.setVoluntaryDefault(event.target.checked ? "never" : "ask").then(load)
+          }
+        />
+        <span className="standing-refused">
+          {standing === "never"
+            ? "Voluntary sections are left blank and you are not asked."
+            : "You will be asked which to include on each application."}
+        </span>
+      </label>
 
       {keys.map((key) => {
         const offered = choices[key];
+        if (refused.has(key)) {
+          return (
+            <div className="standing-row" key={key}>
+              <span className="standing-question">{SELF_ID_LABELS[key] ?? key}</span>
+              <span className="standing-refused">
+                You asked not to be asked this. Nothing is stored for it.
+              </span>
+              <button className="standing-aside" onClick={() => void api.reopenFact(key).then(load)}>
+                ask me again
+              </button>
+            </div>
+          );
+        }
         return (
           <label className="standing-row" key={key}>
             <span className="standing-question">{SELF_ID_LABELS[key] ?? key}</span>
@@ -129,6 +200,18 @@ export function ApplicationAnswers() {
                 }}
               />
             )}
+            {/*
+              Not the same as "Prefer not to disclose" in the list above.
+              That one is an answer the form itself offers, and it gets
+              ticked. This one tells the app to stop asking, deletes whatever
+              is stored, and leaves the field blank on every form.
+            */}
+            <button
+              className="standing-aside"
+              onClick={() => void api.declineSelfIdentification(key).then(load)}
+            >
+              stop asking
+            </button>
           </label>
         );
       })}
