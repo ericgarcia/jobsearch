@@ -337,6 +337,29 @@ CREATE TABLE IF NOT EXISTS field_classifications (
 );
 
 /*
+  What a voluntary question's options mean, in the fixed vocabulary.
+
+  The inversion that lets a model help with these without ever being shown
+  one of the person's answers: it is asked what the employer's wording means,
+  and the comparison happens in code. So this table holds an employer's
+  option list and a translation of it — nothing of the person's, which is why
+  it can be cached at all.
+
+  Keyed by the option list, so one UK ethnicity list is read once and serves
+  every employer who uses it. Expires the three ways field_classifications
+  does.
+*/
+CREATE TABLE IF NOT EXISTS option_meanings (
+  fingerprint TEXT PRIMARY KEY,
+  self_id_key TEXT NOT NULL,
+  question    TEXT NOT NULL,
+  meanings    TEXT NOT NULL,
+  model       TEXT NOT NULL,
+  rules       TEXT NOT NULL,
+  at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+/*
   Whether the person asked for an application's voluntary section to be
   filled in.
 

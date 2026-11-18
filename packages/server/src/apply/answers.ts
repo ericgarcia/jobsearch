@@ -103,6 +103,90 @@ export const SELF_ID_KEYS = [
 export type SelfIdKey = (typeof SELF_ID_KEYS)[number];
 
 /*
+  The answers themselves, as a fixed vocabulary.
+
+  Not decoration on a text box: it is what makes the promise about these
+  values keepable. A form words the same answer a hundred ways — "White (Not
+  Hispanic or Latino)", "White: Any other White background", "White or
+  Caucasian" — and matching a free-text answer to one of those is a
+  judgement about meaning. The only way to make that judgement well is to
+  show it to a model, and the one thing that must never be shown to a model
+  is this value.
+
+  So the judgement is inverted: the model is asked what the form's options
+  mean, in these tokens, and the comparison is token to token in code. For
+  that to work the stored answer has to be a token too, which is why the page
+  offers a list rather than a box.
+
+  The wordings are the US federal categories, which is what the employers
+  asking are reporting against. "Prefer not to disclose" is one of the
+  answers, not the absence of one: it is offered on the form, and someone who
+  chooses it has answered.
+*/
+export const DECLINE = "decline";
+
+export const SELF_ID_VALUES: Partial<Record<SelfIdKey, { token: string; label: string }[]>> = {
+  gender: [
+    { token: "woman", label: "Woman" },
+    { token: "man", label: "Man" },
+    { token: "non_binary", label: "Non-binary" },
+    { token: "other_term", label: "I use another term" },
+    { token: DECLINE, label: "Prefer not to disclose" },
+  ],
+  race: [
+    { token: "american_indian", label: "American Indian or Alaska Native" },
+    { token: "asian", label: "Asian" },
+    { token: "black", label: "Black or African American" },
+    { token: "hispanic", label: "Hispanic or Latino" },
+    { token: "pacific_islander", label: "Native Hawaiian or Other Pacific Islander" },
+    { token: "white", label: "White" },
+    { token: "two_or_more", label: "Two or more races" },
+    { token: DECLINE, label: "Prefer not to disclose" },
+  ],
+  veteran: [
+    { token: "yes", label: "Yes, I am a veteran" },
+    { token: "no", label: "No, I am not a veteran" },
+    { token: DECLINE, label: "Prefer not to disclose" },
+  ],
+  disability: [
+    { token: "yes", label: "Yes, I have or have had a disability" },
+    { token: "no", label: "No, I do not" },
+    { token: DECLINE, label: "Prefer not to disclose" },
+  ],
+  pronouns: [
+    { token: "he_him", label: "He / him" },
+    { token: "she_her", label: "She / her" },
+    { token: "they_them", label: "They / them" },
+    { token: "other", label: "Another set" },
+    { token: DECLINE, label: "Prefer not to disclose" },
+  ],
+  transgender: [
+    { token: "yes", label: "Yes" },
+    { token: "no", label: "No" },
+    { token: DECLINE, label: "Prefer not to disclose" },
+  ],
+  sexual_orientation: [
+    { token: "heterosexual", label: "Heterosexual" },
+    { token: "gay", label: "Gay" },
+    { token: "lesbian", label: "Lesbian" },
+    { token: "bisexual", label: "Bisexual" },
+    { token: "queer", label: "Queer" },
+    { token: "asexual", label: "Asexual" },
+    { token: "other", label: "Another orientation" },
+    { token: DECLINE, label: "Prefer not to disclose" },
+  ],
+};
+
+/*
+  The two that are not a list. Age is a year and location is a country, and
+  both are matched to a form's own options by their words — which works,
+  because a country list says "United States" and not a code.
+*/
+export function isTokenised(key: SelfIdKey): boolean {
+  return SELF_ID_VALUES[key] !== undefined;
+}
+
+/*
   Order is load-bearing, specific before general. "Do you identify as
   transgender?" is a gender question by its words, and matching it to the
   gender answer would put "Woman" in front of a yes/no.

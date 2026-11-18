@@ -30,6 +30,7 @@ import {
   setSelfIdentification,
   setStandingAnswer,
   SELF_ID_KEYS,
+  SELF_ID_VALUES,
   TOPIC_QUESTIONS,
 } from "./apply/answers.js";
 import { describe as describeForm } from "./apply/form.js";
@@ -339,6 +340,14 @@ app.put("/api/standing-answers/:topic", async (request) => {
 app.get("/api/self-identification", async () => ({
   values: await readSelfIdentification(),
   keys: SELF_ID_KEYS,
+  /*
+    The answers the page offers, rather than a text box.
+
+    Not a nicety: a stored answer has to be one of these tokens for the
+    matching to work without the value ever being shown to a model. See
+    apply/answers.ts and apply/choose.ts.
+  */
+  options: SELF_ID_VALUES,
 }));
 
 app.put("/api/self-identification/:key", async (request) => {

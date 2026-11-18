@@ -2,11 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { topicOf, type FieldKind } from "./form.js";
 import {
+  isTokenised,
   listStandingAnswers,
   readSelfIdentification,
   selfIdKeyOf,
   voluntaryChoice,
 } from "./answers.js";
+import { canChoose, standingOption, voluntaryOption } from "./choose.js";
 import {
   classifyAsked,
   classifyByWords,
@@ -341,11 +343,17 @@ export function askedOf(controls: Control[]): Asked[] {
  * `kinds` is what the classifier made of each question, by label. Without it
  * every field falls back to its words, which is what the tests do and what
  * happens when there is no credential.
+ *
+ * `chosen` is the option a stored answer was read to mean, where the string
+ * rules could not settle it — see resolveChoices below, and apply/choose.ts.
+ * It is the form's own wording, so from here on it is treated exactly like a
+ * stored answer that happened to match.
  */
 export function planFill(
   controls: Control[],
   known: Known,
   kinds?: Map<string, Classified>,
+  chosen?: Map<string, string>,
 ): Plan {
   const fill: Filling[] = [];
   const leftAlone: Plan["leftAlone"][number][] = [];
@@ -424,11 +432,18 @@ export function planFill(
   */
   const resolve = (control: Control, stored: string, kind: FieldKind, whyNot: string) => {
     const label = control.name;
+    /*
+      What the model read the stored answer to mean, if it was asked. It is
+      one of the options, word for word, so everything below treats it as a
+      stored answer that happens to match exactly — there is no second path
+      through here, and so no second way to be wrong.
+    */
+    const stands = chosen?.get(plainly(label)) ?? stored;
     if (control.role !== "radiogroup" && control.role !== "checkbox") {
-      put(control, stored, kind, label);
+      put(control, stands, kind, label);
       return;
     }
-    const choice = chooseOption(stored, options(label));
+    const choice = chooseOption(stands, options(label));
     if (choice) put(choice, choice.name, kind, label);
     else leftAlone.push({ name: plainly(label), kind, why: whyNot });
   };
@@ -675,6 +690,78 @@ async function fillFields(fields: Filling[]): Promise<Filled> {
 }
 
 /**
+ * Read the questions the string rules could not settle.
+ *
+ * One pass before the planning, so that planFill stays a pure function of a
+ * page and a set of answers. What it returns is, per question, the option the
+ * stored answer was read to mean — in the form's own words.
+ *
+ * The two routes differ in what is sent, and the difference is the point:
+ * a standing answer goes out as the person wrote it, while a voluntary answer
+ * never leaves this process. See apply/choose.ts.
+ */
+export async function resolveChoices(
+  controls: Control[],
+  known: Known,
+  kinds: Map<string, Classified>,
+): Promise<Map<string, string>> {
+  const chosen = new Map<string, string>();
+  const env = await canChoose();
+  if (!env) return chosen;
+
+  const byTopic = new Map(known.standing.map((row) => [row.topic, row.answer]));
+
+  for (const control of questionsOf(controls)) {
+    const asks = plainly(control.name);
+    const verdict = kinds.get(asks);
+    if (!verdict) continue;
+
+    const offered = optionsOf(controls, control.name)
+      .map((option) => option.name)
+      .filter(Boolean);
+    if (offered.length === 0) continue;
+
+    try {
+      if (verdict.kind === "eeo") {
+        /*
+          No string pre-check here, unlike the standing route below: what is
+          stored is a token out of a fixed vocabulary and the form's wording
+          is prose, so the rules would fail on nearly all of them. The
+          translation is cached per option list, so asking is cheap.
+        */
+        if (!known.fillVoluntary || !verdict.key || !isTokenised(verdict.key)) continue;
+        const stored = known.selfId[verdict.key];
+        if (!stored) continue;
+        const option = await voluntaryOption(verdict.key, stored, asks, offered, env);
+        if (option) chosen.set(asks, option);
+        continue;
+      }
+
+      if (verdict.kind === "standing") {
+        const topic = verdict.topic;
+        const stored = topic && topic !== "other" ? byTopic.get(topic) : undefined;
+        if (!stored) continue;
+        // The string rules first: free, and they settle most of these.
+        if (chooseOption(stored, optionsOf(controls, control.name))) continue;
+        const option = await standingOption(stored, asks, offered, env);
+        if (option) chosen.set(asks, option);
+      }
+    } catch (error) {
+      /*
+        One unreadable question is not a failed form. It falls through to the
+        string rules, and is reported as left alone if those cannot settle it
+        either.
+      */
+      console.log(
+        `[apply] could not read the options for a ${verdict.kind} question: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  return chosen;
+}
+
+/**
  * What could not be filled, said without naming a self-identification answer.
  *
  * The promise is that those values never reach the agent. A failure is still
@@ -773,7 +860,8 @@ export async function fillApplication(jobId: number): Promise<unknown> {
       person stored is in it: see apply/classify.ts.
     */
     const kinds = await classifyAsked(askedOf(controls));
-    const plan = planFill(controls, await knownAnswers(jobId), kinds);
+    const known = await knownAnswers(jobId);
+    const plan = planFill(controls, known, kinds, await resolveChoices(controls, known, kinds));
 
     const outcome = await fillFields(plan.fill);
 

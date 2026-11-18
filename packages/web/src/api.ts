@@ -429,7 +429,11 @@ export const api = {
     returns these values, and the server never puts them in a prompt.
   */
   selfIdentification: () =>
-    json<{ values: Record<string, string>; keys: readonly string[] }>("/api/self-identification"),
+    json<{
+      values: Record<string, string>;
+      keys: readonly string[];
+      options: Record<string, { token: string; label: string }[] | undefined>;
+    }>("/api/self-identification"),
   setSelfIdentification: (key: string, value: string) =>
     json<unknown>(`/api/self-identification/${encodeURIComponent(key)}`, {
       method: "PUT",
