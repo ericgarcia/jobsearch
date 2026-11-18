@@ -166,18 +166,50 @@ export function planFill(controls: Control[], known: Known): Plan {
   const [first = "", ...rest] = (known.profile.name ?? "").split(/\s+/);
   const last = rest.join(" ");
 
+  const CHOICES = new Set(["radio", "option", "checkbox"]);
   const options = (group: string) =>
-    controls.filter(
-      (control) => control.group === group && (control.role === "radio" || control.role === "option"),
-    );
+    controls.filter((control) => control.group === group && CHOICES.has(control.role));
 
-  const put = (control: Control, value: string, kind: FieldKind) => {
+  /*
+    Groups that ask one question with several tick boxes.
+
+    A checkbox counts as a question on its own, because a consent is a lone
+    checkbox and leaving checkboxes out made consents vanish from the report
+    entirely. But Lever asks pronouns as ten checkboxes under one label, and
+    counting each as a question told the person they had ten questions to
+    answer — "He/him", "She/her", "They/them" — each described as their own
+    question needing an answer written for this application. It is one
+    question with ten answers.
+
+    Two or more tick boxes under the same label is that shape. One is a
+    consent, and stays a question.
+  */
+  const ticksPerGroup = new Map<string, number>();
+  for (const control of controls) {
+    if (control.role !== "checkbox" || !control.group) continue;
+    ticksPerGroup.set(control.group, (ticksPerGroup.get(control.group) ?? 0) + 1);
+  }
+  const isChoiceOf = (control: Control) =>
+    control.role === "checkbox" &&
+    control.group !== undefined &&
+    (ticksPerGroup.get(control.group) ?? 0) > 1;
+
+  /*
+    The label without the mark that means "required".
+
+    Lever writes it into the accessible name, so the record read "Full name
+    ✱" — the form's typography preserved as though it were part of the
+    question.
+  */
+  const plainly = (label: string) => label.replace(/\s*[✱*＊]\s*$/u, "").trim();
+
+  const put = (control: Control, value: string, kind: FieldKind, asks?: string) => {
     if (!value || answered.has(control.target)) return;
     answered.add(control.target);
     fill.push({
       element: control.name || control.role,
       target: control.target,
-      name: control.name || control.role,
+      name: plainly(asks ?? control.name ?? "") || control.role,
       type:
         control.role === "radio"
           ? "radio"
@@ -200,8 +232,25 @@ export function planFill(controls: Control[], known: Known): Plan {
   */
   const ASKS = new Set(["textbox", "combobox", "radiogroup", "checkbox", "slider"]);
 
+  /*
+    The questions on the page, in the order they are asked.
+
+    A group of tick boxes becomes the one question it is, standing where its
+    first box stood, and its boxes become that question's options.
+  */
+  const questions: Control[] = [];
   for (const control of controls) {
-    if (!ASKS.has(control.role)) continue;
+    if (isChoiceOf(control)) {
+      const group = control.group ?? "";
+      if (!questions.some((asked) => asked.name === group)) {
+        questions.push({ role: "radiogroup", name: group, target: "" });
+      }
+      continue;
+    }
+    if (ASKS.has(control.role) && control.name) questions.push(control);
+  }
+
+  for (const control of questions) {
     const label = control.name;
     if (!label) continue;
     const kind = classify(label);
@@ -235,7 +284,7 @@ export function planFill(controls: Control[], known: Known): Plan {
         continue;
       }
       const choice = chooseOption(stored, options(label));
-      if (choice) put(choice, choice.name, kind);
+      if (choice) put(choice, choice.name, kind, label);
       else if (control.role === "textbox") put(control, stored, kind);
       else {
         leftAlone.push({
@@ -260,7 +309,7 @@ export function planFill(controls: Control[], known: Known): Plan {
         continue;
       }
       const choice = chooseOption(stored, options(label));
-      if (choice) put(choice, choice.name, kind);
+      if (choice) put(choice, choice.name, kind, label);
       else if (control.role === "textbox") put(control, stored, kind);
       else {
         leftAlone.push({
@@ -273,7 +322,7 @@ export function planFill(controls: Control[], known: Known): Plan {
     }
 
     leftAlone.push({
-      name: label,
+      name: plainly(label),
       kind,
       why:
         kind === "consent"
@@ -319,6 +368,85 @@ export function reportOf(plan: Plan): {
 
 function text(result: { content?: { text?: string }[] }): string {
   return (result.content ?? []).map((block) => block.text ?? "").join("\n");
+}
+
+/** What the browser tool takes. Nothing else of a Filling goes over the wire. */
+function wire(field: Filling): Record<string, string> {
+  return {
+    element: field.element,
+    target: field.target,
+    name: field.name,
+    type: field.type,
+    value: field.value,
+  };
+}
+
+/**
+ * A browser error, short enough to read.
+ *
+ * Playwright's failures carry a retry log thirty lines long. The first line
+ * says what went wrong; the rest says it again with timings.
+ */
+function why(result: { content?: { text?: string }[] }): string {
+  const lines = text(result)
+    .split("\n")
+    .map((line) => line.replace(/\u001b\[\d+m/g, "").trim())
+    .filter((line) => line && !/^#/.test(line));
+  return lines[0] ?? "The browser gave no reason.";
+}
+
+export interface Filled {
+  filled: Filling[];
+  failed: { field: Filling; why: string }[];
+}
+
+/**
+ * Put the planned answers on the page, and keep what worked when one fails.
+ *
+ * The browser fills a batch in one call, which is one round trip and the
+ * right thing when every field is ordinary. But a batch is all-or-nothing:
+ * on a real Lever form a single control — the location box, a geocoded
+ * typeahead with no options until it fetches them — threw, and the call
+ * returned an error for the whole form.
+ *
+ * Two things were wrong with that. The fields before it had already been
+ * typed onto the page, so the form was part-filled; and the error returned
+ * before anything was recorded, so the app had no record of what it had just
+ * put in front of an employer. A half-filled form nobody can account for is
+ * precisely what the record exists to prevent.
+ *
+ * So a failed batch is retried one field at a time. Filling is idempotent —
+ * the ones that worked are simply set to the same value again — and what
+ * comes back is the truth about each one.
+ */
+async function fillFields(fields: Filling[]): Promise<Filled> {
+  if (fields.length === 0) return { filled: [], failed: [] };
+
+  const batch = await callBrowser("browser_fill_form", { fields: fields.map(wire) });
+  if (batch.isError !== true) return { filled: fields, failed: [] };
+
+  const filled: Filling[] = [];
+  const failed: Filled["failed"] = [];
+  for (const field of fields) {
+    const one = await callBrowser("browser_fill_form", { fields: [wire(field)] });
+    if (one.isError === true) failed.push({ field, why: why(one) });
+    else filled.push(field);
+  }
+  return { filled, failed };
+}
+
+/**
+ * What could not be filled, said without naming a self-identification answer.
+ *
+ * The promise is that those values never reach the agent. A failure is still
+ * a failure, so it is counted and described by its kind — never by its label,
+ * which on these forms is the question itself.
+ */
+function failures(failed: Filled["failed"]): { name: string; why: string }[] {
+  return failed.map((entry) => ({
+    name: entry.field.kind === "eeo" ? "a voluntary self-identification question" : entry.field.name,
+    why: entry.why,
+  }));
 }
 
 async function knownAnswers(): Promise<Known> {
@@ -399,31 +527,32 @@ export async function fillApplication(jobId: number): Promise<unknown> {
 
     const plan = planFill(controls, await knownAnswers());
 
-    if (plan.fill.length > 0) {
-      const filled = await callBrowser("browser_fill_form", {
-        fields: plan.fill.map(({ element, target, name, type, value }) => ({
-          element,
-          target,
-          name,
-          type,
-          value,
-        })),
-      });
-      if (filled.isError === true) {
-        return { error: `The form could not be filled: ${text(filled)}` };
-      }
-    }
+    const outcome = await fillFields(plan.fill);
 
     /*
       Written down as it goes on, not afterwards: once the form is sent it is
       gone, and a record made from memory is the thing this exists to replace.
+
+      What was actually filled, not what was planned. They differ whenever a
+      control refuses, and recording the plan would make the record a
+      statement of intent dressed as a statement of fact.
     */
     await recordAnswers(
       jobId,
-      plan.fill.map((entry) => ({ label: entry.name, kind: entry.kind, value: entry.value })),
+      outcome.filled.map((entry) => ({ label: entry.name, kind: entry.kind, value: entry.value })),
     );
 
-    return { url: form.url, ...reportOf(plan), resume: await attachResume(jobId, controls) };
+    return {
+      url: form.url,
+      ...reportOf({ ...plan, fill: outcome.filled }),
+      ...(outcome.failed.length > 0
+        ? {
+            could_not_fill: failures(outcome.failed),
+            and_so: "Tell the person about these by name; they have to put them in themselves.",
+          }
+        : {}),
+      resume: await attachResume(jobId, controls),
+    };
   });
 
   if (done !== null && typeof done === "object" && "error" in done) {
