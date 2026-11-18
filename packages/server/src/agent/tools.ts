@@ -17,6 +17,7 @@ import { startApplication } from "../apply/start.js";
 import { fillApplication } from "../apply/fill.js";
 import { listAnswers, markApplied, recordAnswers } from "../apply/record.js";
 import { keepable } from "../apply/keep.js";
+import { clearEdit, pendingEdit, proposeEdit } from "../pending.js";
 import {
   applyImport,
   documentForUpload,
@@ -451,6 +452,62 @@ const importHelpTool = tool(
   { annotations: { readOnlyHint: true } },
 );
 
+const proposeEditTool = tool(
+  "propose_edit",
+  "Put one change to their profile in front of them, in the field it would go into. The page highlights that field, scrolls to it, and shows your value as a draft they can type over; nothing is stored until they keep it. Use this instead of listing what you would change — ask about one thing, propose it, and wait. There is one slot: if something is already waiting this call returns it instead, which means finish that one first. The value must be theirs, not yours: what they just told you, or the text already stored so they can correct it. Do not compose prose about them. Say in `why`, in one line, what this is and where it came from — it is shown beside the field.",
+  {
+    target: z.enum(["profile"]).describe("What is being changed"),
+    field: z
+      .string()
+      .describe("name, headline, email, phone, location or summary"),
+    value: z.string().describe("What would be stored, in their words"),
+    why: z.string().describe("One line, shown beside the field"),
+  },
+  async (args) =>
+    guard(async () => {
+      const { pending, waiting } = await proposeEdit({
+        target: args.target,
+        field: args.field,
+        value: args.value,
+        why: args.why,
+      });
+      return waiting
+        ? {
+            already_waiting: waiting,
+            note: `They have not answered the proposal for "${waiting.field}" yet. Ask about that one, and propose this after they have.`,
+          }
+        : {
+            proposed: pending,
+            note: "It is on their screen now, in the field, highlighted. Say what you are asking in one short line and stop — do not propose anything else, and do not ask a second question in the same message. They will keep it, edit it, or skip it, and you will be told which.",
+          };
+    }),
+);
+
+const pendingEditTool = tool(
+  "pending_edit",
+  "What you are currently asking them to decide, if anything. Useful when a conversation resumes and you are not sure whether something is still waiting on their screen.",
+  {},
+  async () =>
+    guard(async () => {
+      const waiting = await pendingEdit();
+      return waiting
+        ? { waiting, note: "This is on their screen. Ask about it rather than proposing something else." }
+        : { waiting: null, note: "Nothing is waiting. You may propose one change." };
+    }),
+  { annotations: { readOnlyHint: true } },
+);
+
+const withdrawEditTool = tool(
+  "withdraw_edit",
+  "Take back what you proposed without them answering it. Use it when the conversation has moved on, or when they have said no in passing — not to clear the way for a different proposal while they are still looking at this one.",
+  {},
+  async () =>
+    guard(async () => {
+      await clearEdit();
+      return { withdrawn: true, note: "Taken off their screen. You may propose one change." };
+    }),
+);
+
 const whatIsMissingTool = tool(
   "what_is_missing",
   "What the profile still has nothing for, and what real application forms have asked that nothing on file could answer. Use it when someone asks what to fill in next, after an import, or when an application is held up by a question they have not answered before. The `asked` list is the useful one: those are questions employers actually put to them, with the employer's own questions filtered out, and each comes with a topic name and a wording — ask them one at a time, in their own words, and store each answer with set_standing_answer as it comes. Do not read the whole list out at once.",
@@ -732,6 +789,9 @@ export const jobsearchServer = createSdkMcpServer({
     importHelpTool,
     applyImportTool,
     whatIsMissingTool,
+    proposeEditTool,
+    pendingEditTool,
+    withdrawEditTool,
     applicationRecordTool,
     markAppliedTool,
     coverageTool,

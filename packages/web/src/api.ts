@@ -461,6 +461,30 @@ export const api = {
     return body.upload;
   },
 
+  /*
+    The one change the assistant is proposing. Nothing is stored by proposing
+    it: the value shows in the field as a draft, and resolving writes whatever
+    is in the box at that moment. See the server's pending.ts.
+  */
+  pendingEdit: () =>
+    json<{
+      pending: {
+        target: string;
+        target_id: number | null;
+        field: string;
+        value: string;
+        why: string;
+        current: string | null;
+        at: string;
+      } | null;
+    }>("/api/pending-edit"),
+
+  resolveEdit: (keep: boolean, value?: string) =>
+    json<{ resolved: { field: string; kept: boolean; value?: string; edited?: boolean } }>(
+      "/api/pending-edit/resolve",
+      { method: "POST", body: JSON.stringify({ keep, value }) },
+    ),
+
   importHelp: () =>
     json<{
       routes: {

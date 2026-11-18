@@ -1,8 +1,9 @@
 import { ApplicationAnswers } from "./ApplicationAnswers.tsx";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useChanges } from "../changes.ts";
 import { Interests } from "./Interests.tsx";
 import { api, type Bullet, type Profile as ProfileData, type Role } from "../api.ts";
+import { say } from "../say.ts";
 
 /** One editable fact. The text is the claim a resume may later restate. */
 function BulletRow({ bullet, onChanged }: { bullet: Bullet; onChanged: () => void }) {
@@ -197,19 +198,110 @@ function StartFromLinkedIn() {
   );
 }
 
+type Pending = NonNullable<Awaited<ReturnType<typeof api.pendingEdit>>["pending"]>;
+
+/**
+ * One field, with whatever the assistant is proposing for it.
+ *
+ * The proposal lives in the box, not beside it, so that editing it is just
+ * typing — there is no second input, no "accept then correct", and what gets
+ * stored is whatever is there when they click. Skipping writes nothing.
+ *
+ * It takes the field's own text while a proposal is open and hands it back
+ * afterwards, which is why the key changes: a React input remembers what was
+ * typed into it, and the stored value arriving later has to win.
+ */
+function AboutField({
+  field,
+  stored,
+  pending,
+  onSaved,
+}: {
+  field: string;
+  stored: string;
+  pending: Pending | null;
+  onSaved: () => void;
+}) {
+  const asked = pending?.target === "profile" && pending.field === field ? pending : null;
+  const [draft, setDraft] = useState(asked?.value ?? "");
+  const box = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setDraft(asked?.value ?? "");
+    /*
+      Straight to it. The person asked for the page to come to them rather
+      than being told which field to go and find — see the note on the
+      highlight in styles.css.
+    */
+    if (asked) box.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [asked?.at, asked?.value, asked?.field]);
+
+  async function resolve(keep: boolean) {
+    const answer = await api.resolveEdit(keep, draft);
+    onSaved();
+    say(
+      keep
+        ? `I kept that${answer.resolved.edited ? ", with an edit" : ""}: ${field} is now “${answer.resolved.value}”.`
+        : `I skipped that one — leave ${field} as it is.`,
+    );
+  }
+
+  return (
+    <label ref={box as never} className={asked ? "field-asked" : undefined}>
+      <span>{field}</span>
+      {asked ? (
+        <div className="field-proposal">
+          <input autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} />
+          <div className="field-why">{asked.why}</div>
+          {asked.current && asked.current !== asked.value && (
+            <div className="field-was">now: {asked.current}</div>
+          )}
+          <div className="field-answer">
+            <button className="primary" onClick={() => void resolve(true)}>
+              Keep
+            </button>
+            <button onClick={() => void resolve(false)}>Skip</button>
+          </div>
+        </div>
+      ) : (
+        <input
+          key={stored}
+          defaultValue={stored}
+          placeholder={field === "headline" ? "Staff Backend Engineer" : ""}
+          onBlur={(event) => {
+            if (event.target.value !== stored) {
+              void api.patchProfile({ [field]: event.target.value }).then(onSaved);
+            }
+          }}
+        />
+      )}
+    </label>
+  );
+}
+
 export function Profile() {
   const [data, setData] = useState<ProfileData | null>(null);
+  const [pending, setPending] = useState<Pending | null>(null);
   const [adding, setAdding] = useState(false);
   const [role, setRole] = useState({ company: "", title: "", start_date: "", end_date: "" });
   const [skill, setSkill] = useState("");
 
   const load = () => void api.profile().then(setData);
+  const loadPending = () => void api.pendingEdit().then((answer) => setPending(answer.pending));
   useEffect(load, []);
+  useEffect(loadPending, []);
   // The agent edits the profile through the same functions this page calls,
   // so a change it makes shows up here without anyone reloading.
   useChanges("profile", load);
+  // And what it is asking about arrives the same way.
+  useChanges("focus", loadPending);
 
   if (!data) return <div className="empty">Loading profile…</div>;
+
+  const saved = () => {
+    load();
+    loadPending();
+  };
 
   return (
     <div className="profile">
@@ -218,18 +310,13 @@ export function Profile() {
       <h3>About you</h3>
       <div className="field-grid">
         {(["name", "headline", "email", "location"] as const).map((field) => (
-          <label key={field}>
-            <span>{field}</span>
-            <input
-              defaultValue={data.profile[field] ?? ""}
-              placeholder={field === "headline" ? "Staff Backend Engineer" : ""}
-              onBlur={(event) => {
-                if (event.target.value !== (data.profile[field] ?? "")) {
-                  void api.patchProfile({ [field]: event.target.value }).then(load);
-                }
-              }}
-            />
-          </label>
+          <AboutField
+            key={field}
+            field={field}
+            stored={data.profile[field] ?? ""}
+            pending={pending}
+            onSaved={saved}
+          />
         ))}
       </div>
 
