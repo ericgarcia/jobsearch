@@ -232,6 +232,8 @@ async function addMissingColumns(): Promise<void> {
     */
     ["field_classifications", "slot", "TEXT"],
     ["field_classifications", "rules", "TEXT NOT NULL DEFAULT ''"],
+    ["pending_edit", "target_key", "TEXT"],
+    ["pending_edit", "action", "TEXT NOT NULL DEFAULT 'set'"],
   ];
 
   for (const [table, column, definition] of additions) {

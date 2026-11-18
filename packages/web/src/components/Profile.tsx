@@ -5,12 +5,139 @@ import { Interests } from "./Interests.tsx";
 import { api, type Bullet, type Profile as ProfileData, type Role } from "../api.ts";
 import { say } from "../say.ts";
 
+type Pending = NonNullable<Awaited<ReturnType<typeof api.pendingEdit>>["pending"]>;
+
+/** Whether this proposal is about this exact thing. */
+export function asksAbout(
+  pending: Pending | null,
+  target: string,
+  of?: { id?: number; key?: string; field?: string },
+): Pending | null {
+  if (!pending || pending.target !== target) return null;
+  if (of?.id !== undefined && pending.target_id !== of.id) return null;
+  if (of?.key !== undefined && pending.target_key !== of.key) return null;
+  if (of?.field !== undefined && pending.field !== of.field) return null;
+  return pending;
+}
+
+/**
+ * The one question the assistant is asking, painted over the thing it is
+ * about.
+ *
+ * One component for every kind of row, because the question is the same
+ * question wherever it lands: here is a value, here is why, keep it, change
+ * it, or leave it. The row underneath keeps its place and its size — see the
+ * note on .field-card in styles.css — so asking about one thing never moves
+ * another.
+ *
+ * A deletion has no box to type in. There is nothing to edit about removing
+ * something, and an input there would suggest otherwise.
+ */
+export function Proposal({
+  asked,
+  name,
+  onDone,
+}: {
+  asked: Pending;
+  /** What to call this in the sentence that goes back to the assistant. */
+  name: string;
+  onDone: () => void;
+}) {
+  const [draft, setDraft] = useState(asked.value);
+  const box = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setDraft(asked.value);
+
+    /*
+      After the page has settled, not during it.
+
+      Scrolling on mount put the question off the bottom of the screen: the
+      profile renders "loading" first, and the list is still growing when the
+      card appears, so the position it scrolled to was not where the card
+      ended up. Two frames is enough for the layout to finish, and a second
+      attempt covers a list that was still filling in.
+    */
+    let cancelled = false;
+    const bring = () => {
+      if (!cancelled) box.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    };
+    const frame = requestAnimationFrame(() => requestAnimationFrame(bring));
+    const again = setTimeout(bring, 350);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+      clearTimeout(again);
+    };
+  }, [asked.at, asked.value]);
+
+  const removing = asked.action === "delete";
+
+  async function resolve(keep: boolean) {
+    const answer = await api.resolveEdit(keep, draft);
+    onDone();
+    if (!keep) {
+      say(`I skipped that one — leave ${name} as it is.`);
+    } else if (answer.resolved.removed) {
+      say(`I removed ${name}.`);
+    } else {
+      say(
+        `I kept that${answer.resolved.edited ? ", with an edit" : ""}: ${name} is now “${answer.resolved.value}”.`,
+      );
+    }
+  }
+
+  return (
+    <div className="field-card" ref={box}>
+      <span>{removing ? `remove ${name}` : name}</span>
+      {removing ? (
+        <div className="field-removing">{asked.current ?? asked.value}</div>
+      ) : (
+        <textarea
+          autoFocus
+          rows={Math.min(5, Math.ceil(draft.length / 44) || 1)}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+      )}
+      <div className="field-why">{asked.why}</div>
+      {!removing && asked.current && asked.current !== asked.value && (
+        <div className="field-was">now: {asked.current}</div>
+      )}
+      <div className="field-answer">
+        <button className="primary" onClick={() => void resolve(true)}>
+          {removing ? "Remove" : "Keep"}
+        </button>
+        <button onClick={() => void resolve(false)}>Skip</button>
+      </div>
+    </div>
+  );
+}
+
 /** One editable fact. The text is the claim a resume may later restate. */
-function BulletRow({ bullet, onChanged }: { bullet: Bullet; onChanged: () => void }) {
+function BulletRow({
+  bullet,
+  pending,
+  onChanged,
+}: {
+  bullet: Bullet;
+  pending: Pending | null;
+  onChanged: () => void;
+}) {
   const [text, setText] = useState(bullet.text);
   const [editing, setEditing] = useState(false);
+  const asked = asksAbout(pending, "bullet", { id: bullet.id });
 
   useEffect(() => setText(bullet.text), [bullet.text]);
+
+  if (asked) {
+    return (
+      <li className="bullet field-asked">
+        <span aria-hidden>{bullet.text}</span>
+        <Proposal asked={asked} name="this line" onDone={onChanged} />
+      </li>
+    );
+  }
 
   if (!editing) {
     return (
@@ -66,13 +193,29 @@ function BulletRow({ bullet, onChanged }: { bullet: Bullet; onChanged: () => voi
   );
 }
 
-function RoleCard({ role, onChanged }: { role: Role; onChanged: () => void }) {
+function RoleCard({
+  role,
+  pending,
+  onChanged,
+}: {
+  role: Role;
+  pending: Pending | null;
+  onChanged: () => void;
+}) {
   const [draft, setDraft] = useState("");
+  const asked = asksAbout(pending, "role", { id: role.id });
 
   const dates = [role.start_date, role.end_date ?? "present"].filter(Boolean).join(" – ");
 
   return (
-    <section className="role">
+    <section className={asked ? "role field-asked" : "role"}>
+      {asked && (
+        <Proposal
+          asked={asked}
+          name={asked.action === "delete" ? `${role.title} at ${role.company}` : `the ${asked.field.replace(/_/g, " ")} of ${role.title} at ${role.company}`}
+          onDone={onChanged}
+        />
+      )}
       <header>
         <div>
           <b>{role.title}</b>
@@ -97,7 +240,7 @@ function RoleCard({ role, onChanged }: { role: Role; onChanged: () => void }) {
 
       <ul>
         {role.bullets.map((bullet) => (
-          <BulletRow key={bullet.id} bullet={bullet} onChanged={onChanged} />
+          <BulletRow key={bullet.id} bullet={bullet} pending={pending} onChanged={onChanged} />
         ))}
       </ul>
 
@@ -198,18 +341,10 @@ function StartFromLinkedIn() {
   );
 }
 
-type Pending = NonNullable<Awaited<ReturnType<typeof api.pendingEdit>>["pending"]>;
-
 /**
- * One field, with whatever the assistant is proposing for it.
+ * One profile field, with whatever is being proposed for it.
  *
- * The proposal lives in the box, not beside it, so that editing it is just
- * typing — there is no second input, no "accept then correct", and what gets
- * stored is whatever is there when they click. Skipping writes nothing.
- *
- * It takes the field's own text while a proposal is open and hands it back
- * afterwards, which is why the key changes: a React input remembers what was
- * typed into it, and the stored value arriving later has to win.
+ * The input stays exactly where it was; the question is painted over it.
  */
 function AboutField({
   field,
@@ -222,38 +357,11 @@ function AboutField({
   pending: Pending | null;
   onSaved: () => void;
 }) {
-  const asked = pending?.target === "profile" && pending.field === field ? pending : null;
-  const [draft, setDraft] = useState(asked?.value ?? "");
-  const box = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    setDraft(asked?.value ?? "");
-    /*
-      Straight to it. The person asked for the page to come to them rather
-      than being told which field to go and find — see the note on the
-      highlight in styles.css.
-    */
-    if (asked) box.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [asked?.at, asked?.value, asked?.field]);
-
-  async function resolve(keep: boolean) {
-    const answer = await api.resolveEdit(keep, draft);
-    onSaved();
-    say(
-      keep
-        ? `I kept that${answer.resolved.edited ? ", with an edit" : ""}: ${field} is now “${answer.resolved.value}”.`
-        : `I skipped that one — leave ${field} as it is.`,
-    );
-  }
+  const asked = asksAbout(pending, "profile", { field });
 
   return (
-    <label ref={box as never} className={asked ? "field-asked" : undefined}>
+    <label className={asked ? "field-asked" : undefined}>
       <span>{field}</span>
-      {/*
-        The field as it always is, left in place to hold the space. While a
-        proposal is open it is covered rather than replaced, so the page is
-        laid out exactly as it was and nothing below moves.
-      */}
       <input
         key={stored}
         defaultValue={stored}
@@ -265,29 +373,7 @@ function AboutField({
           }
         }}
       />
-
-      {/*
-        And the question, as one card over the top of it: the name, the box to
-        type in, why it is being asked, and the two answers. One border around
-        the whole of it, because it is one thing being asked — an outline on
-        the input alone reads as a validation error rather than a question.
-      */}
-      {asked && (
-        <div className="field-card">
-          <span>{field}</span>
-          <input autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} />
-          <div className="field-why">{asked.why}</div>
-          {asked.current && asked.current !== asked.value && (
-            <div className="field-was">now: {asked.current}</div>
-          )}
-          <div className="field-answer">
-            <button className="primary" onClick={() => void resolve(true)}>
-              Keep
-            </button>
-            <button onClick={() => void resolve(false)}>Skip</button>
-          </div>
-        </div>
-      )}
+      {asked && <Proposal asked={asked} name={field} onDone={onSaved} />}
     </label>
   );
 }
@@ -382,7 +468,7 @@ export function Profile() {
       )}
 
       {data.roles.map((item) => (
-        <RoleCard key={item.id} role={item} onChanged={load} />
+        <RoleCard key={item.id} role={item} pending={pending} onChanged={saved} />
       ))}
 
       <ApplicationAnswers />

@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.ts";
+import { useChanges } from "../changes.ts";
+import { asksAbout, Proposal } from "./Profile.tsx";
 
 /**
  * The answers every application wants, kept in one place.
@@ -39,6 +41,7 @@ export function ApplicationAnswers() {
   const [choices, setChoices] = useState<Record<string, { token: string; label: string }[] | undefined>>({});
   const [refused, setRefused] = useState<Set<string>>(new Set());
   const [standing, setStanding] = useState<"ask" | "never">("ask");
+  const [pending, setPending] = useState<Awaited<ReturnType<typeof api.pendingEdit>>["pending"]>(null);
 
   const load = () => {
     void api.standingAnswers().then((data) => {
@@ -50,6 +53,7 @@ export function ApplicationAnswers() {
       setKeys([...data.keys]);
       setChoices(data.options ?? {});
     });
+    void api.pendingEdit().then((answer) => setPending(answer.pending));
     void api.facts().then((data) => {
       setRefused(
         new Set(
@@ -63,6 +67,8 @@ export function ApplicationAnswers() {
   };
 
   useEffect(load, []);
+  // What the assistant is asking about arrives the same way a change does.
+  useChanges("focus", load);
 
   const answerFor = (topic: string) =>
     answers.find((row) => row.topic === topic)?.answer ?? "";
@@ -76,8 +82,23 @@ export function ApplicationAnswers() {
         an application asks it.
       </p>
 
-      {Object.entries(topics).map(([topic, question]) =>
-        refused.has(topic) ? (
+      {Object.entries(topics).map(([topic, question]) => {
+        const asked = asksAbout(pending, "fact", { key: topic });
+        if (asked) {
+          /*
+            The row exactly as it always is, with the question painted over
+            it. Showing the answer as text instead of leaving the box there
+            made the row shorter and moved the thirteen rows below it.
+          */
+          return (
+            <label className="standing-row field-asked" key={topic}>
+              <span className="standing-question">{question}</span>
+              <input defaultValue={answerFor(topic)} tabIndex={-1} aria-hidden readOnly />
+              <Proposal asked={asked} name={`your answer to “${question}”`} onDone={load} />
+            </label>
+          );
+        }
+        return refused.has(topic) ? (
           <div className="standing-row" key={topic}>
             <span className="standing-question">{question}</span>
             <span className="standing-refused">You asked not to be asked this.</span>
@@ -108,8 +129,8 @@ export function ApplicationAnswers() {
               rather not say
             </button>
           </label>
-        ),
-      )}
+        );
+      })}
 
       <h3>Voluntary self-identification</h3>
       <p className="editor-note">
