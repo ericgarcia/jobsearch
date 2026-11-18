@@ -467,3 +467,35 @@ CREATE TABLE IF NOT EXISTS voluntary_choices (
   at      TEXT    NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (job_id, key)
 );
+
+/*
+  Which stored fact a form's question was read to be asking for.
+
+  The join the fact store needs. A closed list of topics could be matched by
+  name, and that is exactly what made it closed: a question only had an
+  answer if its topic was one of the eight the code knew. An open store has
+  to be searched instead, and searching by meaning is a model's job — see
+  apply/match.ts.
+
+  Cached like a classification, and for the same reason: employers ask each
+  other's questions, so the second form wanting a clearance costs nothing. It
+  expires by age, by model, and by the rules the match was made under.
+
+  A row with a NULL slug is a cached "nothing on file answers this", which is
+  the common answer and the one worth not paying for twice. The presence of
+  the row is the cache hit, not the slug.
+
+  The candidate slugs are part of the fingerprint, so storing a new fact
+  re-asks every question once rather than being invisible to the questions it
+  could answer. Nothing of the person's is in this table: a label is the
+  employer's words and a slug is the name of a question, not its answer.
+*/
+CREATE TABLE IF NOT EXISTS fact_matches (
+  fingerprint TEXT PRIMARY KEY,
+  label       TEXT NOT NULL,
+  section     TEXT,
+  slug        TEXT,
+  model       TEXT NOT NULL,
+  rules       TEXT NOT NULL,
+  at          TEXT NOT NULL DEFAULT (datetime('now'))
+);

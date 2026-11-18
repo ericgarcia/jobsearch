@@ -2,6 +2,7 @@ import { all, get, run } from "../db/client.js";
 import { changed } from "../notify.js";
 import { voluntaryDefault, type VoluntaryDefault } from "../settings.js";
 import { declineFact, getFact, listFacts, recordFact, setFact, shareableFacts } from "./facts.js";
+import { matchFacts } from "./match.js";
 import {
   topicOf,
   TOPIC_QUESTIONS,
@@ -512,6 +513,15 @@ export interface Covered {
   from: "profile" | "documents" | "standing" | "self_identification" | null;
   /** The reason, when nothing can answer it. */
   missing?: string;
+  /**
+   * Whether the person has already settled this, by refusing it or by
+   * keeping the answer off forms.
+   *
+   * Separate from `missing` because the two read alike and are not alike. A
+   * field with no answer is a thing to do; a field they have decided about
+   * is done, and putting it on their list is the app asking again.
+   */
+  settled?: boolean;
 }
 
 export interface Coverage {
@@ -530,16 +540,23 @@ export interface Coverage {
  * and one that asks about notice is a thing to decide once and never again.
  */
 export async function coverage(form: ApplicationForm): Promise<Coverage> {
-  const [standing, selfIdKeys, declined, profile] = await Promise.all([
+  const [standing, selfIdKeys, facts, matched, profile] = await Promise.all([
     listStandingAnswers(),
     selfIdentificationKeysSet(),
-    listFacts().then(
-      (facts) =>
-        new Set(
-          facts
-            .filter((fact) => fact.state === "declined" || fact.share === "never")
-            .map((fact) => fact.slug),
-        ),
+    listFacts(),
+    /*
+      Which stored answer each question wants, read rather than looked up by
+      name. This is what lets a question outside the eight seeded ones be
+      answered at all — see apply/match.ts. It never throws: a form it cannot
+      read falls back to the patterns over those eight.
+    */
+    matchFacts(
+      form.fields
+        .filter((field) => field.kind === "standing" || field.kind === "custom")
+        .map((field) => ({
+          label: field.label,
+          ...(field.section ? { section: field.section } : {}),
+        })),
     ),
     get<{ name: string | null; email: string | null; phone: string | null }>(
       `SELECT name, email, phone FROM profile WHERE id = 1`,
@@ -548,6 +565,35 @@ export async function coverage(form: ApplicationForm): Promise<Coverage> {
 
   const haveTopic = new Set(standing.map((row) => row.topic));
   const haveSelfId = new Set(selfIdKeys);
+  const bySlug = new Map(facts.map((fact) => [fact.slug, fact]));
+  const declined = new Set(
+    facts
+      .filter((fact) => fact.state === "declined" || fact.share === "never")
+      .map((fact) => fact.slug),
+  );
+
+  /*
+    What a question is answered by, or the reason it is not. One function
+    because the answer and the excuse come from the same lookup, and a field
+    that said "nothing stored" while a refusal sat on file was the bug this
+    whole store exists to fix.
+  */
+  const answeredBy = (label: string): { slug?: string; why?: string; settled?: boolean } => {
+    const slug = matched.get(label);
+    if (!slug) return {};
+    const fact = bySlug.get(slug);
+    if (!fact) return {};
+    if (fact.state === "declined") {
+      return { why: "You have asked not to be asked this. Left blank.", settled: true };
+    }
+    if (fact.share === "never") {
+      return {
+        why: `You have "${fact.question}" on file but kept it off forms. Left blank.`,
+        settled: true,
+      };
+    }
+    return { slug };
+  };
 
   const fields: Covered[] = form.fields.map((field) => {
     if (field.kind === "identity" || field.kind === "link") {
@@ -566,27 +612,30 @@ export async function coverage(form: ApplicationForm): Promise<Coverage> {
     }
 
     if (field.kind === "standing") {
-      const topic = topicOf(field.label);
-      const have = topic !== "other" && haveTopic.has(topic);
       /*
         A refusal is reported as a refusal and not as a gap. Listed as
         missing it would come back as a thing to do on every application,
-        which is the app asking a question it has already been answered.
+        which is the app asking a question it has already answered.
       */
-      const refused = topic !== "other" && declined.has(topic);
+      const found = answeredBy(field.label);
+      const topic = topicOf(field.label);
+      const refusedByTopic = topic !== "other" && declined.has(topic);
       return {
         label: field.label,
         required: field.required,
         kind: field.kind,
-        from: have ? ("standing" as const) : null,
-        ...(have
+        from: found.slug ? ("standing" as const) : null,
+        ...(found.slug
           ? {}
           : {
-              missing: refused
-                ? "You have asked not to be asked this. Left blank."
-                : topic === "other"
-                  ? "Nothing on file answers this one; it needs a decision."
-                  : `No answer stored for ${topic.replace(/_/g, " ")}.`,
+              missing:
+                found.why ??
+                (refusedByTopic
+                  ? "You have asked not to be asked this. Left blank."
+                  : topic === "other"
+                    ? "Nothing on file answers this one; it needs a decision."
+                    : `No answer stored for ${topic.replace(/_/g, " ")}.`),
+              ...(found.settled || refusedByTopic ? { settled: true } : {}),
             }),
       };
     }
@@ -620,12 +669,25 @@ export async function coverage(form: ApplicationForm): Promise<Coverage> {
       };
     }
 
+    /*
+      The employer's own question — unless something on file turns out to
+      answer it. A clearance or a degree asked in the middle of a company's
+      own section is still a fact about the person, and before the fact store
+      existed it was answered once, for that employer, and thrown away.
+    */
+    const found = answeredBy(field.label);
     return {
       label: field.label,
       required: field.required,
       kind: field.kind,
-      from: null,
-      missing: "Their own question. It needs an answer written for this application.",
+      from: found.slug ? ("standing" as const) : null,
+      ...(found.slug
+        ? {}
+        : {
+            missing:
+              found.why ?? "Their own question. It needs an answer written for this application.",
+            ...(found.settled ? { settled: true } : {}),
+          }),
     };
   });
 
@@ -645,7 +707,11 @@ export async function coverage(form: ApplicationForm): Promise<Coverage> {
       carrying a company's marketing request to them once per application.
     */
     needsYou: fields.filter(
-      (field) => field.from === null && field.kind !== "eeo" && field.kind !== "consent",
+      (field) =>
+        field.from === null &&
+        !field.settled &&
+        field.kind !== "eeo" &&
+        field.kind !== "consent",
     ),
   };
 }
