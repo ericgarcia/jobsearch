@@ -67,6 +67,34 @@ for (const [surface, paged] of [
   check("the two strings are identical", here === served, firstDifference(here, served));
 }
 
+/*
+  The editor needs to know which bullet a click landed on. The public page
+  and the PDF need to carry no such thing: they are the document, and an id
+  on it is the editor leaking into what someone sends to an employer.
+*/
+console.log("\nIds are the editor's, and stay there");
+
+const payload = (await fetch(`${BASE}/api/document/profile`).then((r) => r.json())) as Payload;
+const served = await fetch(`${BASE}/api/render/profile`).then((r) => r.text());
+const annotated = renderDocument({
+  spec: payload.layout.spec,
+  tokens: payload.layout.tokens,
+  content: payload.content,
+  surface: "profile",
+  annotate: true,
+});
+
+for (const attribute of ["data-section", "data-field", "data-role", "data-bullet", "data-skill"]) {
+  check(`the public page has no ${attribute}`, !served.includes(attribute));
+}
+check("the editor's rendering names its sections", annotated.includes('data-section="header"'));
+check("and its fields", annotated.includes('data-field="name"'));
+check(
+  "the two differ only by that",
+  annotated.replace(/ data-[a-z-]+="[^"]*"/g, "") === served,
+  firstDifference(annotated.replace(/ data-[a-z-]+="[^"]*"/g, ""), served),
+);
+
 console.log("\nA surface that is not one is not found");
 const bad = await fetch(`${BASE}/api/document/sideways`);
 check("it is a 404", bad.status === 404, `${bad.status}`);
