@@ -13,6 +13,7 @@ import { JobList } from "./components/JobList.tsx";
 import { JobDetail } from "./components/JobDetail.tsx";
 import { Chat } from "./components/Chat.tsx";
 import { Profile } from "./components/Profile.tsx";
+import { useChanges } from "./changes.ts";
 import { LayoutEditor } from "./components/LayoutEditor.tsx";
 import { Projects } from "./components/Projects.tsx";
 import { useReportState } from "./reportState.ts";
@@ -287,6 +288,21 @@ export function App() {
     setOpenResume(null);
     setOpenLetter(null);
   }
+
+  /*
+    A change the assistant is proposing brings the profile forward.
+
+    It takes the tab, which is a thing to do sparingly and is right here: the
+    proposal is a question waiting in a field, and a question nobody can see
+    is a conversation that has stalled. The field scrolls itself into view —
+    see Profile.tsx — so what arrives is the question, in place, rather than
+    an instruction to go and find it.
+  */
+  useChanges("focus", () => {
+    void api.pendingEdit().then((answer) => {
+      if (answer.pending) setTab("profile");
+    });
+  });
 
 
   /*

@@ -26,7 +26,9 @@ export type Topic =
   | "interests"
   | "resumes"
   | "threads"
-  | "applications";
+  | "applications"
+  /* What the assistant is proposing to change, and which field to look at. */
+  | "focus";
 
 export interface Change {
   topic: Topic;

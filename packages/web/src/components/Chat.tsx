@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Markdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, chat, type ChatEvent, type Thread } from "../api.ts";
+import { onSay } from "../say.ts";
 import { useChanges } from "../changes.ts";
 import { closeTab, closeThreadTabs, showInPane, threadTabs, type ThreadTab } from "../split.ts";
 
@@ -330,6 +331,23 @@ export function Chat({
     because that is what it is. The assistant then reads it and says what it
     found before anything is stored.
   */
+  /*
+    An answer that arrived by click rather than by typing.
+
+    Keeping or skipping a proposed change on the profile page is the person
+    answering a question, so it continues the conversation as a turn of
+    theirs. Without this the assistant proposes one thing and then waits for
+    somebody to type "ok", which is the stall that made batching look
+    sensible in the first place.
+  */
+  useEffect(
+    () =>
+      onSay((said) => {
+        void send(said);
+      }),
+    [threadId, running],
+  );
+
   async function hand(files: FileList | File[]) {
     const chosen = [...files].slice(0, 4);
     if (chosen.length === 0 || running) return;

@@ -370,6 +370,24 @@ a { color: var(--accent); }
 }
 .standing-aside:hover { color: var(--text-dim); }
 
+/*
+  The one field the assistant is asking about.
+
+  Marked on the field itself rather than with a banner above it, because the
+  question is about this box and the answer is typed into this box. The page
+  scrolls here on its own; a highlight somebody has to go and find is a
+  highlight that does nothing.
+*/
+.field-asked {
+  position: relative; border-radius: 8px; padding: 8px 10px; margin: -8px -10px;
+  background: var(--line-soft); outline: 1px solid var(--accent, #4a6fa5);
+}
+.field-proposal { display: flex; flex-direction: column; gap: 5px; }
+.field-why { font-size: 11px; color: var(--text-dim); line-height: 1.45; }
+.field-was { font-size: 11px; color: var(--text-faint); }
+.field-answer { display: flex; gap: 6px; margin-top: 2px; }
+.field-answer button { font-size: 11.5px; padding: 3px 10px; }
+
 /* The LinkedIn export steps, on an empty profile and nowhere else. */
 .import-routes { margin-top: 10px; display: flex; flex-direction: column; gap: 12px; }
 .import-route-name { font-size: 12px; font-weight: 600; color: var(--text); }

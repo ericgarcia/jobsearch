@@ -526,3 +526,31 @@ CREATE TABLE IF NOT EXISTS imports (
   at         TEXT    NOT NULL DEFAULT (datetime('now')),
   applied_at TEXT
 );
+
+/*
+  The one thing the assistant is proposing to change, right now.
+
+  One row, and the CHECK is the design rather than a tidiness. Onboarding kept
+  turning into a form: the import reads a whole document, so the conversation
+  about it arrived as six numbered decisions and a request to answer them all.
+  Telling the assistant to ask one at a time does not work, because nothing
+  stopped it doing otherwise.
+
+  One slot stops it. A second proposal has nowhere to go until the first is
+  answered, so "one at a time" is a property of the table instead of an
+  instruction that can be ignored.
+
+  Nothing here is stored in the profile. The person sees the proposed value in
+  the field it would go in, edits it if they want, and keeps or skips it —
+  which is also why `value` may be the text already there: "fix the tense on
+  this line" is them editing their own sentence, not the assistant writing one.
+*/
+CREATE TABLE IF NOT EXISTS pending_edit (
+  id        INTEGER PRIMARY KEY CHECK (id = 1),
+  target    TEXT    NOT NULL,
+  target_id INTEGER,
+  field     TEXT    NOT NULL,
+  value     TEXT    NOT NULL,
+  why       TEXT    NOT NULL,
+  at        TEXT    NOT NULL DEFAULT (datetime('now'))
+);

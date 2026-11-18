@@ -45,6 +45,7 @@ import {
   type Share,
 } from "./apply/facts.js";
 import { describe as describeForm } from "./apply/form.js";
+import { clearEdit, pendingEdit, proposeEdit, resolveEdit } from "./pending.js";
 import {
   applyImport,
   documentForUpload,
@@ -401,6 +402,51 @@ app.put("/api/self-identification/:key", async (request) => {
 app.post("/api/self-identification/:key/decline", async (request) => {
   await declineSelfIdentification((request.params as { key: string }).key);
   return { values: await readSelfIdentification(), facts: await listFacts() };
+});
+
+/* ------------------------------------------------------- one change at a time */
+
+/*
+  What the assistant is proposing to change, read by the profile page.
+
+  The page highlights the field, scrolls to it and shows the value as a draft.
+  Resolving is the only thing that writes, and it writes whatever is in the
+  box at that moment — so an edit and a plain acceptance arrive the same way.
+  See pending.ts.
+*/
+app.get("/api/pending-edit", async () => ({ pending: await pendingEdit() }));
+
+app.post("/api/pending-edit", async (request, reply) => {
+  const body = (request.body ?? {}) as {
+    target?: string;
+    field?: string;
+    value?: string;
+    why?: string;
+  };
+  try {
+    return await proposeEdit({
+      target: body.target ?? "profile",
+      field: body.field ?? "",
+      value: body.value ?? "",
+      why: body.why ?? "",
+    });
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.post("/api/pending-edit/resolve", async (request, reply) => {
+  const body = (request.body ?? {}) as { keep?: boolean; value?: string };
+  try {
+    return { resolved: await resolveEdit(body.keep !== false, body.value) };
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.delete("/api/pending-edit", async () => {
+  await clearEdit();
+  return { pending: null };
 });
 
 /* --------------------------------------------------------------- onboarding */
