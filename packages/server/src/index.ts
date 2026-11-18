@@ -25,6 +25,7 @@ import { formForJob } from "./apply/read.js";
 import { listAnswers } from "./apply/record.js";
 import {
   coverage,
+  declineSelfIdentification,
   listStandingAnswers,
   readSelfIdentification,
   setSelfIdentification,
@@ -33,6 +34,16 @@ import {
   SELF_ID_VALUES,
   TOPIC_QUESTIONS,
 } from "./apply/answers.js";
+import {
+  declineFact,
+  forgetFact,
+  listFacts,
+  reopenFact,
+  seedQuestions,
+  setFact,
+  setFactShare,
+  type Share,
+} from "./apply/facts.js";
 import { describe as describeForm } from "./apply/form.js";
 import { pdfFilename, renderPdf } from "./layout/pdf.js";
 import { changed, onChange } from "./notify.js";
@@ -54,6 +65,8 @@ import {
   saveCredential,
   setHomeLocation,
   type CredentialKind,
+  voluntaryDefault,
+  setVoluntaryDefault,
 } from "./settings.js";
 
 /*
@@ -354,6 +367,78 @@ app.put("/api/self-identification/:key", async (request) => {
   const body = (request.body ?? {}) as { value?: string };
   await setSelfIdentification((request.params as { key: string }).key, body.value ?? "");
   return { values: await readSelfIdentification() };
+});
+
+/*
+  "Stop asking me this."
+
+  Its own route and not an empty value, because the two mean different
+  things. An empty value leaves the app with nothing, and nothing is a
+  question to put again. This is an answer: it is written down, the stored
+  value goes with it, and no form raises it again until they say otherwise.
+*/
+app.post("/api/self-identification/:key/decline", async (request) => {
+  await declineSelfIdentification((request.params as { key: string }).key);
+  return { values: await readSelfIdentification(), facts: await listFacts() };
+});
+
+/* ------------------------------------------------------------------- facts */
+
+/*
+  The open store behind the standing answers.
+
+  `seeds` are the questions the app asks first, and they are suggestions:
+  each can be answered, declined or deleted, and a question nothing has ever
+  heard of is stored beside them with the same standing. See apply/facts.ts.
+
+  A private fact comes back with its state and never its answer. Those are
+  served by /api/self-identification, to the person's own page, and nowhere
+  else.
+*/
+app.get("/api/facts", async () => ({
+  facts: await listFacts(),
+  seeds: seedQuestions(),
+  voluntary_default: await voluntaryDefault(),
+}));
+
+app.put("/api/facts/:slug", async (request) => {
+  const body = (request.body ?? {}) as { answer?: string; question?: string; share?: Share };
+  const slug = (request.params as { slug: string }).slug;
+
+  if (body.share) await setFactShare(slug, body.share);
+  if (body.answer !== undefined) {
+    await setFact({ slug, answer: body.answer, question: body.question, source: "profile" });
+  }
+  return { facts: await listFacts() };
+});
+
+app.post("/api/facts/:slug/decline", async (request) => {
+  const body = (request.body ?? {}) as { question?: string };
+  const slug = (request.params as { slug: string }).slug;
+  await declineFact({ slug, question: body.question, source: "profile" });
+  return { facts: await listFacts() };
+});
+
+app.post("/api/facts/:slug/reopen", async (request) => {
+  await reopenFact((request.params as { slug: string }).slug);
+  return { facts: await listFacts() };
+});
+
+app.delete("/api/facts/:slug", async (request) => {
+  await forgetFact((request.params as { slug: string }).slug);
+  return { facts: await listFacts() };
+});
+
+/*
+  The one standing decision about the voluntary section, and it only goes one
+  way: "never" stops the asking as well as the filling. There is no "always"
+  — see settings.ts.
+*/
+app.put("/api/voluntary-default", async (request) => {
+  const body = (request.body ?? {}) as { choice?: string };
+  return {
+    voluntary_default: await setVoluntaryDefault(body.choice === "never" ? "never" : "ask"),
+  };
 });
 
 /* --------------------------------------------------------------- app state */

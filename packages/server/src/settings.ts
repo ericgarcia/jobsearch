@@ -132,3 +132,30 @@ export async function setMatchBar(score: number): Promise<number> {
 export async function setHomeLocation(place: string): Promise<void> {
   put(HOME_LOCATION, place.trim());
 }
+
+/*
+  Whether to raise the voluntary section at all.
+
+  The one standing decision this app will take about self-identification, and
+  it only goes one way. "Ask" means the questions are confirmed on every
+  application, one by one, because which details someone will give an
+  employer is a judgement about that employer. "Never" means the section is
+  left blank and the question is not put again — a person who has decided
+  they do not disclose should not be asked to re-decide forty times.
+
+  There is deliberately no "always". A standing yes would disclose a
+  disability to every employer that asks, silently, which is the thing the
+  per-application confirmation exists to prevent.
+*/
+export type VoluntaryDefault = "ask" | "never";
+
+const VOLUNTARY_DEFAULT = "voluntary_default";
+
+export async function voluntaryDefault(): Promise<VoluntaryDefault> {
+  return (await get(VOLUNTARY_DEFAULT)) === "never" ? "never" : "ask";
+}
+
+export async function setVoluntaryDefault(choice: VoluntaryDefault): Promise<VoluntaryDefault> {
+  await put(VOLUNTARY_DEFAULT, choice === "never" ? "never" : "ask");
+  return choice;
+}

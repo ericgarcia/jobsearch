@@ -178,25 +178,33 @@ function instructions(started: Started): string {
   */
   const voluntary = started.form?.voluntary;
   if (voluntary && voluntary.questions.length > 0) {
-    const many = voluntary.questions.length === 1 ? "" : "s";
-    if (voluntary.choice === null) {
+    if (voluntary.standing === "never") {
       steps.push(
-        `This form has a voluntary section: ${voluntary.questions.length} self-identification question${many} ` +
-          `(${voluntary.questions.map((question) => question.label).join(" / ")}), of which ${voluntary.answerable} ` +
-          "could be answered from what they have stored. Ask them once, in one sentence, whether they want it filled " +
-          "in for this application, and record the answer with set_voluntary_answers. It is blank until they say yes. " +
-          "Do not ask what the answers are and do not offer to work any of them out: you never see them, and the app " +
-          "matches what they stored to the form's own options itself.",
+        "This form has a voluntary self-identification section. They have said they do not disclose, so it stays " +
+          "blank and you do not raise it.",
       );
-    } else if (voluntary.choice === "fill") {
+    } else if (voluntary.undecided > 0) {
+      const pending = voluntary.questions.filter(
+        (question) => question.stored && question.include === null,
+      );
       steps.push(
-        `They have asked for the voluntary section to be filled in for this application; ${voluntary.answerable} of ` +
-          `its ${voluntary.questions.length} question${many} can be answered from what they stored, and the rest stay ` +
-          "blank unless they add them on their own page.",
+        `This form has a voluntary section, and ${pending.length} of its questions could be answered from what they ` +
+          `have stored: ${pending.map((question) => question.label).join(" / ")}. Ask them which of those they want ` +
+          "included on this application — each one separately, in one message, as a list they can answer in a line — " +
+          "and record it with set_voluntary_answers. Anything they do not name stays blank. A question they have " +
+          "already asked not to be asked is not on that list and must not be put to them again. Do not ask what the " +
+          "answers are and do not offer to work any of them out: you never see them, and the app matches what they " +
+          "stored to the form's own options itself.",
       );
     } else {
+      const included = voluntary.questions.filter((question) => question.include === true);
       steps.push(
-        "They have asked for the voluntary section to be left blank on this application. Leave it, and do not raise it again.",
+        included.length > 0
+          ? `They have asked for ${included.length} of the voluntary questions to be included here (${included
+              .map((question) => question.label)
+              .join(" / ")}); the rest stay blank.`
+          : "They have decided the voluntary section on this application, and none of it is to be filled in. Leave " +
+            "it, and do not raise it again.",
       );
     }
   }

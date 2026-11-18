@@ -9,7 +9,7 @@ import { expandPlace } from "../location.js";
 import { detectMany } from "../sources/detect.js";
 import { evaluateCompanies } from "../discover.js";
 import { getInterests, setInterests } from "../interests.js";
-import { homeLocation, matchBar, setMatchBar } from "../settings.js";
+import { homeLocation, matchBar, setMatchBar, setVoluntaryDefault } from "../settings.js";
 import { importPosting } from "../importing.js";
 import { formForJob } from "../apply/read.js";
 import { describe as describeForm } from "../apply/form.js";
@@ -21,7 +21,8 @@ import {
   listStandingAnswers,
   selfIdentificationKeysSet,
   setStandingAnswer,
-  setVoluntaryChoice,
+  setVoluntaryChoices,
+  declineSelfIdentification,
   voluntarySection,
 } from "../apply/answers.js";
 import { assessTopJobs, ASSESS_MODEL } from "../assess.js";
@@ -248,25 +249,46 @@ const selfIdStatusTool = tool(
 
 const voluntaryAnswersTool = tool(
   "set_voluntary_answers",
-  "Record whether the person wants this application's voluntary self-identification section filled in from what they have already stored. Ask them once per application, in one sentence, when start_application says the form has such a section: it is left blank until they say yes, because declining to disclose is a complete answer to every question in it. Never ask what the answers are, never offer to work one out, and never put a value in this call: you do not see those, and the app matches what they stored to the form's own options itself. A no is final for this application — record it and do not raise it again.",
+  "Record which of this application's voluntary self-identification questions the person wants included, from what they have already stored. Ask them on every application that has such a section, as one message listing the questions start_application named, and record what they say here by key. It is per question and not per section: someone may give an employer their pronouns and not a disability status, so a single yes does not answer for the rest. Anything in neither list stays blank, which is a complete answer. Never ask what the answers are, never offer to work one out, and never put a value in this call: you do not see those, and the app matches what they stored to the form's own options itself. If they say they never disclose anywhere, pass never_ask instead of listing keys, and the question is not put again on any application.",
   {
     job_id: z.number().int(),
-    fill: z
+    include: z
+      .array(z.string())
+      .default([])
+      .describe("The keys they asked to be included here, e.g. ['pronouns', 'veteran']"),
+    exclude: z
+      .array(z.string())
+      .default([])
+      .describe("The keys they asked to leave blank here"),
+    never_ask: z
+      .array(z.string())
+      .default([])
+      .describe(
+        "Keys they want nothing to ask about again, on any application. Use only if they say so plainly.",
+      ),
+    never_disclose: z
       .boolean()
-      .describe("True if they asked for it to be filled in, false if they want it left blank"),
+      .optional()
+      .describe("True only if they say they never want the voluntary section raised again, anywhere"),
   },
   async (args) =>
     guard(async () => {
-      await setVoluntaryChoice(args.job_id, args.fill);
+      if (args.never_disclose) await setVoluntaryDefault("never");
+      for (const key of args.never_ask) await declineSelfIdentification(key);
+      await setVoluntaryChoices(args.job_id, args.include, [...args.exclude, ...args.never_ask]);
+
       const form = await formForJob(args.job_id);
       const voluntary = await voluntarySection(form, args.job_id);
+      const included = voluntary.questions.filter((question) => question.include === true).length;
       return {
-        choice: voluntary.choice,
+        included,
         questions: voluntary.questions.length,
-        answerable: voluntary.answerable,
-        note: args.fill
-          ? "It will be filled from what they stored, by the app, without showing you the values. Anything they have not stored stays blank."
-          : "It stays blank on this application.",
+        still_to_confirm: voluntary.undecided,
+        standing: voluntary.standing,
+        note:
+          voluntary.standing === "never"
+            ? "The voluntary section is not to be raised again, on this or any application."
+            : `${included} will be filled by the app from what they stored, without showing you the values. Everything else in the section stays blank.`,
       };
     }),
 );
