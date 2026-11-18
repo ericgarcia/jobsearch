@@ -422,6 +422,9 @@ app.post("/api/pending-edit", async (request, reply) => {
     field?: string;
     value?: string;
     why?: string;
+    target_id?: number;
+    target_key?: string;
+    action?: "set" | "delete";
   };
   try {
     return await proposeEdit({
@@ -429,6 +432,9 @@ app.post("/api/pending-edit", async (request, reply) => {
       field: body.field ?? "",
       value: body.value ?? "",
       why: body.why ?? "",
+      ...(body.target_id !== undefined ? { target_id: body.target_id } : {}),
+      ...(body.target_key !== undefined ? { target_key: body.target_key } : {}),
+      ...(body.action !== undefined ? { action: body.action } : {}),
     });
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });

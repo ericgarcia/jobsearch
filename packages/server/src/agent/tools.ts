@@ -454,14 +454,33 @@ const importHelpTool = tool(
 
 const proposeEditTool = tool(
   "propose_edit",
-  "Put one change to their profile in front of them, in the field it would go into. The page highlights that field, scrolls to it, and shows your value as a draft they can type over; nothing is stored until they keep it. Use this instead of listing what you would change — ask about one thing, propose it, and wait. There is one slot: if something is already waiting this call returns it instead, which means finish that one first. The value must be theirs, not yours: what they just told you, or the text already stored so they can correct it. Do not compose prose about them. Say in `why`, in one line, what this is and where it came from — it is shown beside the field.",
+  "Put one change to their profile in front of them, on the thing it would change. The page brings the profile forward, scrolls to that row and paints the question over it; nothing is stored until they keep it, and what gets stored is whatever is in the box at that moment. Use this instead of listing what you would change — ask about one thing, propose it, and wait. There is one slot: if something is already waiting this call returns it instead, which means finish that one first. The value must be theirs, not yours: what they just told you, or the text already stored so they can correct it. Do not compose prose about them — if a line reads badly, propose the line as it stands and say what you would change, and let them do the changing. Say in `why`, in one line, what this is and where it came from; it is shown with the question.",
   {
-    target: z.enum(["profile"]).describe("What is being changed"),
+    target: z
+      .enum(["profile", "role", "bullet", "fact"])
+      .describe("profile for their contact details, role for a job, bullet for one line under a job, fact for a stored answer"),
     field: z
       .string()
-      .describe("name, headline, email, phone, location or summary"),
-    value: z.string().describe("What would be stored, in their words"),
-    why: z.string().describe("One line, shown beside the field"),
+      .describe(
+        "profile: name, headline, email, phone, location, summary. role: company, title, location, start_date, end_date. bullet: text. fact: answer.",
+      ),
+    value: z.string().describe("What would be stored, in their words. Leave empty when removing."),
+    why: z.string().describe("One line, shown with the question"),
+    target_id: z
+      .number()
+      .int()
+      .optional()
+      .describe("The role's or bullet's id, from the profile. Required for those."),
+    target_key: z
+      .string()
+      .optional()
+      .describe("The fact's topic, such as notice_period. Required for a fact."),
+    action: z
+      .enum(["set", "delete"])
+      .optional()
+      .describe(
+        "delete removes the role, bullet or fact instead of changing it. Use it for a line that is not an achievement — a company's sales copy among their work — rather than importing it and tidying up later.",
+      ),
   },
   async (args) =>
     guard(async () => {
@@ -470,6 +489,9 @@ const proposeEditTool = tool(
         field: args.field,
         value: args.value,
         why: args.why,
+        ...(args.target_id !== undefined ? { target_id: args.target_id } : {}),
+        ...(args.target_key !== undefined ? { target_key: args.target_key } : {}),
+        ...(args.action !== undefined ? { action: args.action } : {}),
       });
       return waiting
         ? {
@@ -478,7 +500,7 @@ const proposeEditTool = tool(
           }
         : {
             proposed: pending,
-            note: "It is on their screen now, in the field, highlighted. Say what you are asking in one short line and stop — do not propose anything else, and do not ask a second question in the same message. They will keep it, edit it, or skip it, and you will be told which.",
+            note: "It is on their screen now, on the row it would change. Say what you are asking in one short line and stop — do not propose anything else, and do not ask a second question in the same message. They will keep it, edit it, or skip it, and you will be told which.",
           };
     }),
 );

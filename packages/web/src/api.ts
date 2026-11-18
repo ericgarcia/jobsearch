@@ -471,7 +471,9 @@ export const api = {
       pending: {
         target: string;
         target_id: number | null;
+        target_key: string | null;
         field: string;
+        action: "set" | "delete";
         value: string;
         why: string;
         current: string | null;
@@ -480,7 +482,9 @@ export const api = {
     }>("/api/pending-edit"),
 
   resolveEdit: (keep: boolean, value?: string) =>
-    json<{ resolved: { field: string; kept: boolean; value?: string; edited?: boolean } }>(
+    json<{
+      resolved: { field: string; kept: boolean; removed?: boolean; value?: string; edited?: boolean };
+    }>(
       "/api/pending-edit/resolve",
       { method: "POST", body: JSON.stringify({ keep, value }) },
     ),

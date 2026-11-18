@@ -546,11 +546,17 @@ CREATE TABLE IF NOT EXISTS imports (
   this line" is them editing their own sentence, not the assistant writing one.
 */
 CREATE TABLE IF NOT EXISTS pending_edit (
-  id        INTEGER PRIMARY KEY CHECK (id = 1),
-  target    TEXT    NOT NULL,
-  target_id INTEGER,
-  field     TEXT    NOT NULL,
-  value     TEXT    NOT NULL,
-  why       TEXT    NOT NULL,
-  at        TEXT    NOT NULL DEFAULT (datetime('now'))
+  id         INTEGER PRIMARY KEY CHECK (id = 1),
+  target     TEXT    NOT NULL,
+  target_id  INTEGER,
+  -- Facts are keyed by a slug rather than a row id.
+  target_key TEXT,
+  field      TEXT    NOT NULL,
+  value      TEXT    NOT NULL,
+  why        TEXT    NOT NULL,
+  -- "set" or "delete". Dropping a line is as much an edit as changing one,
+  -- and the case that asked for it was a role carrying a company's sales
+  -- copy among its achievements.
+  action     TEXT    NOT NULL DEFAULT 'set',
+  at         TEXT    NOT NULL DEFAULT (datetime('now'))
 );

@@ -1,6 +1,7 @@
 import { get, run } from "./db/client.js";
 import { changed } from "./notify.js";
 import * as profile from "./profile.js";
+import { forgetFact, getFact, setFact } from "./apply/facts.js";
 
 /**
  * The one change the assistant is proposing, waiting for an answer.
@@ -27,15 +28,33 @@ import * as profile from "./profile.js";
  * lands, the rule has a second enforcement that does not depend on the model.
  */
 
-/** What can be proposed. Widening this list means widening resolve() too. */
+/**
+ * What can be proposed, and on what.
+ *
+ * Widening this list means widening both `currently` and `resolve` below, so
+ * a target that is listed here is a target that can actually be written. A
+ * proposal that could be made and not carried out would be a question nobody
+ * can answer.
+ */
 const FIELDS: Record<string, readonly string[]> = {
   profile: ["name", "headline", "email", "phone", "location", "summary"],
+  role: ["company", "title", "location", "start_date", "end_date"],
+  bullet: ["text"],
+  fact: ["answer"],
 };
+
+/** Which targets are a row that can be removed outright. */
+const REMOVABLE = new Set(["role", "bullet", "fact"]);
+
+export type EditAction = "set" | "delete";
 
 export interface PendingEdit {
   target: string;
   target_id: number | null;
+  /** For a fact, whose key is a slug rather than a row id. */
+  target_key: string | null;
   field: string;
+  action: EditAction;
   /** What would be stored, if they keep it as it stands. */
   value: string;
   /** One line on why, shown beside the field. */
@@ -48,25 +67,52 @@ export interface PendingEdit {
 interface Row {
   target: string;
   target_id: number | null;
+  target_key: string | null;
   field: string;
+  action: string;
   value: string;
   why: string;
   at: string;
 }
 
-async function currently(target: string, field: string): Promise<string | null> {
-  if (target !== "profile") return null;
-  const row = await profile.getProfile();
-  const value = (row as unknown as Record<string, unknown>)[field];
-  return typeof value === "string" ? value : null;
+/** What is stored for this thing right now, so the page can show a change. */
+async function currently(row: {
+  target: string;
+  target_id: number | null;
+  target_key: string | null;
+  field: string;
+}): Promise<string | null> {
+  const text = (value: unknown) => (typeof value === "string" ? value : null);
+
+  if (row.target === "profile") {
+    const kept = await profile.getProfile();
+    return text((kept as unknown as Record<string, unknown>)[row.field]);
+  }
+  if (row.target === "role" && row.target_id != null) {
+    const kept = (await profile.listRoles()).find((one) => one.id === row.target_id);
+    return kept ? text((kept as unknown as Record<string, unknown>)[row.field]) : null;
+  }
+  if (row.target === "bullet" && row.target_id != null) {
+    const kept = (await profile.listBullets()).find((one) => one.id === row.target_id);
+    return kept?.text ?? null;
+  }
+  if (row.target === "fact" && row.target_key) {
+    return (await getFact(row.target_key))?.answer ?? null;
+  }
+  return null;
 }
 
 export async function pendingEdit(): Promise<PendingEdit | null> {
   const row = await get<Row>(
-    `SELECT target, target_id, field, value, why, at FROM pending_edit WHERE id = 1`,
+    `SELECT target, target_id, target_key, field, action, value, why, at
+       FROM pending_edit WHERE id = 1`,
   );
   if (!row) return null;
-  return { ...row, current: await currently(row.target, row.field) };
+  return {
+    ...row,
+    action: row.action === "delete" ? "delete" : "set",
+    current: await currently(row),
+  };
 }
 
 export interface Proposal {
@@ -75,6 +121,8 @@ export interface Proposal {
   value: string;
   why: string;
   target_id?: number | null;
+  target_key?: string | null;
+  action?: EditAction;
 }
 
 /**
@@ -96,15 +144,30 @@ export async function proposeEdit(
   }
   if (!proposal.why.trim()) throw new Error("Say why, in one line. It is shown beside the field.");
 
+  const action: EditAction = proposal.action === "delete" ? "delete" : "set";
+  if (action === "delete" && !REMOVABLE.has(proposal.target)) {
+    throw new Error(`A ${proposal.target} cannot be removed, only changed.`);
+  }
+  if (proposal.target === "fact") {
+    if (!proposal.target_key) throw new Error("A fact is named by its topic; pass target_key.");
+  } else if (proposal.target !== "profile" && proposal.target_id == null) {
+    throw new Error(`A ${proposal.target} is named by its id; pass target_id.`);
+  }
+  if (action === "set" && !proposal.value.trim()) {
+    throw new Error("Nothing to set. To remove it, propose a deletion instead.");
+  }
+
   const waiting = await pendingEdit();
   if (waiting) return { pending: waiting, waiting };
 
   await run(
-    `INSERT INTO pending_edit (id, target, target_id, field, value, why, at)
-          VALUES (1, ?, ?, ?, ?, ?, datetime('now'))`,
+    `INSERT INTO pending_edit (id, target, target_id, target_key, field, action, value, why, at)
+          VALUES (1, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
     proposal.target,
     proposal.target_id ?? null,
+    proposal.target_key ?? null,
     proposal.field,
+    action,
     proposal.value.trim(),
     proposal.why.trim(),
   );
@@ -116,6 +179,8 @@ export async function proposeEdit(
 export interface Resolved {
   field: string;
   kept: boolean;
+  /** True when what they kept was its removal. */
+  removed?: boolean;
   /** What was stored, when it was kept. Their text, not necessarily what was proposed. */
   value?: string;
   /** True when they typed something other than what was proposed. */
@@ -138,9 +203,43 @@ export async function resolveEdit(keep: boolean, value?: string): Promise<Resolv
 
   if (!keep) return { field: waiting.field, kept: false };
 
+  /*
+    One place that writes, with one branch per target. A target listed in
+    FIELDS and missing here would be a question somebody could answer and
+    nothing could carry out, so the two lists are kept side by side.
+  */
+  if (waiting.action === "delete") {
+    if (waiting.target === "bullet" && waiting.target_id != null) {
+      await profile.deleteBullet(waiting.target_id);
+    } else if (waiting.target === "role" && waiting.target_id != null) {
+      await profile.deleteRole(waiting.target_id);
+    } else if (waiting.target === "fact" && waiting.target_key) {
+      await forgetFact(waiting.target_key);
+    }
+    changed("profile");
+    return { field: waiting.field, kept: true, removed: true };
+  }
+
   const text = (value ?? waiting.value).trim();
   if (waiting.target === "profile") {
     await profile.updateProfile({ [waiting.field]: text });
+  } else if (waiting.target === "role" && waiting.target_id != null) {
+    await profile.updateRole(waiting.target_id, { [waiting.field]: text });
+  } else if (waiting.target === "bullet" && waiting.target_id != null) {
+    await profile.updateBullet(waiting.target_id, text);
+  } else if (waiting.target === "fact" && waiting.target_key) {
+    /*
+      A fact keeps the question it already had: that wording is what later
+      application forms are matched against, so renaming it on somebody's
+      behalf would change which questions find the answer.
+    */
+    const had = await getFact(waiting.target_key);
+    await setFact({
+      slug: waiting.target_key,
+      ...(had ? { question: had.question } : {}),
+      answer: text,
+      source: "conversation",
+    });
   }
 
   changed("profile");

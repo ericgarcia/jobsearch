@@ -298,11 +298,18 @@ export function App() {
     see Profile.tsx — so what arrives is the question, in place, rather than
     an instruction to go and find it.
   */
-  useChanges("focus", () => {
+  const bringProfileForward = useCallback(() => {
     void api.pendingEdit().then((answer) => {
       if (answer.pending) setTab("profile");
     });
-  });
+  }, []);
+  useChanges("focus", bringProfileForward);
+  /*
+    And on a reload, because a question that was waiting is still waiting. The
+    alternative is somebody opening the app to a tab that does not show the
+    thing the assistant is asking about.
+  */
+  useEffect(bringProfileForward, [bringProfileForward]);
 
 
   /*
