@@ -1,9 +1,9 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { classify, topicOf, type FieldKind } from "./form.js";
 import { listStandingAnswers, readSelfIdentification, selfIdKeyOf } from "./answers.js";
 import { callBrowser } from "../agent/browserClient.js";
+import { BROWSER_FILES } from "../agent/browserServer.js";
 import { openOnStage, withPane } from "../agent/split.js";
 import { get } from "../db/client.js";
 import { formForJob } from "./read.js";
@@ -587,29 +587,78 @@ async function attachResume(
       /resume|cv|upload|attach|choose file/i.test(candidate.name) &&
       (candidate.role === "button" || candidate.role === "textbox" || candidate.role === "link"),
   );
-  if (!control) {
-    return {
-      attached: false,
-      note: "No upload control could be found on the page, so the resume is not attached. Say so.",
-    };
-  }
 
   try {
     const pdf = await renderPdf({ resumeId: draft.id });
     const me = await get<{ name: string | null }>(`SELECT name FROM profile WHERE id = 1`);
-    const file = path.join(os.tmpdir(), pdfFilename(me?.name ?? null, draft.label ?? undefined));
+    /*
+      Into Playwright's own directory, not the system temp one.
+
+      Playwright reads a file for an upload only from its allowed roots. A
+      resume in /tmp meant the chooser opened and the upload was then
+      refused — the last step of the last thing, failing on a path.
+    */
+    fs.mkdirSync(BROWSER_FILES, { recursive: true });
+    const file = path.join(BROWSER_FILES, pdfFilename(me?.name ?? null, draft.label ?? undefined));
     fs.writeFileSync(file, pdf);
 
-    await callBrowser("browser_click", { element: control.name, target: control.target });
+    const opened = await openFileChooser(control);
     const uploaded = await callBrowser("browser_file_upload", { paths: [file] });
     if (uploaded.isError === true) {
-      return { attached: false, note: `The upload was refused: ${text(uploaded)}` };
+      return {
+        attached: false,
+        note: `The upload was refused after ${opened}: ${why(uploaded)}`,
+      };
     }
-    return { attached: true, note: `Attached resume #${draft.id}.` };
+    return { attached: true, note: `Attached resume #${draft.id}, by ${opened}.` };
   } catch (error) {
     return {
       attached: false,
       note: `The resume could not be attached: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
+}
+
+/**
+ * Get a file chooser open, which is the only thing an upload can fill.
+ *
+ * The upload tool needs a file chooser the browser has already captured; with
+ * none, it refuses. So the real question is what opens one, and on a real
+ * form the obvious answer is wrong.
+ *
+ * Lever's resume field is `<input type="file" class="invisible-resume-upload"
+ * tabindex="-1">` inside an anchor reading ATTACH RESUME/CV. The anchor is
+ * what a person sees and what the accessibility tree offers, so that is what
+ * this clicked — and clicking it opens nothing, because the chooser belongs
+ * to the input. Hidden, unfocusable, and the only thing on the page that can
+ * do the job.
+ *
+ * A hidden element cannot be clicked through the page, so it is clicked in
+ * script instead. The visible control is kept as a second attempt: a form
+ * that wires its button up properly is then still served, and one that puts a
+ * real file input on the page is served first.
+ */
+async function openFileChooser(control: Control | undefined): Promise<string> {
+  const pick = `() => {
+    const inputs = [...document.querySelectorAll('input[type=file]')];
+    if (inputs.length === 0) return "none";
+    const wanted = inputs.find((input) =>
+      /resume|cv/i.test((input.name || "") + " " + (input.id || "") + " " + (input.className || "")));
+    (wanted ?? inputs[0]).click();
+    return wanted ? "resume" : "first";
+  }`;
+
+  const clicked = await callBrowser("browser_evaluate", { function: pick });
+  const answer = text(clicked);
+  if (clicked.isError !== true && /"?(resume|first)"?/.test(answer)) {
+    return answer.includes("resume")
+      ? "clicking the page's own resume file input"
+      : "clicking the only file input on the page";
+  }
+
+  if (control) {
+    await callBrowser("browser_click", { element: control.name, target: control.target });
+    return `clicking "${control.name}"`;
+  }
+  return "finding nothing on the page that opens a file chooser";
 }
