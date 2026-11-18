@@ -189,3 +189,108 @@ export function vet(slug: string, question: string, existing: Fact | null): Keep
     known: existing?.state === "answered",
   };
 }
+
+const ASKING_RULES = `
+You are given questions that job application forms asked somebody, and which
+nothing on file could answer. Say which of them are worth asking the person
+once, so that no later form has to ask again.
+
+Worth asking: a question about a fact that does not depend on who asked —
+years of experience with something, a degree or certification, a clearance,
+a licence, a notice period, how soon they can start, whether they will
+relocate or travel, what they are paid now.
+
+Not worth asking: anything written for one employer. "Why do you want to
+work here?", "What interests you about this role?", "How did you hear about
+us?", "Have you worked for us before?", anything about that company in
+particular, and anything that is a field of a form rather than a question —
+"If yes, please explain", "Additional information", "Other".
+
+Also never: gender, race, ethnicity, veteran status, disability, pronouns,
+transgender identity, sexual orientation, age, or a demographic survey's
+country. Those are the person's own and are kept elsewhere. And never
+whether they may work in a country, whether they need sponsorship, or any
+visa status — the app asks those itself, in its own words, and must not
+inherit an employer's wording for them.
+
+For each one worth asking, give a short snake_case slug and the question as
+you would put it to them, in the second person and in plain words.
+
+Reply with JSON only: [{"i": 0, "slug": "...", "question": "..."}], leaving
+out every question not worth asking.
+`.trim();
+
+/**
+ * Which of the questions nobody could answer are worth putting to the person.
+ *
+ * The list of unanswered questions comes out of fact_matches, which records
+ * every form question nothing on file matched. Most of that list is the
+ * employer's own — "Why do you want to work here?" is on every form and
+ * belongs on nobody's profile — so showing it raw would be handing someone a
+ * list of things to do that is mostly noise.
+ *
+ * Returns an empty list rather than throwing, and an empty list when there is
+ * no credential: a profile page that cannot suggest anything is a profile
+ * page, and one full of junk suggestions is worse than one with none.
+ */
+export async function worthAsking(
+  labels: string[],
+): Promise<{ label: string; slug: string; question: string }[]> {
+  const asked = labels.map((label) => label.trim()).filter(Boolean).slice(0, 60);
+  if (asked.length === 0) return [];
+
+  const credential = await readCredential();
+  if (!credential) return [];
+
+  let text = "";
+  try {
+    for await (const message of query({
+      prompt: `QUESTIONS\n${asked.map((label, index) => `[${index}] ${label}`).join("\n")}`,
+      options: {
+        model: KEEP_MODEL,
+        cwd: DATA_DIR,
+        systemPrompt: ASKING_RULES,
+        tools: [],
+        settingSources: [],
+        maxTurns: 1,
+        env: credentialEnv(credential),
+      },
+    })) {
+      if (message.type === "assistant") {
+        for (const block of message.message.content) {
+          if (block.type === "text") text += block.text;
+        }
+      }
+      if (message.type === "result" && message.subtype !== "success") return [];
+    }
+  } catch (error) {
+    console.log(
+      `[onboard] could not judge which questions are worth asking: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return [];
+  }
+
+  const found = text.match(/\[[\s\S]*\]/);
+  if (!found) return [];
+
+  let replies: { i?: unknown; slug?: unknown; question?: unknown }[];
+  try {
+    const parsed = JSON.parse(found[0]) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    replies = parsed as typeof replies;
+  } catch {
+    return [];
+  }
+
+  const out: { label: string; slug: string; question: string }[] = [];
+  for (const reply of replies) {
+    const index = typeof reply.i === "number" ? reply.i : -1;
+    const label = asked[index];
+    if (!label || typeof reply.slug !== "string" || typeof reply.question !== "string") continue;
+    const slug = reply.slug.trim().toLowerCase();
+    /* The same checks as a kept answer: see vet above. */
+    const allowed = vet(slug, reply.question, await getFact(slug));
+    if (allowed) out.push({ label, slug: allowed.slug, question: allowed.question });
+  }
+  return out;
+}

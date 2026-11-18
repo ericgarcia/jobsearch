@@ -17,6 +17,7 @@ import { startApplication } from "../apply/start.js";
 import { fillApplication } from "../apply/fill.js";
 import { listAnswers, markApplied, recordAnswers } from "../apply/record.js";
 import { keepable } from "../apply/keep.js";
+import { applyImport, proposeFrom, readSource, whatIsMissing } from "../onboard.js";
 import {
   coverage,
   listStandingAnswers,
@@ -363,6 +364,68 @@ const recordAnswerTool = tool(
     }),
 );
 
+const importProfileTool = tool(
+  "import_profile",
+  "Read a resume or a LinkedIn export and report what it says, without storing any of it. Pass `text` for something they pasted, or `path` for a file on this machine — a .txt, .md, .csv, .json or .html file, or the folder a LinkedIn data export unzips into. PDFs and Word files cannot be read here; ask them to paste the text. Nothing is written to the profile by this call: the reply is a proposal, you put it to them, and apply_import stores whatever they accept. Quote the bullets back to them exactly as this reply gives them — they are their own sentences, and rewording one while relaying it means they approve something they did not write. It never reports anything about their right to work, sponsorship or visa status, and never anything a voluntary survey asks, whatever the document says: those they type themselves.",
+  {
+    text: z.string().optional().describe("The document's text, as they pasted it"),
+    path: z.string().optional().describe("A file on this machine, or an unzipped LinkedIn export folder"),
+  },
+  async (args) =>
+    guard(async () => {
+      if (!args.text && !args.path) throw new Error("Pass either text or path.");
+      const read = args.path
+        ? readSource(args.path)
+        : { text: args.text!, source: "pasted" as const, origin: null };
+      const proposed = await proposeFrom(read.text, read.source, read.origin ?? undefined);
+      return {
+        import_id: proposed.id,
+        source: proposed.source,
+        found: proposed.proposal,
+        note:
+          "Nothing is stored yet. Say what was found — the roles and dates, how many bullets each, the education, the " +
+          "facts it would put on file — and quote any bullet exactly if you quote it at all. Then apply_import with " +
+          "the id, and with only the items they wanted if they did not want all of them. Anything in `unsure` is " +
+          "there because the document did not say plainly: ask about those rather than storing them.",
+      };
+    }),
+);
+
+const applyImportTool = tool(
+  "apply_import",
+  "Store what they accepted from a document you read with import_profile. Pass the import id, and the indexes of the items they wanted if they did not want everything — leave a list out to take all of it, pass an empty list to take none of that kind. The text that lands is copied from what was read, never from this call, so you cannot change a bullet on the way in. Nothing already in the profile is overwritten: a field they have filled in stands, and the document's version is skipped.",
+  {
+    import_id: z.number().int(),
+    profile: z.boolean().optional().describe("False to leave their contact details alone"),
+    roles: z.array(z.number().int()).optional().describe("Indexes of the roles to keep"),
+    education: z.array(z.number().int()).optional(),
+    skills: z.array(z.number().int()).optional(),
+    facts: z.array(z.number().int()).optional().describe("Indexes of the answers to put on file"),
+  },
+  async (args) =>
+    guard(async () => {
+      const applied = await applyImport(args.import_id, {
+        ...(args.profile !== undefined ? { profile: args.profile } : {}),
+        ...(args.roles ? { roles: args.roles } : {}),
+        ...(args.education ? { education: args.education } : {}),
+        ...(args.skills ? { skills: args.skills } : {}),
+        ...(args.facts ? { facts: args.facts } : {}),
+      });
+      return {
+        applied,
+        note: "Stored. Say what went in and what was skipped because something was already there.",
+      };
+    }),
+);
+
+const whatIsMissingTool = tool(
+  "what_is_missing",
+  "What the profile still has nothing for, and what real application forms have asked that nothing on file could answer. Use it when someone asks what to fill in next, after an import, or when an application is held up by a question they have not answered before. The `asked` list is the useful one: those are questions employers actually put to them, with the employer's own questions filtered out, and each comes with a topic name and a wording — ask them one at a time, in their own words, and store each answer with set_standing_answer as it comes. Do not read the whole list out at once.",
+  {},
+  async () => guard(async () => await whatIsMissing()),
+  { annotations: { readOnlyHint: true } },
+);
+
 const applicationRecordTool = tool(
   "application_record",
   "What went on a job's application form, as it was filled in. Self-identification fields show as answered without their values.",
@@ -632,6 +695,9 @@ export const jobsearchServer = createSdkMcpServer({
     startApplicationTool,
     fillApplicationTool,
     recordAnswerTool,
+    importProfileTool,
+    applyImportTool,
+    whatIsMissingTool,
     applicationRecordTool,
     markAppliedTool,
     coverageTool,

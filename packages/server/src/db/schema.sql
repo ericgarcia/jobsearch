@@ -499,3 +499,30 @@ CREATE TABLE IF NOT EXISTS fact_matches (
   rules       TEXT NOT NULL,
   at          TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+/*
+  A document the person handed over, read into a proposal.
+
+  Kept as its own row, and kept unedited, because of the rule the profile
+  rests on: a resume may only restate a fact that is stored here, and nothing
+  generated is ever written back. An import inverts the direction for the one
+  case where it is the person's own document doing the telling — so the thing
+  that was read is written down once, verbatim, and applying it can only copy
+  from this row.
+
+  That is why the proposal is stored rather than handed to the agent and
+  passed back. A round trip through the agent is a round trip through
+  something that writes prose for a living, and a bullet it improved on the
+  way would land in the profile as the person's own words.
+
+  applied_at says it has been accepted. Nothing here is applied when it is
+  read: the person sees it first.
+*/
+CREATE TABLE IF NOT EXISTS imports (
+  id         INTEGER PRIMARY KEY,
+  source     TEXT    NOT NULL,
+  origin     TEXT,
+  proposal   TEXT    NOT NULL,
+  at         TEXT    NOT NULL DEFAULT (datetime('now')),
+  applied_at TEXT
+);
