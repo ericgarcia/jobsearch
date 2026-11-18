@@ -207,6 +207,7 @@ console.log("\n5. The same career twice is not two careers");
 const again = await stash(proposal, "linkedin");
 const twice = await applyImport(again);
 assert.equal(twice.roles, 0);
+assert.equal(twice.roles_already_there, 1);
 assert.equal(twice.bullets, 0);
 assert.equal(twice.education, 0);
 assert.equal((await profile.listRoles()).length, 1);

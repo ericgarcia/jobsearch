@@ -8,6 +8,7 @@ import { changed } from "./notify.js";
 import { credentialEnv, readCredential } from "./settings.js";
 import { candidateFacts, getFact, listFacts, seedQuestions, setFact } from "./apply/facts.js";
 import { isZip, list, readText } from "./zip.js";
+import { duplicates } from "./dedupe.js";
 import { vet, worthAsking } from "./apply/keep.js";
 import * as profile from "./profile.js";
 
@@ -729,6 +730,8 @@ export interface Applied {
   /** Notes the reader could not settle, now queued to ask about. */
   to_ask?: number;
   roles: number;
+  /** Jobs the document repeated, which were already on file. */
+  roles_already_there: number;
   bullets: number;
   /** Bullets that were read and deliberately not kept. */
   bullets_left: number;
@@ -768,6 +771,7 @@ export async function applyImport(id: number, choices: Choices = {}): Promise<Ap
 
   const applied: Applied = {
     roles: 0,
+    roles_already_there: 0,
     bullets: 0,
     bullets_left: 0,
     education: 0,
@@ -830,21 +834,38 @@ export async function applyImport(id: number, choices: Choices = {}): Promise<Ap
   }
 
   const already = await profile.listRoles();
+
+  /*
+    The same job twice is a duplicate, not a second job: a resume and then the
+    LinkedIn export of one career should not double the history.
+
+    Comparing the company and title as written did not do it. "University of
+    Washington" and "University of Washington (Genome Sciences)" read as two
+    employers and a career came in twice — and the obvious repair, ignoring
+    the parentheses, would have collapsed three Intel internships with one
+    title into one. See dedupe.ts, which reads them.
+  */
+  const repeated = await duplicates(
+    stored.proposal.roles.map((role) => ({
+      company: role.company,
+      title: role.title,
+      start_date: role.start_date ?? null,
+      end_date: role.end_date ?? null,
+    })),
+    already.map((had) => ({
+      id: had.id,
+      company: had.company,
+      title: had.title,
+      start_date: had.start_date,
+      end_date: had.end_date,
+    })),
+  );
+
   for (const [index, role] of stored.proposal.roles.entries()) {
     if (!asked.has(index)) continue;
     const keep = asked.get(index);
-    /*
-      The same job twice is a duplicate, not a second job. An import run a
-      second time — a resume, then the LinkedIn export of the same career —
-      should not double the history.
-    */
-    if (
-      already.some(
-        (had) =>
-          had.company.toLowerCase() === role.company.toLowerCase() &&
-          had.title.toLowerCase() === role.title.toLowerCase(),
-      )
-    ) {
+    if (repeated.has(index)) {
+      applied.roles_already_there += 1;
       continue;
     }
     const written = await profile.addRole({
