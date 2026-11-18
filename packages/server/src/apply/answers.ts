@@ -221,8 +221,24 @@ export async function voluntarySection(
   ]);
   const have = new Set(keys);
 
+  /*
+    One question per question.
+
+    Lever's page carries every survey the employer ever configured, and only
+    one of them is shown. Four of Spotify's five templates ask "What best
+    describes your gender?", so the person was told their form had nine
+    voluntary questions, the same one three times over. Same label, same
+    question.
+  */
+  const asked = new Set<string>();
   const questions = form.fields
     .filter((field) => field.kind === "eeo")
+    .filter((field) => {
+      const once = field.label.trim().toLowerCase();
+      if (asked.has(once)) return false;
+      asked.add(once);
+      return true;
+    })
     .map((field) => {
       const key = selfIdKeyOf(field.label);
       return {

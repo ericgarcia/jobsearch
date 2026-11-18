@@ -162,6 +162,16 @@ async function addMissingColumns(): Promise<void> {
     ["profile_bullets", "project_id", "INTEGER REFERENCES profile_projects (id) ON DELETE SET NULL"],
     // What the app was showing in a conversation. Null until it says.
     ["conversations", "workspace", "TEXT"],
+    /*
+      Which stored thing answers an identity or link field, and the two
+      columns a cached classification expires by. Added here because the
+      dev server creates tables as it reloads, so a column added to
+      schema.sql minutes later is a column the table never gets — which
+      showed up as "no such column: slot" from a server that had been
+      running the whole time.
+    */
+    ["field_classifications", "slot", "TEXT"],
+    ["field_classifications", "rules", "TEXT NOT NULL DEFAULT ''"],
   ];
 
   for (const [table, column, definition] of additions) {

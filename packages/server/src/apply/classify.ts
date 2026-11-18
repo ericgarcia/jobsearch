@@ -172,10 +172,19 @@ Rules, in order of precedence:
    inside a demographic survey is a demographic question, not an address.
    This is the rule the form's own structure gives you, and it outranks the
    words of the label.
-2. If you cannot tell what a field is, answer "custom". A question put to the
+2. A question about this employer in particular — whether they have worked
+   there before, how they heard of the company, why this job — is "custom",
+   not "standing". A standing answer is one that is the same at every
+   company, which is what makes it safe to copy; an employer's own question
+   is not, and answering it from a store of standing answers puts the wrong
+   sentence in front of them. So "Have you ever been employed by <the
+   company this form belongs to>?" is custom, while "Current company" is
+   standing with the topic current_company — where someone works now is the
+   same fact whoever is asking.
+3. If you cannot tell what a field is, answer "custom". A question put to the
    applicant costs them a minute. A question answered by something that
    guessed wrong goes to an employer in their name.
-3. Never read a question about someone's right to work as a question about
+4. Never read a question about someone's right to work as a question about
    where they live.
 
 For "standing", also give the topic, one of:
