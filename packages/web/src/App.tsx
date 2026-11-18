@@ -369,6 +369,19 @@ export function App() {
         setUntrackedOnly(kept.untrackedOnly);
       }
 
+      /*
+        Unless something is waiting to be answered on the profile, which
+        outranks the view this conversation was left in.
+
+        This restore runs after a fetch, so it used to land after the focus
+        handler had already brought the profile forward and put the view back
+        — and the assistant would say a change was on their screen while the
+        job list was on it.
+      */
+      const waiting = await api.pendingEdit().catch(() => ({ pending: null }));
+      if (!current) return;
+      if (waiting.pending) setTab("profile");
+
       // And the pane. Its last page, or none — in which case the window is
       // the app's again, with the page still open behind it.
       const id = hasSplit ? splitId : null;
