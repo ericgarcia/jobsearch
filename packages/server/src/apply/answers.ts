@@ -1,6 +1,16 @@
 import { all, get, run } from "../db/client.js";
 import { changed } from "../notify.js";
-import type { ApplicationForm, FormField } from "./form.js";
+import {
+  topicOf,
+  TOPIC_QUESTIONS,
+  TOPICS,
+  type ApplicationForm,
+  type FormField,
+  type Topic,
+} from "./form.js";
+
+// Re-exported so callers have one place to ask about situation questions.
+export { topicOf, TOPIC_QUESTIONS, TOPICS, type Topic };
 
 /**
  * The answers that are the same at every company, and the ones that are
@@ -23,56 +33,6 @@ import type { ApplicationForm, FormField } from "./form.js";
  */
 
 /* ---------------------------------------------------------------- standing */
-
-export const TOPICS = [
-  "work_authorization",
-  "sponsorship",
-  "relocation",
-  "onsite",
-  "notice_period",
-  "start_date",
-  "salary",
-] as const;
-
-export type Topic = (typeof TOPICS)[number] | "other";
-
-/** What each topic is called when the app asks for it. */
-export const TOPIC_QUESTIONS: Record<(typeof TOPICS)[number], string> = {
-  work_authorization: "Are you legally authorised to work where the job is?",
-  sponsorship: "Will you need visa sponsorship, now or later?",
-  relocation: "Are you willing to relocate?",
-  onsite: "How many days a week can you be in an office?",
-  notice_period: "What notice do you have to give?",
-  start_date: "When could you start?",
-  salary: "What are you looking for in pay?",
-};
-
-/*
-  Which topic a form field is asking about.
-
-  Ordered, and the order matters: a sponsorship question nearly always says
-  "authorization" somewhere in it — "will you require sponsorship to retain
-  or extend your work authorization" — so sponsorship has to be tried first
-  or every one of them answers the authorization question instead. Two
-  questions with opposite meanings and the same words in them is exactly the
-  case worth writing a test for.
-*/
-const TOPIC_PATTERNS: [(typeof TOPICS)[number], RegExp][] = [
-  ["sponsorship", /\b(?:sponsor|visa)/i],
-  ["work_authorization", /\b(?:authoriz|authoris|right to work|work permit|eligible to work)/i],
-  ["relocation", /\brelocat|willing to move/i],
-  ["onsite", /\b(?:in[-\s]?person|in[-\s]?office|on[-\s]?site|hybrid|days? (?:a|per) week)/i],
-  ["notice_period", /\bnotice period|notice do you/i],
-  ["start_date", /\b(?:start date|available to start|when (?:could|can) you start|earliest start)/i],
-  ["salary", /\b(?:salar|compensation|desired pay|pay expectation)/i],
-];
-
-export function topicOf(label: string): Topic {
-  for (const [topic, pattern] of TOPIC_PATTERNS) {
-    if (pattern.test(label)) return topic;
-  }
-  return "other";
-}
 
 export interface StandingAnswer {
   topic: string;
@@ -253,6 +213,16 @@ export async function coverage(form: ApplicationForm): Promise<Coverage> {
       };
     }
 
+    if (field.kind === "consent") {
+      return {
+        label: field.label,
+        required: field.required,
+        kind: field.kind,
+        from: null,
+        missing: "A consent. Left untouched unless the person ticks it themselves.",
+      };
+    }
+
     return {
       label: field.label,
       required: field.required,
@@ -271,6 +241,14 @@ export async function coverage(form: ApplicationForm): Promise<Coverage> {
       blank is a complete answer, and listing it as an outstanding task
       would be the app nagging someone to disclose their disability status.
     */
-    needsYou: fields.filter((field) => field.from === null && field.kind !== "eeo"),
+    /*
+      Self-identification and consent ticks are left out of "needs you" on
+      purpose: in both cases doing nothing is a complete answer. Listing
+      them would be the app nagging someone to disclose a disability, or
+      carrying a company's marketing request to them once per application.
+    */
+    needsYou: fields.filter(
+      (field) => field.from === null && field.kind !== "eeo" && field.kind !== "consent",
+    ),
   };
 }

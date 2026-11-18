@@ -13,6 +13,7 @@ import { homeLocation, matchBar, setMatchBar } from "../settings.js";
 import { importPosting } from "../importing.js";
 import { formForJob } from "../apply/read.js";
 import { describe as describeForm } from "../apply/form.js";
+import { startApplication } from "../apply/start.js";
 import {
   coverage,
   listStandingAnswers,
@@ -239,6 +240,13 @@ const selfIdStatusTool = tool(
       note: "Values are never shown to the assistant. They are filled into forms by the app itself.",
     })),
   { annotations: { readOnlyHint: true } },
+);
+
+const startApplicationTool = tool(
+  "start_application",
+  "Begin applying for a job. Moves it to 'applying', reads the application form, finds anything already drafted for it, and hands back what is left to do in order. Call this first when someone decides to apply, rather than drafting straight away: a letter written before the form was read answers questions nobody asked, and a second resume written without reading the first quietly replaces their edits. It writes nothing and submits nothing — the resume and the letter are yours to draft afterwards, and the person sends the application themselves.",
+  { job_id: z.number().int() },
+  async (args) => guard(async () => await startApplication(args.job_id)),
 );
 
 const coverageTool = tool(
@@ -492,6 +500,7 @@ export const jobsearchServer = createSdkMcpServer({
     syncBoardsTool,
     importPostingTool,
     applicationFormTool,
+    startApplicationTool,
     coverageTool,
     standingAnswersTool,
     setStandingAnswerTool,

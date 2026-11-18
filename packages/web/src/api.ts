@@ -17,6 +17,11 @@ export interface Job {
 
 export interface JobDetail extends Job {
   history: { from_status: string | null; to_status: string; note: string | null; at: string }[];
+  /** What has been written for this application. */
+  drafts: {
+    resumes: { id: number; label: string | null }[];
+    cover_letters: { id: number }[];
+  };
 }
 
 export interface Application {
@@ -82,7 +87,7 @@ export interface FormField {
   label: string;
   type: string;
   required: boolean;
-  kind: "identity" | "document" | "link" | "standing" | "eeo" | "custom";
+  kind: "identity" | "document" | "link" | "standing" | "eeo" | "consent" | "custom";
   options?: string[];
   ref?: string;
 }

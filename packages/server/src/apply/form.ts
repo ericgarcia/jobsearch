@@ -35,9 +35,21 @@ export type FieldType =
  *   eeo       voluntary self-identification. Never answered by the agent,
  *             never inferred from a name or a history, and filled only from
  *             what the person typed about themselves.
+ *   consent   a tick giving the company permission for something, usually
+ *             marketing. Never ticked by anything but the person, and never
+ *             put on a list of things they have left to do: not ticking it
+ *             is the answer, and an app that asked about every one of these
+ *             would be carrying a company's marketing request for it.
  *   custom    this employer's own question, drafted and then reviewed.
  */
-export type FieldKind = "identity" | "document" | "link" | "standing" | "eeo" | "custom";
+export type FieldKind =
+  | "identity"
+  | "document"
+  | "link"
+  | "standing"
+  | "eeo"
+  | "consent"
+  | "custom";
 
 export interface FormField {
   label: string;
@@ -75,14 +87,80 @@ export interface ApplicationForm {
   answered. Stems match forward; the few terms that need an exact ending
   keep their own boundary.
 */
+/*
+  The situation questions, and what each one is about.
+
+  These live here, beside the classification, because they are the same
+  judgement: a field is a standing answer exactly when it is about one of
+  these topics. Keeping two lists meant they drifted — "Current company" was
+  a topic the store knew and the classifier did not, so the answer was there
+  and the field was never matched to it.
+
+  The order matters and is load-bearing. Almost every sponsorship question
+  mentions authorisation — "sponsorship to retain or extend your work
+  authorization" — and the two have opposite meanings, so sponsorship is
+  tried first.
+*/
+export const TOPICS = [
+  "sponsorship",
+  "work_authorization",
+  "relocation",
+  "onsite",
+  "notice_period",
+  "start_date",
+  "salary",
+  "current_company",
+] as const;
+
+export type Topic = (typeof TOPICS)[number] | "other";
+
+/** What the app calls each one when it asks. */
+export const TOPIC_QUESTIONS: Record<(typeof TOPICS)[number], string> = {
+  sponsorship: "Will you need visa sponsorship, now or later?",
+  work_authorization: "Are you legally authorised to work where the job is?",
+  relocation: "Are you willing to relocate?",
+  onsite: "How many days a week can you be in an office?",
+  notice_period: "What notice do you have to give?",
+  start_date: "When could you start?",
+  salary: "What are you looking for in pay?",
+  current_company: "Where do you work now?",
+};
+
+const TOPIC_PATTERNS: [(typeof TOPICS)[number], RegExp][] = [
+  ["sponsorship", /\b(?:sponsor|visa)/i],
+  ["work_authorization", /\b(?:authoriz|authoris|right to work|work permit|eligible to work)/i],
+  ["relocation", /\brelocat|willing to move/i],
+  [
+    "onsite",
+    /\b(?:in[-\s]?person|in[-\s]?(?:an\s)?office|on[-\s]?site|hybrid|days? (?:a|per) week)/i,
+  ],
+  ["notice_period", /\bnotice\b/i],
+  ["start_date", /\b(?:start date|available to start|when (?:could|can) you start|earliest start)/i],
+  ["salary", /\b(?:salar|compensation|desired pay|pay expectation|looking for in pay)/i],
+  ["current_company", /\b(?:current (?:company|employer)|present employer|where do you work)/i],
+];
+
+/** Which situation question a field is asking, if it is one. */
+export function topicOf(label: string): Topic {
+  for (const [topic, pattern] of TOPIC_PATTERNS) {
+    if (pattern.test(label)) return topic;
+  }
+  return "other";
+}
+
+/*
+  Self-identification is tested before anything else and on its own, because
+  being wrong about it is the expensive direction: a question about someone's
+  disability or race treated as the employer's own is a question something
+  will answer.
+*/
+const EEO =
+  /\b(?:gender|sex\b|race\b|racial|ethnic|hispanic|latin|veteran|disabilit|self[-\s]?identif|eeoc?\b|protected (?:class|veteran)|pronoun)/i;
+
 const PATTERNS: [FieldKind, RegExp][] = [
   [
-    "eeo",
-    /\b(?:gender|sex\b|race\b|racial|ethnic|hispanic|latin|veteran|disabilit|self[-\s]?identif|eeoc?\b|protected (?:class|veteran)|pronoun)/i,
-  ],
-  [
-    "standing",
-    /\b(?:authoriz|authoris|sponsor|visa\b|work permit|right to work|relocat|willing to (?:move|travel)|notice period|start date|available to start|salar|compensation|desired pay|in[-\s]?person|in[-\s]?office|hybrid|on[-\s]?site|days? (?:a|per) week)/i,
+    "consent",
+    /\b(?:consent|opt[-\s]?in|marketing email|subscribe|keep me informed|future (?:roles|opportunities))/i,
   ],
   [
     "document",
@@ -100,6 +178,21 @@ const PATTERNS: [FieldKind, RegExp][] = [
 
 export function classify(label: string): FieldKind {
   const text = label.trim();
+
+  if (EEO.test(text)) return "eeo";
+
+  /*
+    Then the situation questions, before the rest.
+
+    A field is a standing answer exactly when it asks about one of the topics
+    above — one list, so the two cannot disagree. It has to be tested before
+    the identity patterns: "are you legally authorized to work in the country
+    where the job is located" contains the word country, and matching that
+    first made a question about someone's right to work look like a question
+    about their address.
+  */
+  if (topicOf(text) !== "other") return "standing";
+
   for (const [kind, pattern] of PATTERNS) {
     if (pattern.test(text)) return kind;
   }
@@ -131,6 +224,13 @@ export function describe(form: ApplicationForm): string {
     parts.push(
       `${custom.length} question${custom.length === 1 ? "" : "s"} of their own: ` +
         `${custom.map((field) => field.label).join(" / ")}.`,
+    );
+  }
+
+  const consents = of("consent");
+  if (consents.length > 0) {
+    parts.push(
+      `${consents.length} consent tick${consents.length === 1 ? "" : "s"}, left alone unless you ask.`,
     );
   }
 

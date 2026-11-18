@@ -633,7 +633,26 @@ app.get("/api/jobs/:id", async (request, reply) => {
   const id = Number((request.params as { id: string }).id);
   const job = await repo.getJob(id);
   if (!job) return reply.code(404).send({ error: `No job with id ${id}` });
-  return { ...job, history: repo.applicationHistory(id) };
+  /*
+    The drafts written for this application, with it. They were always tied
+    to the job in the database and reachable only from the Drafts tab, where
+    a resume for one posting looks like a resume for any other.
+  */
+  const [resumes, letters] = await Promise.all([
+    resume.listResumes(id),
+    resume.listCoverLetters(id),
+  ]);
+  return {
+    ...job,
+    history: repo.applicationHistory(id),
+    drafts: {
+      resumes: (resumes as { id: number; label: string | null }[]).map((row) => ({
+        id: row.id,
+        label: row.label,
+      })),
+      cover_letters: letters.map((row) => ({ id: row.id })),
+    },
+  };
 });
 
 app.get("/api/applications", async (request) => {

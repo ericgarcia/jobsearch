@@ -6,11 +6,15 @@ export function JobDetail({
   statuses,
   onClose,
   onChanged,
+  onOpenResume,
+  onOpenLetter,
 }: {
   jobId: number;
   statuses: string[];
   onClose: () => void;
   onChanged: () => void;
+  onOpenResume: (id: number) => void;
+  onOpenLetter: (id: number) => void;
 }) {
   const [job, setJob] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -141,6 +145,7 @@ export function JobDetail({
                 ["document", "Documents"],
                 ["standing", "About your situation"],
                 ["custom", "Their own questions"],
+                ["consent", "Consents, left alone"],
                 ["eeo", "Voluntary, and yours alone"],
                 ["identity", "From your profile"],
                 ["link", "Links"],
@@ -162,6 +167,27 @@ export function JobDetail({
                 </div>
               );
             })}
+          </div>
+        )}
+        {(job.drafts.resumes.length > 0 || job.drafts.cover_letters.length > 0) && (
+          /*
+            What has been written for this application, next to the
+            application. These were always stored against the job and shown
+            only in Drafts, where a resume for one posting is indistinguishable
+            from a resume for another.
+          */
+          <div className="job-drafts">
+            <span className="job-drafts-head">Written for this application</span>
+            {job.drafts.resumes.map((draft) => (
+              <button className="ghost" key={`r${draft.id}`} onClick={() => onOpenResume(draft.id)}>
+                {draft.label ?? `Resume ${draft.id}`}
+              </button>
+            ))}
+            {job.drafts.cover_letters.map((draft) => (
+              <button className="ghost" key={`c${draft.id}`} onClick={() => onOpenLetter(draft.id)}>
+                Cover letter
+              </button>
+            ))}
           </div>
         )}
         {job.fit_score != null && (

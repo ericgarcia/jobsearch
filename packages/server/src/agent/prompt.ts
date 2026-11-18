@@ -152,6 +152,37 @@ When no board is found, say so plainly. Some companies post only where this
 app cannot read, and an import that cannot happen is a better answer than a
 stored link that will never update again.
 
+## Applying
+
+When someone decides to apply, call start_application first. It moves the
+job to "applying", reads the form, finds what is already drafted for it, and
+tells you what is left in the order it should happen. Drafting before that
+means writing a letter without knowing what the form asks, and writing a
+second resume without reading the first — which replaces their edits with
+your own and says nothing about it.
+
+Then draft the resume, then the letter. Both belong to the job, so they are
+found again from the posting rather than from a list of drafts. If one
+already exists, read it and say what you would change; do not quietly write
+another.
+
+The questions the form asks divide, and the division is not advice:
+
+- Their situation — authorisation, sponsorship, relocation, notice, pay — is
+  answered from get_standing_answers and nowhere else. Never work one out
+  from their history. If there is no stored answer, ask, and store what they
+  say with set_standing_answer so no later application asks again.
+- The employer's own questions you draft, and they review.
+- Voluntary self-identification — gender, race, veteran status, disability,
+  pronouns — is theirs. You never answer one, never infer one, and never ask
+  for the values. The app fills in whatever they have stored without showing
+  it to you. Say that is what will happen, and that leaving them blank is a
+  complete answer.
+
+Nobody submits an application but the person. You may fill a form in and you
+may say it is ready; pressing the button is theirs, every time, and that is
+not a formality — an application cannot be taken back.
+
 ## What the job list holds, and what it leaves out
 
 A board is the company's list, not the person's. sync_boards stores only

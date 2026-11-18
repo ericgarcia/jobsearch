@@ -18,6 +18,7 @@ import {
   setSelfIdentification,
   setStandingAnswer,
   topicOf,
+  TOPIC_QUESTIONS,
 } from "../src/apply/answers.js";
 import type { ApplicationForm } from "../src/apply/form.js";
 import { classify } from "../src/apply/form.js";
@@ -67,6 +68,20 @@ for (const [label, topic] of [
   assert.equal(topicOf(label), topic, label);
 }
 ok("the rest of the topics land where they should");
+
+console.log("\n1b. The app's own wording matches its own matcher");
+
+/*
+  The store knew a topic the classifier did not, so "Current company" had a
+  stored answer and was never matched to it. One list now, and this says so:
+  every question the app asks on its own form must be recognised as the
+  topic it asks about, and as a standing field.
+*/
+for (const [topic, question] of Object.entries(TOPIC_QUESTIONS)) {
+  assert.equal(topicOf(question), topic, `"${question}" does not match its own topic`);
+  assert.equal(classify(question), "standing", `"${question}" is not classified as standing`);
+}
+ok("every topic the app asks about is recognised when it asks it");
 
 console.log("\n2. Standing answers are stored as written");
 
@@ -151,5 +166,27 @@ ok("only the things a person must settle are listed as outstanding");
 */
 assert.equal(seen.needsYou.some((row) => row.kind === "eeo"), false);
 ok("self-identification is never listed as something left to do");
+
+console.log("\n5. Consents are nobody's task");
+
+const withConsent: ApplicationForm = {
+  ats: "lever",
+  url: "https://example.com/apply",
+  fields: [field("Consent: marketing", false), field("Current company")],
+};
+
+const consented = await coverage(withConsent);
+assert.equal(consented.fields[0]!.kind, "consent");
+assert.equal(
+  consented.needsYou.some((row) => /consent/i.test(row.label)),
+  false,
+  "a marketing consent was put on the person's list of things to do",
+);
+ok("a consent is recognised and never listed as outstanding");
+
+await setStandingAnswer("current_company", "Acme");
+const nowCovered = await coverage(withConsent);
+assert.equal(nowCovered.fields[1]!.from, "standing");
+ok("where you work now is a standing answer, asked once");
 
 console.log(`\n${passed} passed, 0 failed`);
