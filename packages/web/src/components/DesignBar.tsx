@@ -343,6 +343,35 @@ const FIELD_NAMES: Record<string, string> = {
   "interests-note": "note",
 };
 
+/**
+ * The opening of a question about what is selected.
+ *
+ * A reference, not a transcript. The agent reads which section, row and
+ * line are selected from the app's own state, so this only has to say what
+ * the person is pointing at — and then stop, with the caret where they will
+ * write what they actually want done.
+ */
+function question(
+  surface: "profile" | "resume",
+  kind: string,
+  selection: Selection | null,
+  drafts: ResumeSummary[],
+  draftId: number | null,
+): string {
+  const what = selection?.field ? (FIELD_NAMES[selection.field] ?? selection.field) : kind;
+  const draft = drafts.find((one) => one.id === draftId);
+  const where =
+    surface === "profile"
+      ? "my profile"
+      : draft
+        ? `my ${draft.label ?? draft.company ?? `draft ${draft.id}`} resume`
+        : "my resume";
+
+  return selection?.text
+    ? `About the ${what} in ${where} — "${selection.text}" — `
+    : `About the ${what} in ${where}: `;
+}
+
 /* ----------------------------------------------------------------- bar */
 
 export function DesignBar({
@@ -359,6 +388,7 @@ export function DesignBar({
   drafts,
   draftId,
   onDraft,
+  onAsk,
   children,
 }: {
   surface: "profile" | "resume";
@@ -375,6 +405,8 @@ export function DesignBar({
   drafts: ResumeSummary[];
   draftId: number | null;
   onDraft: (id: number | null) => void;
+  /** Start a question about the selection, for the person to finish. */
+  onAsk?: (text: string) => void;
   /** The export control, which belongs to the surface rather than the bar. */
   children?: ReactNode;
 }) {
@@ -502,6 +534,15 @@ export function DesignBar({
                 ↓
               </button>
             </div>
+
+            {onAsk && (
+              <button
+                className="ghost"
+                onClick={() => onAsk(question(surface, chosen.kind, selection, drafts, draftId))}
+              >
+                Ask about this
+              </button>
+            )}
 
             <button className="ghost" onClick={() => replace(index, { ...chosen, visible: false })}>
               Hide

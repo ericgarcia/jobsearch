@@ -15,7 +15,7 @@ import { Chat } from "./components/Chat.tsx";
 import { Profile } from "./components/Profile.tsx";
 import { LayoutEditor } from "./components/LayoutEditor.tsx";
 import { Projects } from "./components/Projects.tsx";
-import { useReportState } from "./reportState.ts";
+import { useReportState, type SelectionReport } from "./reportState.ts";
 import { Boards } from "./components/Boards.tsx";
 import {
   adoptStage,
@@ -192,6 +192,16 @@ export function App() {
   const [surface, setSurface] = useState<string | null>(null);
 
   /*
+    What the Design tab has hold of, reported so the agent can act on
+    "this one" — and so "tighten this" means the bullet under the cursor
+    rather than whatever was open last.
+  */
+  const [designSelection, setDesignSelection] = useState<SelectionReport | null>(null);
+  const [designDraft, setDesignDraft] = useState<number | null>(null);
+  /** A question seeded into the assistant's box, with the time it was asked. */
+  const [ask, setAsk] = useState<{ text: string; at: number } | null>(null);
+
+  /*
     Whether this window is a split with a site in the other half.
 
     While it is, the left pane is the whole app, and the only thing worth
@@ -277,7 +287,14 @@ export function App() {
   */
   useReportState({
     tab,
-    selected: { job: selected, resume: openResume, coverLetter: openLetter, surface },
+    selected: {
+      job: selected,
+      resume: openResume,
+      coverLetter: openLetter,
+      surface,
+      draft: designDraft,
+      selection: designSelection,
+    },
   });
 
   /** Changing tab closes whatever overlay is open, so the new tab is visible. */
@@ -659,6 +676,7 @@ export function App() {
           onDataChanged={loadData}
           splitId={hasSplit ? splitId : null}
           threadId={threadId}
+          ask={ask}
           onOpenJob={(id) => {
             // The canvas, not the pane: this is a posting we hold, not a
             // page on the web. If the app is in a split it comes back first.
@@ -857,7 +875,12 @@ export function App() {
           {tab === "projects" ? (
             <Projects />
           ) : tab === "design" ? (
-            <LayoutEditor onSurface={setSurface} />
+            <LayoutEditor
+              onSurface={setSurface}
+              onSelection={setDesignSelection}
+              onDraft={setDesignDraft}
+              onAsk={(text) => setAsk({ text, at: Date.now() })}
+            />
           ) : tab === "boards" ? (
             <Boards place={place} includeRemote={includeRemote} onChanged={loadData} />
           ) : tab === "profile" ? (

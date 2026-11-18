@@ -70,7 +70,19 @@ function ExportPdf() {
   );
 }
 
-export function LayoutEditor({ onSurface }: { onSurface?: (surface: Surface) => void }) {
+export function LayoutEditor({
+  onSurface,
+  onSelection,
+  onDraft,
+  onAsk,
+}: {
+  onSurface?: (surface: Surface) => void;
+  /** Reported upward so the agent can be told what "this" is. */
+  onSelection?: (selection: Selection | null) => void;
+  onDraft?: (id: number | null) => void;
+  /** Put a question about the selection in the assistant's box. */
+  onAsk?: (text: string) => void;
+}) {
   const [surface, setSurface] = useState<Surface>("resume");
 
   // Reported upward so the agent can be told which of the two is on screen.
@@ -138,6 +150,11 @@ export function LayoutEditor({ onSurface }: { onSurface?: (surface: Surface) => 
     must not be.
   */
   useEffect(() => setSelection(null), [draftId]);
+
+  // Both reported upward, for the same reason the surface is: so that what
+  // the agent is told matches what is on the screen.
+  useEffect(() => onSelection?.(selection), [selection, onSelection]);
+  useEffect(() => onDraft?.(draftId), [draftId, onDraft]);
 
   useEffect(() => {
     setPages(null);
@@ -286,6 +303,7 @@ export function LayoutEditor({ onSurface }: { onSurface?: (surface: Surface) => 
         drafts={drafts}
         draftId={draftId}
         onDraft={setDraftId}
+        onAsk={onAsk}
       >
         {surface === "resume" ? (
           <ExportPdf />
