@@ -212,6 +212,88 @@ assert.equal(twice.education, 0);
 assert.equal((await profile.listRoles()).length, 1);
 ok("the same company and title is skipped, and so is the school");
 
+console.log("\n5b. A role can come in without the lines that are not achievements");
+
+/*
+  What the first real document showed. A LinkedIn export put eleven lines
+  under one job, of which one was something the person had done; the rest was
+  the company describing itself — "We charge by the deliverable, not the
+  hour." All-or-nothing meant importing that and deleting it afterwards.
+
+  Choosing by number keeps the promise: which of their sentences may land is
+  a decision, what the sentences say is not.
+*/
+const mixed = await stash({
+  ...empty,
+  roles: [
+    {
+      company: "MuffinLabs",
+      title: "Founder",
+      bullets: [
+        "MuffinLabs offers:",
+        "We charge by the deliverable, not the hour.",
+        "Recent work: shipped a retrieval system handling 40k queries a day.",
+      ],
+    },
+  ],
+});
+
+const trimmed = await applyImport(mixed, { roles: [{ index: 0, bullets: [2] }], profile: false });
+assert.equal(trimmed.roles, 1);
+assert.equal(trimmed.bullets, 1);
+assert.equal(trimmed.bullets_left, 2);
+ok("the role lands with the one line that was an achievement");
+
+const muffin = (await profile.listRoles()).find((role) => role.company === "MuffinLabs")!;
+assert.deepEqual(
+  (await profile.listBullets(muffin.id)).map((bullet) => bullet.text),
+  ["Recent work: shipped a retrieval system handling 40k queries a day."],
+);
+ok("and the sales copy is not in the profile at all, not even briefly");
+
+const whole = await stash({
+  ...empty,
+  roles: [{ company: "Preact", title: "Founding ML Engineer", bullets: ["a", "b"] }],
+});
+const both = await applyImport(whole, { roles: [0], profile: false });
+assert.equal(both.bullets, 2);
+assert.equal(both.bullets_left, 0);
+ok("a role named as a plain number still comes in whole");
+
+const none = await stash({
+  ...empty,
+  roles: [{ company: "NuMundo", title: "CTO", bullets: ["x", "y"] }],
+});
+const bare = await applyImport(none, { roles: [{ index: 0, bullets: [] }], profile: false });
+assert.equal(bare.roles, 1);
+assert.equal(bare.bullets, 0);
+assert.equal(bare.bullets_left, 2);
+ok("and a role can come in with none of them, which is not the same as not coming in");
+
+console.log("\n5c. Their own summary is not a list of achievements");
+
+/*
+  The root of the same bug. An About section is one piece of prose about a
+  person; putting it under a job makes it read as things they did there.
+*/
+const about = await stash({
+  ...empty,
+  summary: "I build production ML systems and have done since 2012.",
+});
+const withSummary = await applyImport(about);
+assert.ok(withSummary.profile.includes("summary"));
+assert.equal(
+  (await profile.getProfile()).summary,
+  "I build production ML systems and have done since 2012.",
+);
+ok("it lands on the profile, where it belongs");
+
+const other = await stash({ ...empty, summary: "Something they did not write." });
+const kept = await applyImport(other);
+assert.equal(kept.profile.includes("summary"), false);
+assert.match((await profile.getProfile()).summary ?? "", /since 2012/);
+ok("and a second import does not replace one they already have");
+
 console.log("\n6. Only the parts they asked for");
 
 const third = await stash({

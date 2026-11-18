@@ -48,6 +48,18 @@ import * as profile from "./profile.js";
 export type ImportSource = "resume" | "linkedin" | "pasted";
 
 export interface Proposed {
+  /**
+   * Their own summary of themselves — LinkedIn's "About", a resume's opening
+   * paragraph.
+   *
+   * Its own field because the first real import put it in a role's bullets.
+   * Eleven lines of "MuffinLabs offers:" and "We charge by the deliverable,
+   * not the hour." became achievements under a job, which is both wrong and
+   * the kind of wrong that gets quoted back to an employer as a thing they
+   * did. It is one piece of prose about a person, not a list of what they
+   * accomplished somewhere.
+   */
+  summary?: string;
   profile: {
     name?: string;
     headline?: string;
@@ -93,6 +105,19 @@ field that looks already filled in.
 - Copy bullets and descriptions word for word. Do not rewrite them, do not
   shorten them, do not improve them, do not merge two into one. They are the
   person's own sentences and they will be quoted to employers as such.
+- A profile's opening section — LinkedIn calls it "About", a resume calls it a
+  summary or a profile — goes in "summary", copied as written. It is one piece
+  of prose and it belongs to the person, not to whichever job is printed next
+  to it. Put it in "summary" even when it reads as marketing for their own
+  company, and *especially* then: that is the case where it would otherwise be
+  mistaken for a list of things they did at work. Never put any of it in a
+  role's bullets. Never drop it.
+- A role's bullets are what the person did there. What a company sells is not
+  that. A line like "We charge by the deliverable, not the hour", a heading
+  like "What we offer:", or a list of services is the business describing
+  itself: it is part of the summary if it came from the opening section, and
+  otherwise it is left out. Say in "unsure" what you left out of a role and
+  why, so they can disagree.
 - A date the document does not give is omitted, not estimated. Keep the
   document's own form — "2019", "Mar 2019", "2019-03" — rather than
   normalising it.
@@ -422,7 +447,10 @@ function vetted(reply: unknown): Proposed {
     })
     .filter((skill): skill is NonNullable<typeof skill> => skill !== null);
 
+  const summary = line(given.summary, 4000);
+
   return {
+    ...(summary ? { summary } : {}),
     profile: {
       ...(line(asProfile.name, 200) ? { name: line(asProfile.name, 200)! } : {}),
       ...(line(asProfile.headline, 300) ? { headline: line(asProfile.headline, 300)! } : {}),
@@ -634,18 +662,35 @@ export async function listImports(): Promise<Import[]> {
   return rows.map(importOf);
 }
 
-/** Which parts of a proposal to take. Everything, unless something is named. */
+/**
+ * Which parts of a proposal to take. Everything, unless something is named.
+ *
+ * Roles go down to the bullet. The first version took whole roles or none,
+ * and the first real document showed why that is not enough: a LinkedIn
+ * export put eleven lines of a company's sales copy under one job, of which
+ * one was an actual achievement. All-or-nothing meant either losing the role
+ * or importing the sales copy and deleting it afterwards.
+ *
+ * Choosing by number keeps the promise intact. A caller says which of the
+ * sentences that were read may land; it never says what they are. Nothing a
+ * caller sends becomes text in the profile.
+ */
 export interface Choices {
   profile?: boolean;
-  roles?: number[];
+  /** Each role to take, and which of its bullets. Omit `bullets` for all. */
+  roles?: (number | { index: number; bullets?: number[] })[];
   education?: number[];
   skills?: number[];
   facts?: number[];
+  /** False to leave their summary alone. */
+  summary?: boolean;
 }
 
 export interface Applied {
   roles: number;
   bullets: number;
+  /** Bullets that were read and deliberately not kept. */
+  bullets_left: number;
   education: number;
   skills: number;
   facts: number;
@@ -670,7 +715,25 @@ export async function applyImport(id: number, choices: Choices = {}): Promise<Ap
   const wanted = (chosen: number[] | undefined, index: number) =>
     chosen === undefined || chosen.includes(index);
 
-  const applied: Applied = { roles: 0, bullets: 0, education: 0, skills: 0, facts: 0, profile: [] };
+  /* A role named as a bare number means all of it; as an object, some of it. */
+  const asked = new Map<number, number[] | undefined>();
+  for (const entry of stored.proposal.roles.keys()) {
+    if (choices.roles === undefined) asked.set(entry, undefined);
+  }
+  for (const entry of choices.roles ?? []) {
+    if (typeof entry === "number") asked.set(entry, undefined);
+    else asked.set(entry.index, entry.bullets);
+  }
+
+  const applied: Applied = {
+    roles: 0,
+    bullets: 0,
+    bullets_left: 0,
+    education: 0,
+    skills: 0,
+    facts: 0,
+    profile: [],
+  };
 
   if (choices.profile !== false) {
     const now = await profile.getProfile();
@@ -712,9 +775,23 @@ export async function applyImport(id: number, choices: Choices = {}): Promise<Ap
     if (Object.keys(patch).length > 0) await profile.updateProfile(patch);
   }
 
+  /*
+    Their summary, and only into an empty one. It is the longest thing an
+    import proposes and the most likely to be something they have already
+    written better themselves.
+  */
+  if (choices.summary !== false && stored.proposal.summary) {
+    const now = await profile.getProfile();
+    if (!now.summary) {
+      await profile.updateProfile({ summary: stored.proposal.summary });
+      applied.profile.push("summary");
+    }
+  }
+
   const already = await profile.listRoles();
   for (const [index, role] of stored.proposal.roles.entries()) {
-    if (!wanted(choices.roles, index)) continue;
+    if (!asked.has(index)) continue;
+    const keep = asked.get(index);
     /*
       The same job twice is a duplicate, not a second job. An import run a
       second time — a resume, then the LinkedIn export of the same career —
@@ -739,7 +816,11 @@ export async function applyImport(id: number, choices: Choices = {}): Promise<Ap
       sort_order: index,
     });
     applied.roles += 1;
-    for (const bullet of role.bullets) {
+    for (const [at, bullet] of role.bullets.entries()) {
+      if (keep !== undefined && !keep.includes(at)) {
+        applied.bullets_left += 1;
+        continue;
+      }
       await profile.addBullet(written.id, bullet);
       applied.bullets += 1;
     }

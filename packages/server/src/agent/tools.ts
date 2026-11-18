@@ -400,11 +400,26 @@ const importProfileTool = tool(
 
 const applyImportTool = tool(
   "apply_import",
-  "Store what they accepted from a document you read with import_profile. Pass the import id, and the indexes of the items they wanted if they did not want everything — leave a list out to take all of it, pass an empty list to take none of that kind. The text that lands is copied from what was read, never from this call, so you cannot change a bullet on the way in. Nothing already in the profile is overwritten: a field they have filled in stands, and the document's version is skipped.",
+  "Store what they accepted from a document you read with import_profile. Pass the import id, and name what they wanted: leave a list out to take all of that kind, pass an empty list to take none. Roles go down to the bullet — {\"index\": 1, \"bullets\": [0, 4]} keeps that role with only those two of its lines, and a bare number keeps the role whole. Use that rather than importing filler and deleting it afterwards: an export often puts a company's About text or its sales copy under a job, and those are not things the person did. Say which lines you are leaving out and why, and let them disagree before you call this. The text that lands is copied from what was read, never from this call, so you can choose which of their sentences to keep but you cannot change one — if a line is wrong rather than unwanted, import it and they can edit it on their profile page.",
   {
     import_id: z.number().int(),
     profile: z.boolean().optional().describe("False to leave their contact details alone"),
-    roles: z.array(z.number().int()).optional().describe("Indexes of the roles to keep"),
+    summary: z.boolean().optional().describe("False to leave their About text out"),
+    roles: z
+      .array(
+        z.union([
+          z.number().int(),
+          z.object({
+            index: z.number().int(),
+            bullets: z
+              .array(z.number().int())
+              .optional()
+              .describe("Which of that role's bullets to keep, by number. Omit for all."),
+          }),
+        ]),
+      )
+      .optional()
+      .describe("The roles to keep, whole or by bullet"),
     education: z.array(z.number().int()).optional(),
     skills: z.array(z.number().int()).optional(),
     facts: z.array(z.number().int()).optional().describe("Indexes of the answers to put on file"),
@@ -413,6 +428,7 @@ const applyImportTool = tool(
     guard(async () => {
       const applied = await applyImport(args.import_id, {
         ...(args.profile !== undefined ? { profile: args.profile } : {}),
+        ...(args.summary !== undefined ? { summary: args.summary } : {}),
         ...(args.roles ? { roles: args.roles } : {}),
         ...(args.education ? { education: args.education } : {}),
         ...(args.skills ? { skills: args.skills } : {}),
@@ -420,7 +436,9 @@ const applyImportTool = tool(
       });
       return {
         applied,
-        note: "Stored. Say what went in and what was skipped because something was already there.",
+        note:
+          "Stored. Say what went in, what was skipped because something was already there, and how many lines you " +
+          "left out of which roles — they agreed to that, so it should be visible rather than quietly done.",
       };
     }),
 );
