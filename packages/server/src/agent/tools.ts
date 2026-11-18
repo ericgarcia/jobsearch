@@ -11,6 +11,8 @@ import { evaluateCompanies } from "../discover.js";
 import { getInterests, setInterests } from "../interests.js";
 import { homeLocation, matchBar, setMatchBar } from "../settings.js";
 import { importPosting } from "../importing.js";
+import { formForJob } from "../apply/read.js";
+import { describe as describeForm } from "../apply/form.js";
 import { assessTopJobs, ASSESS_MODEL } from "../assess.js";
 import { SOURCES } from "../sources/index.js";
 import { profileTools, PROFILE_MUTATING } from "./profileTools.js";
@@ -184,6 +186,18 @@ const importPostingTool = tool(
       .describe("Also follow the company's board. Ask first for a large company."),
   },
   async (args) => guard(async () => await importPosting(args)),
+);
+
+const applicationFormTool = tool(
+  "application_form",
+  "What a job's application will ask for, read from the board without opening a browser. Answers with every field, whether it is required, and who the answer belongs to: identity and link fields come from the profile, documents are the resume and cover letter this app produces, standing fields are the ones that are the same at every company and are legally significant — work authorization, sponsorship, relocation, notice, pay — custom fields are that employer's own questions, and eeo fields are voluntary self-identification. Use it to tell someone what an application needs before they start, or to compare several. Never answer an eeo field, and never infer one: they are the person's alone.",
+  { job_id: z.number().int().describe("The job id, from search_jobs or a card") },
+  async (args) =>
+    guard(async () => {
+      const form = await formForJob(args.job_id);
+      return { ...form, summary: describeForm(form) };
+    }),
+  { annotations: { readOnlyHint: true } },
 );
 
 const matchBarTool = tool(
@@ -424,6 +438,7 @@ export const jobsearchServer = createSdkMcpServer({
     addCompaniesByName,
     syncBoardsTool,
     importPostingTool,
+    applicationFormTool,
     matchBarTool,
     getMatchBarTool,
     rankJobs,

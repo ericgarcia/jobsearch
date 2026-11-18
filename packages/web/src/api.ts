@@ -78,6 +78,22 @@ export interface Setup {
   links: Record<CredentialKind, string>;
 }
 
+export interface FormField {
+  label: string;
+  type: string;
+  required: boolean;
+  kind: "identity" | "document" | "link" | "standing" | "eeo" | "custom";
+  options?: string[];
+  ref?: string;
+}
+
+export interface ApplicationForm {
+  ats: string;
+  url: string;
+  fields: FormField[];
+  summary: string;
+}
+
 export interface SyncReport {
   company: string;
   ats: string;
@@ -388,6 +404,9 @@ export const api = {
   */
   saveLayout: (id: number, patch: { spec?: unknown; tokens?: Record<string, string>; name?: string }) =>
     json<Layout>(`/api/layouts/${id}`, { method: "PUT", body: JSON.stringify(patch) }),
+
+  applicationForm: (jobId: number) =>
+    json<ApplicationForm>(`/api/jobs/${jobId}/application-form`),
 
   prefs: () => json<{ home_location: string | null }>("/api/prefs"),
 

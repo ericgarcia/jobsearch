@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type JobDetail as Detail } from "../api.ts";
+import { api, type ApplicationForm, type JobDetail as Detail } from "../api.ts";
 
 export function JobDetail({
   jobId,
@@ -15,6 +15,33 @@ export function JobDetail({
   const [job, setJob] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /*
+    What applying will involve, read from the board on request.
+
+    Not on open: it is a live fetch to another company's site, and firing one
+    every time somebody glances at a posting would be both slow and rude.
+    Asked for when it is wanted, which is when applying is being considered.
+  */
+  const [form, setForm] = useState<ApplicationForm | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [reading, setReading] = useState(false);
+
+  useEffect(() => {
+    setForm(null);
+    setFormError(null);
+  }, [jobId]);
+
+  async function readForm() {
+    setReading(true);
+    setFormError(null);
+    try {
+      setForm(await api.applicationForm(jobId));
+    } catch (readError) {
+      setFormError((readError as Error).message);
+    } finally {
+      setReading(false);
+    }
+  }
 
   const load = () => {
     api
@@ -68,6 +95,11 @@ export function JobDetail({
           <a href={job.url} target="_blank" rel="noreferrer">
             Open posting ↗
           </a>
+          {!form && (
+            <button className="ghost" disabled={reading} onClick={() => void readForm()}>
+              {reading ? "Reading…" : "What does applying need?"}
+            </button>
+          )}
           <div style={{ flex: 1 }} />
           {job.status ? (
             <select
@@ -91,6 +123,47 @@ export function JobDetail({
       </div>
 
       <div className="scroll">
+        {formError && (
+          <div className="assessment" style={{ color: "var(--bad)" }}>
+            The application form could not be read: {formError}
+          </div>
+        )}
+        {form && (
+          /*
+            Grouped by who answers, because that is the thing worth knowing
+            before starting: what the app already has, what it will write,
+            what you have to decide once, and what is yours alone.
+          */
+          <div className="form-needs">
+            <div className="form-needs-head">{form.summary}</div>
+            {(
+              [
+                ["document", "Documents"],
+                ["standing", "About your situation"],
+                ["custom", "Their own questions"],
+                ["eeo", "Voluntary, and yours alone"],
+                ["identity", "From your profile"],
+                ["link", "Links"],
+              ] as const
+            ).map(([kind, heading]) => {
+              const group = form.fields.filter((field) => field.kind === kind);
+              if (group.length === 0) return null;
+              return (
+                <div className="form-group" key={kind}>
+                  <div className="form-group-head">{heading}</div>
+                  {group.map((field, index) => (
+                    <div className="form-field" key={`${field.ref ?? field.label}-${index}`}>
+                      <span className={`form-req${field.required ? " yes" : ""}`}>
+                        {field.required ? "required" : "optional"}
+                      </span>
+                      <span className="form-label">{field.label}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        )}
         {job.fit_score != null && (
           <div className="assessment">
             <b style={{ color: "var(--text)" }}>Fit {job.fit_score}/100</b>

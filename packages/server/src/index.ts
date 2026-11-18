@@ -21,6 +21,8 @@ import { assessTopJobs, ASSESS_MODEL } from "./assess.js";
 import { browserEnabled, runAgent, verifyCredential } from "./agent/session.js";
 import { APP_URL, SPLIT_EXTENSION_ID } from "./config.js";
 import { openStage } from "./agent/split.js";
+import { formForJob } from "./apply/read.js";
+import { describe as describeForm } from "./apply/form.js";
 import { pdfFilename, renderPdf } from "./layout/pdf.js";
 import { changed, onChange } from "./notify.js";
 import { clearState, reportState } from "./appState.js";
@@ -271,6 +273,21 @@ app.post("/api/split/open", async (_request, reply) => {
   } catch (error) {
     // A link that cannot be arranged still has to open. The page falls back.
     return reply.code(503).send({ error: (error as Error).message });
+  }
+});
+
+/**
+ * What a job's application asks for.
+ *
+ * Read live rather than stored: a form changes when the employer edits it,
+ * and a stale copy of what an application wants is worse than none.
+ */
+app.get("/api/jobs/:id/application-form", async (request, reply) => {
+  try {
+    const form = await formForJob(Number((request.params as { id: string }).id));
+    return { ...form, summary: describeForm(form) };
+  } catch (error) {
+    return reply.code(502).send({ error: (error as Error).message });
   }
 });
 
