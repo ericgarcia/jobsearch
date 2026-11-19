@@ -9,6 +9,31 @@
  */
 export type Answer = "use" | "leave" | "drop";
 
+/**
+ * The card a case was taken from, as a contract rather than a component.
+ *
+ * The server knows what the card was about and does not know what drew it,
+ * and this is what a test would be written against anyway.
+ */
+export interface Shape {
+  target: string;
+  action: string;
+  field: string;
+  answers: string[];
+  recommended: string;
+  had_value: boolean;
+}
+
+/** One case behind a want: what it saw, and what should have happened. */
+export interface WishCase {
+  id: number;
+  saw: string;
+  shape: Shape;
+  wanted: string;
+  expect: string;
+  at: string;
+}
+
 /** An answer type the assistant asked for and could not have. */
 export interface Wish {
   id: number;
@@ -17,6 +42,7 @@ export interface Wish {
   votes: number;
   first_at: string;
   last_at: string;
+  cases: WishCase[];
 }
 
 export interface Job {

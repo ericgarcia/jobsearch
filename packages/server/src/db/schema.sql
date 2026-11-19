@@ -600,6 +600,43 @@ CREATE TABLE IF NOT EXISTS wished_actions (
 );
 
 /*
+  The cases behind a want, which are what make it buildable.
+
+  "Somebody wanted splitting" is not a thing anyone can build or check. A
+  case is: here is the line as it stood, here is the card that was up, here
+  is what the assistant would have done to it, and here is what should be
+  true afterwards. That last part is an acceptance test written at the only
+  moment anybody knows what it was for — while the assistant is looking at
+  the case it cannot answer.
+
+  `shape` is the card's own contract as JSON — target, action, field, the
+  answers it offered, whether anything was stored — rather than the name of
+  whatever component drew it. The server knows the contract and does not
+  know the component tree, and a component path would be a guess that goes
+  stale at the next rename, while the target kind is what a test is written
+  against anyway.
+
+  Twelve per want. The first telling is usually the clearest and the recent
+  ones are the live ones; the repetitions in between say nothing a vote has
+  not already said.
+*/
+CREATE TABLE IF NOT EXISTS wish_cases (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  wish_id INTEGER NOT NULL REFERENCES wished_actions(id) ON DELETE CASCADE,
+  -- The text the card was about, as it stood.
+  saw     TEXT    NOT NULL,
+  -- The card's contract, as JSON. See wishes.ts.
+  shape   TEXT    NOT NULL,
+  -- What the assistant would have done, had the answer existed.
+  wanted  TEXT    NOT NULL,
+  -- What should be true afterwards: the test this case is waiting for.
+  expect  TEXT    NOT NULL,
+  at      TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS wish_cases_by_wish ON wish_cases (wish_id, at);
+
+/*
   The things still worth asking somebody about their profile, in order.
 
   This exists because of one screenshot. An import had been read, and the
