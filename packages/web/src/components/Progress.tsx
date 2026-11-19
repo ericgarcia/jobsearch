@@ -16,6 +16,9 @@ import { useChanges } from "../changes.ts";
  * when it empties. So this counts what is done out of what is known about
  * now, and says the two numbers plainly beside it rather than a percentage
  * that can go backwards on its own.
+ *
+ * It is there while there are questions and not otherwise. See the note
+ * below on the empty queue.
  */
 export function Progress({
   onContinue,
@@ -47,27 +50,30 @@ export function Progress({
   if (!counts) return null;
   const { left, settled, asking } = counts;
   const total = left + settled;
-  /* Nothing asked and nothing waiting is not a thing to show a bar for. */
-  if (total === 0) return null;
+
+  /*
+    Nothing left to ask, nothing to show.
+
+    It used to sit there full, saying "Profile up to date — all 31 answered",
+    which is a bar reporting on itself: there is no work behind it, no button
+    on it, and nothing it would move for. The top of the thread is the most
+    expensive strip on the screen, and a finished bar holds it to say that it
+    is finished. It comes back on its own when a question does — a new
+    import, or the queue refilling from the profile's gaps — because the
+    counts are reloaded whenever either changes.
+  */
+  if (left === 0) return null;
 
   const done = Math.round((settled / total) * 100);
 
   return (
     <div className="progress">
-      <span className="progress-name">
-        {left === 0 ? "Profile up to date" : "Updating profile"}
-      </span>
+      <span className="progress-name">Updating profile</span>
       <div className="progress-track" title={`${settled} answered, ${left} still to go`}>
         <div className="progress-done" style={{ width: `${done}%` }} />
       </div>
       <span className="progress-count">
-        {left === 0 ? (
-          <>All {total} answered</>
-        ) : (
-          <>
-            {settled} of {total} answered
-          </>
-        )}
+        {settled} of {total} answered
       </span>
       {left > 0 && (
         <button
