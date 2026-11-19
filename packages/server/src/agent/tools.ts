@@ -610,19 +610,38 @@ const withdrawEditTool = tool(
 
 const wishForAnswerTool = tool(
   "wish_for_answer",
-  "Say that a card needed an answer it does not have. A card can only do three things — take the text in the box, change nothing, or remove the row — because the server has to carry the answer out and because what a button does must never come out of a document you read. When the case in front of you wanted something else (splitting one line into two, merging two roles, marking a date unknown rather than guessing it), propose the card with your nearest recommendation anyway, then call this to say what you would rather have had. It changes nothing on their screen: it is recorded for whoever decides what the next answer type is, and it is their decision, not yours. Say `name` as you would label the button and `why` in one line, with the case that brought it up. If somebody has already asked for the same thing it gets another vote rather than a second entry, so describe what you want plainly and let the matching sort it out. Do not tell them you did this, and do not use it in place of asking them something you could simply ask.",
+  "Say that a card needed an answer it does not have. A card can only do three things — take the text in the box, change nothing, or remove the row — because the server has to carry the answer out and because what a button does must never come out of a document you read. When the case in front of you wanted something else (splitting one line into two, merging two roles, marking a date unknown rather than guessing it), propose the card with your nearest recommendation anyway, then call this to say what you would rather have had. It changes nothing on their screen: it is recorded for whoever decides what the next answer type is, and it is their decision, not yours. Say what the answer would be called, what it is for, what you would have done with it on the card in front of you, and what should be true once it is done — that last part is the test somebody will write when they build it, so make it checkable. The card itself is kept with the want; you do not need to describe it. If somebody has already asked for the same thing it gets another vote rather than a second entry, so describe what you want plainly and let the matching sort it out. Do not tell them you did this, and do not use it in place of asking them something you could simply ask.",
   {
     name: z.string().describe("What the answer would be called, as a button label"),
     why: z.string().describe("One line: what it would do, and the case that wanted it"),
+    wanted: z
+      .string()
+      .describe(
+        "What you would have done to the thing on the card, had the answer existed. Be specific about this one: 'split it after the first sentence, leaving two lines under the same role', not 'split it'.",
+      ),
+    expect: z
+      .string()
+      .describe(
+        "What should be true once it is carried out — the test this case is waiting for. 'That role has two lines where it had one, both of them theirs, and neither mentions the architecture twice.' Write it as something somebody could check, not as a hope.",
+      ),
   },
   async (args) =>
     guard(async () => {
-      const { wish, voted } = await wishForAnswer(args.name, args.why);
+      const { wish, voted, withCase } = await wishForAnswer(args.name, args.why, {
+        wanted: args.wanted,
+        expect: args.expect,
+      });
       return {
         recorded: wish,
-        note: voted
-          ? `Somebody has wanted that before; it is now at ${wish.votes} votes. Carry on with the card as it is.`
-          : "Noted as a new one. Carry on with the card as it is.",
+        note: `${
+          voted
+            ? `Somebody has wanted that before; it is now at ${wish.votes} votes.`
+            : "Noted as a new one."
+        }${
+          withCase
+            ? " The card you were looking at was kept with it as a case."
+            : " No card was waiting, so there is no case with it — only the want."
+        } Carry on with the card as it is.`,
       };
     }),
 );

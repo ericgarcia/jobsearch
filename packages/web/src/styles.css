@@ -977,15 +977,30 @@ button.tiny { padding: 1px 6px; font-size: 11px; }
 .admin-pane h2 { font-size: 14px; margin: 0 0 6px; }
 .admin-pane .field-why { margin: 0 0 14px; max-width: 62ch; }
 
-table.wishes { border-collapse: collapse; width: 100%; font-size: 12px; }
-table.wishes th, table.wishes td {
-  border-bottom: 1px solid var(--line-soft); padding: 7px 9px;
-  text-align: left; vertical-align: top;
+.wish {
+  border: 1px solid var(--line-soft); border-radius: var(--radius);
+  background: var(--bg-raised); padding: 11px 12px; margin-bottom: 10px;
 }
-table.wishes th {
-  font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
-  color: var(--text-faint); font-weight: 600;
+.wish-head { display: flex; align-items: baseline; gap: 10px; }
+.wish-name { font-weight: 600; font-size: 13px; }
+.wish-votes { font-size: 11px; color: var(--text-dim); }
+.wish-when { font-size: 11px; color: var(--text-faint); margin-left: auto;
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wish-why { margin: 4px 0 10px; font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+
+.wish-cases { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.wish-case { border-top: 1px solid var(--line-soft); }
+.wish-case-head {
+  display: flex; align-items: baseline; gap: 8px; width: 100%;
+  padding: 6px 2px; font-size: 11.5px; text-align: left;
 }
-.wish-name { font-weight: 600; white-space: nowrap; }
-.wish-votes { text-align: right; font-variant-numeric: tabular-nums; }
-.wish-when { color: var(--text-faint); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.wish-case-mark { color: var(--text-faint); }
+.wish-case-shape { color: var(--text-dim); font-family: var(--mono); font-size: 11px; }
+.wish-case-body { padding: 2px 2px 10px 18px; font-size: 12px; line-height: 1.55; }
+.wish-case-body p { margin: 0 0 9px; }
+.wish-saw {
+  border-left: 2px solid var(--line); padding-left: 9px; color: var(--text-dim);
+  white-space: pre-wrap;
+}
+.wish-shape { color: var(--text-dim); font-size: 11.5px; }
+.wish-shape b { color: var(--text); font-weight: 600; }
