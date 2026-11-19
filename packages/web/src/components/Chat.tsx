@@ -1,3 +1,4 @@
+import { Progress } from "./Progress.tsx";
 import { GrowText } from "./GrowText.tsx";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Markdown, { defaultUrlTransform } from "react-markdown";
@@ -526,6 +527,8 @@ export function Chat({
           ))}
         </div>
       )}
+
+      <Progress />
 
       <div className="chat-log scroll" ref={logRef}>
         {entries.length === 0 && (

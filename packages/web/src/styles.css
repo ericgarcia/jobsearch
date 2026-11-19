@@ -267,6 +267,30 @@ a { color: var(--accent); }
   border-bottom: 1px solid var(--line-soft);
 }
 .chat-head .spacer { flex: 1; }
+
+/*
+  The questions bar, between the thread's head and its log.
+
+  Outside the scrolling log on purpose: a count that scrolls away is the
+  sentence it replaced. Flex-none so the log keeps the rest of the height.
+*/
+.progress {
+  flex: none;
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.progress-track {
+  flex: 1; height: 4px; border-radius: 2px;
+  background: var(--bg-input);
+  overflow: hidden;
+}
+.progress-done {
+  height: 100%; border-radius: 2px;
+  background: var(--accent);
+  transition: width 220ms ease;
+}
+.progress-count { font-size: 10.5px; color: var(--text-faint); white-space: nowrap; }
 .chat-log { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 9px; }
 .msg { font-size: 12.5px; line-height: 1.55; }
 /* What a person typed, as they typed it. Markdown is the assistant's. */

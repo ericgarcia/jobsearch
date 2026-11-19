@@ -466,6 +466,10 @@ export const api = {
     it: the value shows in the field as a draft, and resolving writes whatever
     is in the box at that moment. See the server's pending.ts.
   */
+  /** How far through the queue of things still worth asking about. */
+  questionProgress: () =>
+    json<{ left: number; settled: number }>("/api/questions"),
+
   pendingEdit: () =>
     json<{
       pending: {
