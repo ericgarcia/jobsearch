@@ -23,11 +23,16 @@ export type Topic =
 type Listener = (topic: Topic) => void;
 
 /*
-  Each listener with the topic it is waiting for, so that a reconnection can
-  tell it about its own topic rather than about somebody else's. See the note
-  on onerror below for what that cost.
+  Each listener with the topics it is waiting for, so that a reconnection can
+  tell it about its own rather than about somebody else's. See the note on
+  onerror below for what that cost.
+
+  Topics plural because one component can care about two things. The stored
+  answers are a case: the card proposing a change arrives on "focus" and the
+  value it writes lands on "profile", so a pane listening to one of them
+  shows the question and then never shows the answer.
 */
-const listeners = new Map<Listener, Topic>();
+const listeners = new Map<Listener, Topic[]>();
 let source: EventSource | null = null;
 /** A reconnection already on its way, so a burst of errors makes one. */
 let retry: ReturnType<typeof setTimeout> | null = null;
@@ -84,7 +89,8 @@ function connect(): void {
     server that was still down.
   */
   source.onopen = () => {
-    for (const [listener, topic] of [...listeners]) listener(topic);
+    /* Any one of its topics: the listener refetches whole, once. */
+    for (const [listener, topics] of [...listeners]) listener(topics[0]!);
   };
 
   /*
@@ -126,7 +132,11 @@ function connect(): void {
  * to the profile while someone types a project narrative would take the
  * paragraph away as they wrote it.
  */
-export function useChanges(topic: Topic, reload: () => void, isBusy?: () => boolean): boolean {
+export function useChanges(
+  topic: Topic | Topic[],
+  reload: () => void,
+  isBusy?: () => boolean,
+): boolean {
   const latest = useRef({ reload, isBusy });
   latest.current = { reload, isBusy };
 
@@ -135,11 +145,16 @@ export function useChanges(topic: Topic, reload: () => void, isBusy?: () => bool
   // Silently withholding an update is how a page ends up quietly wrong.
   const [held, setHeld] = useState(false);
 
+  /* A stable identity for the effect, so an array literal does not resubscribe. */
+  const wanted = Array.isArray(topic) ? topic : [topic];
+  const key = wanted.join(",");
+
   useEffect(() => {
     connect();
+    const topics = key.split(",") as Topic[];
 
     const listener = (changedTopic: Topic) => {
-      if (changedTopic !== topic) return;
+      if (!topics.includes(changedTopic)) return;
       if (latest.current.isBusy?.()) {
         missed.current = true;
         setHeld(true);
@@ -148,11 +163,11 @@ export function useChanges(topic: Topic, reload: () => void, isBusy?: () => bool
       latest.current.reload();
     };
 
-    listeners.set(listener, topic);
+    listeners.set(listener, topics);
     return () => {
       listeners.delete(listener);
     };
-  }, [topic]);
+  }, [key]);
 
   /*
     Take a held update as soon as the form stops being busy. Checked on a

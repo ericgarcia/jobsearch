@@ -1,3 +1,4 @@
+import { GrowText } from "./GrowText.tsx";
 import { useEffect, useState } from "react";
 import { api } from "../api.ts";
 import { useChanges } from "../changes.ts";
@@ -68,7 +69,12 @@ export function ApplicationAnswers() {
 
   useEffect(load, []);
   // What the assistant is asking about arrives the same way a change does.
-  useChanges("focus", load);
+  /*
+    Both: the card asking about an answer arrives on "focus", and the answer
+    it writes lands on "profile". Listening to the first alone showed the
+    question and then left the old value on the screen after it was answered.
+  */
+  useChanges(["focus", "profile"], load);
 
   const answerFor = (topic: string) =>
     answers.find((row) => row.topic === topic)?.answer ?? "";
@@ -93,7 +99,14 @@ export function ApplicationAnswers() {
           return (
             <label className="standing-row field-asked" key={topic}>
               <span className="standing-question">{question}</span>
-              <input defaultValue={answerFor(topic)} tabIndex={-1} aria-hidden readOnly />
+              <GrowText
+                key={answerFor(topic)}
+                rows={1}
+                defaultValue={answerFor(topic)}
+                tabIndex={-1}
+                aria-hidden
+                readOnly
+              />
               <Proposal asked={asked} name={`your answer to “${question}”`} onDone={load} />
             </label>
           );
@@ -109,7 +122,14 @@ export function ApplicationAnswers() {
         ) : (
           <label className="standing-row" key={topic}>
             <span className="standing-question">{question}</span>
-            <input
+            <GrowText
+              /*
+                Keyed on the value: these are uncontrolled, so without a key
+                React keeps whatever the box was first rendered with and a
+                refetch cannot put a new answer on the screen.
+              */
+              key={answerFor(topic)}
+              rows={1}
               defaultValue={answerFor(topic)}
               placeholder="—"
               onBlur={(event) => {
@@ -212,7 +232,9 @@ export function ApplicationAnswers() {
                 ))}
               </select>
             ) : (
-              <input
+              <GrowText
+                key={`${key}:${selfId[key] ?? ""}`}
+                rows={1}
                 defaultValue={selfId[key] ?? ""}
                 placeholder="—"
                 onBlur={(event) => {
