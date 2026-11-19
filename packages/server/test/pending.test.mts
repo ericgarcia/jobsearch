@@ -248,7 +248,7 @@ ok("and an empty value is refused rather than quietly clearing a field");
 console.log("\n7. Taking one back, and answering one that is not there");
 
 await proposeEdit({ target: "profile", field: "phone", value: "555", why: "From the document." });
-await clearEdit();
+await clearEdit("assistant");
 assert.equal(await pendingEdit(), null);
 assert.equal((await profile.getProfile()).phone, null);
 ok("withdrawing removes it and stores nothing");
@@ -261,7 +261,7 @@ console.log("\n8. The slot is a slot, in the table");
 await proposeEdit({ target: "profile", field: "name", value: "Eric Garcia", why: "From the document." });
 const rows = await get<{ n: number }>(`SELECT COUNT(*) AS n FROM pending_edit`);
 assert.equal(rows?.n, 1);
-await clearEdit();
+await clearEdit("assistant");
 assert.equal((await get<{ n: number }>(`SELECT COUNT(*) AS n FROM pending_edit`))?.n, 0);
 ok("one row at most, which is what makes one question at a time structural");
 
@@ -273,7 +273,7 @@ console.log("\nA second thought about the line they are looking at");
   question, and refusing left the assistant with nothing to do but describe
   the edits it would have made.
 */
-await clearEdit();
+await clearEdit("assistant");
 const role2 = await profile.addRole({
   company: "Superviber",
   title: "Founder",
@@ -328,7 +328,7 @@ console.log("\nA line that is not on the profile yet");
   exist. The assistant read the sentence out in the conversation instead and
   the profile highlighted nothing.
 */
-await clearEdit();
+await clearEdit("assistant");
 const host = await profile.addRole({
   company: "MuffinLabs",
   title: "Founder",
@@ -410,7 +410,7 @@ const aboutALine = await proposeEdit({
 assert.deepEqual(aboutALine.pending.answers, ["use", "leave", "drop"]);
 assert.equal(aboutALine.pending.recommend, "drop");
 ok("a card about a line that exists can drop it, and can recommend dropping it");
-await clearEdit();
+await clearEdit("assistant");
 
 await assert.rejects(
   proposeEdit({
@@ -435,7 +435,7 @@ const alsoOffered = await proposeEdit({
 assert.deepEqual(alsoOffered.pending.answers, ["use", "leave"]);
 assert.equal(alsoOffered.pending.recommend, "leave");
 ok("an offered line recommends leaving it out, which is what the import judged");
-await clearEdit();
+await clearEdit("assistant");
 
 const suggested = await proposeEdit({
   target: "profile",

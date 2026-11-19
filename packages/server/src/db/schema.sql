@@ -574,6 +574,40 @@ CREATE TABLE IF NOT EXISTS pending_edit (
 );
 
 /*
+  The last proposal that left the slot without being answered.
+
+  An answer reaches the assistant because the page sends one: the person
+  clicks, and the web says what they chose in their own voice. Every other
+  way out of the slot was silent. A proposal deleted from under a waiting
+  assistant looked exactly like a card that had failed to record an answer,
+  so the assistant reported the app as broken — correctly describing what it
+  could see, and wrong about what it meant.
+
+  One row, because the assistant has one proposal. `by` says only whether
+  the assistant did it itself; a withdrawal from anywhere else is recorded as
+  "elsewhere" rather than attributed to the person, because the route that
+  does it does not know who called it, and a guess here is the kind of
+  untruth this table exists to stop. Its own withdrawals are not recorded at
+  all — it does not need to be told what it just did.
+
+  Cleared by the next proposal and by an answer, both of which are outcomes
+  the assistant is told about by other means. See pending.ts.
+*/
+CREATE TABLE IF NOT EXISTS withdrawn_edit (
+  id         INTEGER PRIMARY KEY CHECK (id = 1),
+  target     TEXT    NOT NULL,
+  target_id  INTEGER,
+  target_key TEXT,
+  field      TEXT    NOT NULL,
+  action     TEXT    NOT NULL,
+  value      TEXT    NOT NULL,
+  why        TEXT    NOT NULL,
+  -- "elsewhere" for anything the assistant did not do itself.
+  by_whom    TEXT    NOT NULL,
+  at         TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+/*
   Answers the assistant wanted and could not give.
 
   What a card can do is a closed set, because the server has to carry it out

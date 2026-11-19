@@ -234,6 +234,64 @@ export async function pendingEdit(): Promise<PendingEdit | null> {
   };
 }
 
+/**
+ * Who took a proposal out of the slot without it being answered.
+ *
+ * Two values, because two is all that is known. See `clearEdit`.
+ */
+export type ClearedBy = "assistant" | "elsewhere";
+
+/** A proposal that left the slot unanswered, and who took it. */
+export interface WithdrawnEdit {
+  target: string;
+  target_id: number | null;
+  target_key: string | null;
+  field: string;
+  action: EditAction;
+  value: string;
+  why: string;
+  by: ClearedBy;
+  at: string;
+}
+
+/**
+ * The last proposal that went without an answer, if the assistant did not
+ * take it itself.
+ *
+ * True until a new proposal occupies the slot or an answer arrives, both of
+ * which the assistant hears about by other means. So this is a state the
+ * assistant can read whenever it looks, rather than a message it has to
+ * catch — a withdrawal it never asked about does not go unsaid, and one it
+ * has already been told about is not repeated as news.
+ */
+export async function withdrawnEdit(): Promise<WithdrawnEdit | null> {
+  const row = await get<{
+    target: string;
+    target_id: number | null;
+    target_key: string | null;
+    field: string;
+    action: string;
+    value: string;
+    why: string;
+    by_whom: string;
+    at: string;
+  }>(
+    `SELECT target, target_id, target_key, field, action, value, why, by_whom, at
+       FROM withdrawn_edit WHERE id = 1`,
+  );
+  if (!row) return null;
+  const { by_whom, ...rest } = row;
+  return {
+    ...rest,
+    action: rest.action as EditAction,
+    by: by_whom === "assistant" ? "assistant" : "elsewhere",
+  };
+}
+
+async function forgetWithdrawn(): Promise<void> {
+  await run(`DELETE FROM withdrawn_edit WHERE id = 1`);
+}
+
 export interface Proposal {
   target: string;
   field: string;
@@ -263,7 +321,7 @@ export interface Proposal {
  */
 export async function proposeEdit(
   proposal: Proposal,
-): Promise<{ pending: PendingEdit; waiting?: PendingEdit }> {
+): Promise<{ pending: PendingEdit; waiting?: PendingEdit; withdrawn?: WithdrawnEdit }> {
   const allowed = FIELDS[proposal.target];
   if (!allowed) throw new Error(`Nothing can be proposed for "${proposal.target}" yet.`);
   if (!allowed.includes(proposal.field)) {
@@ -353,7 +411,7 @@ export async function proposeEdit(
       (waiting.target_key ?? null) === (proposal.target_key ?? null) &&
       waiting.field === proposal.field;
     if (!sameThing) return { pending: waiting, waiting };
-    await clearEdit();
+    await clearEdit("assistant");
     proposal = { ...proposal, question_id: proposal.question_id ?? waiting.question_id };
   }
 
@@ -375,7 +433,17 @@ export async function proposeEdit(
   /* So the progress bar can lead back to wherever this was asked. */
   await noteAsking();
   changed("focus");
-  return { pending: (await pendingEdit())! };
+
+  /*
+    If the proposal before this one was taken away unanswered, this is where
+    the assistant finds out. It is reported here rather than waiting to be
+    looked up, because the assistant that most needs to know is the one
+    proposing again into a slot it thought was still occupied — which is
+    exactly what happened in the case this exists for.
+  */
+  const withdrawn = await withdrawnEdit();
+  await forgetWithdrawn();
+  return { pending: (await pendingEdit())!, ...(withdrawn ? { withdrawn } : {}) };
 }
 
 /** Take the row away. One place, because two answers end here. */
@@ -420,6 +488,8 @@ export async function resolveEdit(answer: Answer, value?: string): Promise<Resol
   }
 
   await run(`DELETE FROM pending_edit WHERE id = 1`);
+  /* An answer is an outcome the assistant is told in the person's own voice. */
+  await forgetWithdrawn();
   changed("focus");
 
   /*
@@ -514,8 +584,53 @@ export async function resolveEdit(answer: Answer, value?: string): Promise<Resol
   };
 }
 
-/** Take back a proposal without answering it — when a conversation moves on. */
-export async function clearEdit(): Promise<void> {
+/**
+ * Take a proposal out of the slot without an answer, and say who did it.
+ *
+ * `by` is not bookkeeping. The assistant is told an outcome one way only —
+ * the person clicks and the page says so in their voice — so a proposal that
+ * left the slot any other way left no trace at all. A developer deleting the
+ * pending edit by hand while the assistant waited on it therefore looked
+ * identical to a card that had swallowed an answer, and the assistant
+ * reported the app as broken. It was right about what it saw.
+ *
+ * "assistant" is a withdrawal it made itself, which needs no record: it
+ * knows. Everything else is "elsewhere" and is written down for the next
+ * time the assistant touches the slot. "elsewhere" says no more than that
+ * because nothing more is known — the route that clears it does not know
+ * who called it, and naming the person would be a guess dressed as a fact.
+ */
+export async function clearEdit(by: ClearedBy): Promise<void> {
+  const going = by === "assistant" ? null : await pendingEdit();
   await run(`DELETE FROM pending_edit WHERE id = 1`);
+
+  if (by === "assistant") {
+    /*
+      It took the card itself, so there is nothing to tell it — and any
+      earlier withdrawal is stale news now that the slot is empty by its own
+      hand.
+    */
+    await forgetWithdrawn();
+  } else if (going) {
+    await run(
+      `INSERT OR REPLACE INTO withdrawn_edit
+              (id, target, target_id, target_key, field, action, value, why, by_whom, at)
+            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      going.target,
+      going.target_id,
+      going.target_key,
+      going.field,
+      going.action,
+      going.value,
+      going.why,
+      by,
+    );
+  }
+  /*
+    Clearing an already empty slot from outside leaves the earlier
+    withdrawal where it is. The case that mattered deleted the pending edit
+    twice, and the second delete must not erase the record of the first.
+  */
+
   changed("focus");
 }
