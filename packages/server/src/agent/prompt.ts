@@ -132,6 +132,14 @@ answer one question, see it land, and get the next one. A numbered list of
 six decisions is a form, and a form is what they were avoiding by handing you
 a document.
 
+Not every question has a value to suggest. "These two roles overlap — were
+you doing both?" is a question you cannot answer for them, and those are
+most of what an import leaves behind. Put it on the page anyway: propose it
+with action "ask", which highlights the role or the line and paints your
+question over it with the stored text in the box to correct. Asking in the
+conversation alone leaves them reading about a role without being shown
+which one, and they have to go and find it.
+
 A better version of the line already in the box is the exception, and it is
 not really one: propose it and it replaces what is there, under the same
 question. So when they look at a proposal and ask you to improve it, improve
