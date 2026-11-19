@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { useFieldHistory } from "../undo.ts";
 import type { TextareaHTMLAttributes } from "react";
 
 /**
@@ -32,6 +33,8 @@ export function GrowText({
   max?: number;
 }) {
   const node = useRef<HTMLTextAreaElement>(null);
+  /* Undo that stays in this box rather than reaching the rest of the page. */
+  const history = useFieldHistory();
 
   const fit = useCallback(() => {
     const box = node.current;
@@ -105,7 +108,12 @@ export function GrowText({
     <textarea
       {...rest}
       ref={node}
+      onKeyDown={(event) => {
+        history.onKeyDown(event);
+        rest.onKeyDown?.(event);
+      }}
       onInput={(event) => {
+        history.onInput(event);
         fit();
         onInput?.(event);
       }}

@@ -6,6 +6,7 @@ import { Interests } from "./Interests.tsx";
 import { api, type Bullet, type Profile as ProfileData, type Role } from "../api.ts";
 import { say } from "../say.ts";
 import { claim, release, useClaimed } from "../claimed.ts";
+import { useFieldHistory } from "../undo.ts";
 
 type Pending = NonNullable<Awaited<ReturnType<typeof api.pendingEdit>>["pending"]>;
 
@@ -448,9 +449,11 @@ function AboutField({
   long?: boolean;
 }) {
   const asked = asksAbout(pending, "profile", { field });
+  const history = useFieldHistory();
   const common = {
     key: stored,
     defaultValue: stored,
+    ...history,
     ...(asked ? { tabIndex: -1, "aria-hidden": true } : {}),
     onBlur: (event: { target: { value: string } }) => {
       if (!asked && event.target.value !== stored) {
@@ -532,6 +535,7 @@ function EducationRow({
   onChanged: () => void;
 }) {
   const parts = ["degree", "field", "school", "start_date", "end_date"] as const;
+  const history = useFieldHistory();
 
   return (
     <div className="education-row">
@@ -544,6 +548,7 @@ function EducationRow({
             <input
               key={stored}
               defaultValue={stored}
+              {...history}
               {...(asked ? { tabIndex: -1, "aria-hidden": true } : {})}
               onBlur={(event) => {
                 if (!asked && event.target.value !== stored) {
