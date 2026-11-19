@@ -112,8 +112,8 @@ export function GrowText({
         history.onKeyDown(event);
         rest.onKeyDown?.(event);
       }}
+      onBeforeInput={history.onBeforeInput}
       onInput={(event) => {
-        history.onInput(event);
         fit();
         onInput?.(event);
       }}
