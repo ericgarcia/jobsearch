@@ -119,7 +119,7 @@ export function Proposal({
 
   return (
     <div className="field-card" ref={box}>
-      <span>{removing ? `remove ${name}` : name}</span>
+      <span className="field-name">{removing ? `remove ${name}` : name}</span>
       <div className="field-why">{asked.why}</div>
       {removing ? (
         <div className="field-removing">{asked.current ?? asked.value}</div>
@@ -143,10 +143,23 @@ export function Proposal({
         </>
       )}
       <div className="field-answer">
-        <button className="primary" onClick={() => void resolve(true)}>
+        {/*
+          The highlighted button is whichever one the app is actually
+          recommending, which is not always the one that acts.
+
+          An offered line is the case that shows it. The import read that
+          paragraph, judged it a pitch for the consultancy rather than work
+          this person did, and left it out; it is only on the screen so they
+          can overrule that. Highlighting "Add it" there argues the opposite
+          of what the card says, and pushes somebody towards the answer the
+          app thinks is wrong.
+        */}
+        <button className={adding ? undefined : "primary"} onClick={() => void resolve(true)}>
           {removing ? "Remove" : asking ? "That's right" : adding ? "Add it" : "Keep"}
         </button>
-        <button onClick={() => void resolve(false)}>Skip</button>
+        <button className={adding ? "primary" : undefined} onClick={() => void resolve(false)}>
+          {adding ? "Leave it out" : "Skip"}
+        </button>
       </div>
     </div>
   );
