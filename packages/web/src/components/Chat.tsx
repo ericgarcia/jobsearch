@@ -158,6 +158,7 @@ export function Chat({
   threadId,
   onOpenThread,
   onOpenJob,
+  onShowQuestions,
 }: {
   onDataChanged: () => void;
   /** Split Pilot's id, or null when it is not installed. */
@@ -174,6 +175,13 @@ export function Chat({
   onOpenThread: (id: number | null) => void;
   /** Show a posting the assistant put a card in the thread for. */
   onOpenJob: (id: number) => void;
+  /**
+   * Bring the profile forward, where the questions are.
+   *
+   * Carrying on with the questions is a thing that happens on the profile,
+   * however it reaches it — a card landing, or this button.
+   */
+  onShowQuestions: () => void;
 }) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [draft, setDraft] = useState(() => readDraft(threadId));
@@ -397,30 +405,55 @@ export function Chat({
       not be stuck behind a conversation somebody threw away.
   */
   const CARRY_ON = "Let's carry on with my profile. What is the next question?";
-  const [pendingSay, setPendingSay] = useState<string | null>(null);
+  const [pendingSay, setPendingSay] = useState<{ to: number | null; said: string } | null>(null);
 
-  const continueAsking = (asking: number | null) => {
+  /*
+    Whichever case it is, the questions are on the profile, so the profile is
+    what comes forward — at the click, not once an answer has come back.
+
+    It used to wait: the only thing that took the tab was a proposal landing,
+    so continuing into a thread that was between questions moved nothing at
+    all, and somebody who had pressed a button labelled Continue was looking
+    at the page they were already on with no sign anything had happened.
+  */
+  const continueAsking = async (asking: number | null) => {
     if (running) return;
+    onShowQuestions();
+
+    /*
+      A question already waiting is the next question. Asking for another
+      would put a second one behind a card that has not been answered, which
+      the single slot would refuse anyway — so this opens the conversation it
+      was asked in and leaves the card alone.
+    */
+    const waiting = await api
+      .pendingEdit()
+      .then((answer) => answer.pending)
+      .catch(() => null);
+
     if (asking !== null && asking !== threadId) {
       onOpenThread(asking);
+      if (!waiting) setPendingSay({ to: asking, said: CARRY_ON });
       return;
     }
+    if (waiting) return;
     if (threadId !== null) {
       void send(CARRY_ON);
       return;
     }
     onOpenThread(null);
-    setPendingSay(CARRY_ON);
+    setPendingSay({ to: null, said: CARRY_ON });
   };
 
   /*
-    Said once the new thread is the one on screen, rather than in the same
-    breath as asking for it: send reads the thread it is in from state, so
-    sending immediately would send into the thread being left behind.
+    Said once the thread it is meant for is the one on screen, rather than in
+    the same breath as asking for it: send reads the thread it is in from
+    state, so sending immediately would send into the thread being left
+    behind.
   */
   useEffect(() => {
-    if (pendingSay === null || threadId !== null || running) return;
-    const said = pendingSay;
+    if (pendingSay === null || threadId !== pendingSay.to || running) return;
+    const { said } = pendingSay;
     setPendingSay(null);
     void send(said);
   }, [pendingSay, threadId, running]);
@@ -604,7 +637,7 @@ export function Chat({
         </div>
       )}
 
-      <Progress onContinue={continueAsking} busy={running} />
+      <Progress onContinue={(asking) => void continueAsking(asking)} busy={running} />
 
       <div className="chat-log scroll" ref={logRef}>
         {entries.length === 0 && (
