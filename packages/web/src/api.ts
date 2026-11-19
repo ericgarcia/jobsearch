@@ -34,6 +34,44 @@ export interface WishCase {
   at: string;
 }
 
+/** The app as it stood when a bug was filed, read off the server. */
+export interface BugContext {
+  card: {
+    target: string;
+    target_id: number | null;
+    field: string;
+    action: string;
+    answers: string[];
+    recommend: string;
+    question_id: number | null;
+    at: string;
+  } | null;
+  conversation: number | null;
+  queue: { left: number; settled: number };
+  at: string;
+}
+
+export interface BugOccurrence {
+  id: number;
+  context: BugContext;
+  said: string;
+  at: string;
+}
+
+/** A fault the assistant ran into and filed. */
+export interface Bug {
+  id: number;
+  title: string;
+  doing: string;
+  expected: string;
+  happened: string;
+  hits: number;
+  fixed_at: string | null;
+  first_at: string;
+  last_at: string;
+  occurrences: BugOccurrence[];
+}
+
 /** A line an import held back, with why it did. */
 export interface LeftOutLine {
   id: number;
@@ -581,6 +619,15 @@ export const api = {
     json<{ settled: number }>("/api/profile/left-out/leave", {
       method: "POST",
       body: JSON.stringify({ ids }),
+    }),
+
+  /* What the assistant ran into, with what it takes to reproduce it. */
+  bugs: () => json<{ bugs: Bug[] }>("/api/bugs"),
+
+  markBugFixed: (id: number, fixed: boolean) =>
+    json<{ ok: boolean }>("/api/bugs/fixed", {
+      method: "POST",
+      body: JSON.stringify({ id, fixed }),
     }),
 
   /* What the assistant wanted a card to be able to do, for the admin page. */

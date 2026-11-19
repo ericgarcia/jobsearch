@@ -49,6 +49,7 @@ import { describe as describeForm } from "./apply/form.js";
 import { clearEdit, pendingEdit, proposeEdit, resolveEdit, type Answer } from "./pending.js";
 import { wishedActions } from "./wishes.js";
 import { addLeftOut, leaveLeftOut, leftOutLines } from "./leftOut.js";
+import { bugReports, markFixed } from "./bugs.js";
 import { clearQueue, progress as questionProgress, waitingQuestions } from "./queue.js";
 import { askingThread, turnIsFrom } from "./asking.js";
 import {
@@ -477,6 +478,15 @@ app.post("/api/profile/left-out/leave", async (request, reply) => {
     return reply.code(400).send({ error: "Which lines? Pass ids." });
   }
   return await leaveLeftOut(body.ids);
+});
+
+/* What the assistant ran into, and what it takes to reproduce it. */
+app.get("/api/bugs", async () => ({ bugs: await bugReports() }));
+
+app.post("/api/bugs/fixed", async (request, reply) => {
+  const body = (request.body ?? {}) as { id?: number; fixed?: boolean };
+  if (typeof body.id !== "number") return reply.code(400).send({ error: "Which bug? Pass id." });
+  return await markFixed(body.id, body.fixed !== false);
 });
 
 /* What the assistant wanted a card to be able to do. See wishes.ts. */
