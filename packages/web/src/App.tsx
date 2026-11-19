@@ -282,8 +282,22 @@ export function App() {
     selected: { job: selected, resume: openResume, coverLetter: openLetter, surface },
   });
 
+  /*
+    A tab the person has just asked for, which the next restore must not undo.
+
+    Opening a thread puts back the view that thread was left in, and
+    continuing with the questions opens the thread they were asked in — so
+    pressing Continue from the Admin tab opened the thread, restored its
+    saved view, and landed back on Admin, which is the tab they had just
+    pressed a button to leave. A proposal waiting on the profile already
+    outranks the saved view for the same reason; this is the same rule for
+    the case where the question has not arrived yet.
+  */
+  const askedFor = useRef<Tab | null>(null);
+
   /** Changing tab closes whatever overlay is open, so the new tab is visible. */
   function goToTab(next: Tab) {
+    askedFor.current = null;
     setTab(next);
     setSelected(null);
     setOpenResume(null);
@@ -361,7 +375,7 @@ export function App() {
       bornHere.current = false;
       if (kept) {
         applying.current = true;
-        setTab(kept.tab);
+        setTab(askedFor.current ?? kept.tab);
         setSelected(kept.job);
         setOpenResume(kept.resume);
         setOpenLetter(kept.letter);
@@ -382,6 +396,8 @@ export function App() {
       const waiting = await api.pendingEdit().catch(() => ({ pending: null }));
       if (!current) return;
       if (waiting.pending) setTab("profile");
+      else if (askedFor.current) setTab(askedFor.current);
+      askedFor.current = null;
 
       // And the pane. Its last page, or none — in which case the window is
       // the app's again, with the page still open behind it.
@@ -696,6 +712,11 @@ export function App() {
           onDataChanged={loadData}
           splitId={hasSplit ? splitId : null}
           threadId={threadId}
+          onShowQuestions={() => {
+            goToTab("profile");
+            /* Set after, because changing tab is what clears it. */
+            askedFor.current = "profile";
+          }}
           onOpenJob={(id) => {
             // The canvas, not the pane: this is a posting we hold, not a
             // page on the web. If the app is in a split it comes back first.
