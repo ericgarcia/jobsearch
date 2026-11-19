@@ -1,7 +1,5 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
-import { DATA_DIR } from "./config.js";
 import { all, get, run } from "./db/client.js";
-import { credentialEnv, readCredential } from "./settings.js";
+import { sameAs } from "./likeness.js";
 
 /**
  * Answers the assistant wanted and could not give.
@@ -24,15 +22,8 @@ import { credentialEnv, readCredential } from "./settings.js";
  * is, shown on the admin page with how often it has come up.
  *
  * The same want gets a vote rather than a second row, and sameness is a
- * judgement about meaning: "split this in two" and "break the line up" are
- * one want described twice, and no comparison of the strings will say so. A
- * model reads the existing names and says which one this is, if any, and
- * falls back to exact-name matching when there is no credential or the call
- * fails. A duplicate row is a worse outcome than a slow one, not a wrong
- * one, so the fallback is allowed to be blunt.
+ * judgement about meaning rather than about strings — see likeness.ts.
  */
-
-export const WISH_MODEL = process.env.JOBSEARCH_WISH_MODEL ?? "claude-haiku-5-5";
 
 /** How many cases a want keeps. See the note on wish_cases in schema.sql. */
 const CASES = 12;
@@ -145,69 +136,6 @@ function readShape(stored: string): Shape {
   } catch {
     return { target: "", action: "", field: "", answers: [], recommended: "", had_value: false };
   }
-}
-
-const INSTRUCTIONS = `You match one request against a list of existing ones.
-
-You are given NAMES, a numbered list of answer types somebody has already
-asked for, and WANT, a new request. Say which existing one means the same
-thing as WANT — the same effect on the profile, however differently it is
-worded.
-
-Reply with the number alone, or the word "new" if none of them is the same
-thing. Nothing else. Two requests are the same only if carrying one out
-would carry out the other; "split this line in two" and "break this bullet
-up" are the same, "drop this line" and "shorten this line" are not.`;
-
-/** Which existing want this is, by meaning. Null when it is a new one. */
-async function sameAs(want: string, names: string[]): Promise<number | null> {
-  if (names.length === 0) return null;
-
-  const credential = await readCredential();
-  if (!credential) return byName(want, names);
-
-  const listed = names.map((name, index) => `${index + 1}. ${name}`).join("\n");
-  let text = "";
-  try {
-    for await (const message of query({
-      prompt: `NAMES\n\n${listed}\n\nWANT\n\n${want}`,
-      options: {
-        model: WISH_MODEL,
-        cwd: DATA_DIR,
-        systemPrompt: INSTRUCTIONS,
-        tools: [],
-        settingSources: [],
-        maxTurns: 1,
-        env: credentialEnv(credential),
-      },
-    })) {
-      if (message.type === "assistant") {
-        for (const block of message.message.content) {
-          if (block.type === "text") text += block.text;
-        }
-      }
-      if (message.type === "result" && message.subtype !== "success") {
-        throw new Error(`matching stopped: ${message.subtype}`);
-      }
-    }
-  } catch {
-    return byName(want, names);
-  }
-
-  const said = text.trim().toLowerCase();
-  if (said.startsWith("new")) return null;
-  const which = Number.parseInt(said, 10);
-  if (!Number.isInteger(which) || which < 1 || which > names.length) {
-    return byName(want, names);
-  }
-  return which - 1;
-}
-
-/** The blunt fallback: the same name, give or take case and spacing. */
-function byName(want: string, names: string[]): number | null {
-  const flat = (text: string) => text.trim().toLowerCase().replace(/\s+/g, " ");
-  const found = names.findIndex((name) => flat(name) === flat(want));
-  return found === -1 ? null : found;
 }
 
 export interface Wished {

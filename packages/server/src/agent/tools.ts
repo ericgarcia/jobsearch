@@ -19,6 +19,7 @@ import { listAnswers, markApplied, recordAnswers } from "../apply/record.js";
 import { keepable } from "../apply/keep.js";
 import { clearEdit, pendingEdit, proposeEdit } from "../pending.js";
 import { wishForAnswer } from "../wishes.js";
+import { reportBug } from "../bugs.js";
 import { noteAsking } from "../asking.js";
 import { clearQueue, nextQuestion, settleQuestion } from "../queue.js";
 import {
@@ -646,6 +647,29 @@ const wishForAnswerTool = tool(
     }),
 );
 
+const reportBugTool = tool(
+  "report_bug",
+  "File a fault in this app, when it does not do what it says it does. Use it when something you did through a tool did not take, when what is on their screen does not match what you were told, when a card you put up came back unanswered without them answering it, when the same step fails twice. File it AND carry on serving the person — work round it, do the thing by hand, say plainly what you could not do — because a report is for later and they are here now. Write the three things only you know: what you were doing, what you expected, what happened instead. Do not describe the state of the app; it is read off the server as you file and attached for you, which is the part a report needs to be reproducible and the part you would have to guess at. A fault reported twice is one report that has happened twice, so file it as you see it rather than hunting for an earlier wording. This is not for a person's mistake, for something you decided not to do, or for an answer you did not like — only for the app behaving other than as built.",
+  {
+    title: z.string().describe("One line naming the fault, as a heading"),
+    doing: z.string().describe("What you were doing when it happened"),
+    expected: z.string().describe("What you expected to happen"),
+    happened: z.string().describe("What happened instead, in as much detail as you have"),
+  },
+  async (args) =>
+    guard(async () => {
+      const { bug, again } = await reportBug(args);
+      return {
+        filed: { id: bug.id, title: bug.title, hits: bug.hits },
+        note: `${
+          again
+            ? `That has been reported before; it is now at ${bug.hits}.`
+            : "Filed."
+        } The state of the app was attached. Carry on with what they asked, working round it if you can, and tell them plainly what you could not do — do not read this report out to them.`,
+      };
+    }),
+);
+
 const whatIsMissingTool = tool(
   "what_is_missing",
   "What the profile still has nothing for, and what real application forms have asked that nothing on file could answer. Use it when someone asks what to fill in next, after an import, or when an application is held up by a question they have not answered before. The `asked` list is the useful one: those are questions employers actually put to them, with the employer's own questions filtered out, and each comes with a topic name and a wording — ask them one at a time, in their own words, and store each answer with set_standing_answer as it comes. Do not read the whole list out at once.",
@@ -934,6 +958,7 @@ export const jobsearchServer = createSdkMcpServer({
     pendingEditTool,
     withdrawEditTool,
     wishForAnswerTool,
+    reportBugTool,
     applicationRecordTool,
     markAppliedTool,
     coverageTool,

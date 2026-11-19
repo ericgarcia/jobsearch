@@ -637,6 +637,56 @@ CREATE TABLE IF NOT EXISTS wish_cases (
 CREATE INDEX IF NOT EXISTS wish_cases_by_wish ON wish_cases (wish_id, at);
 
 /*
+  Bugs the assistant ran into, with what it takes to reproduce them.
+
+  It used to work around them in silence. A card it had put on the screen
+  twice came back unanswered both times, so it said so in the thread and made
+  the change itself — which was the right thing to do for the person in front
+  of it and left nothing behind for anybody to fix. The thread scrolls away;
+  the next conversation meets the same fault with no record that the first
+  one did.
+
+  So a report is filed, and the app fills in most of it. What the assistant
+  writes is what only it knows: what it was doing, what it expected, what
+  happened instead. What is attached comes off the server at the moment of
+  filing — the card that was up or the fact that none was, the conversation
+  it happened in, where the queue stood — because that is the part a model
+  misremembers and the part a fix needs.
+
+  Occurrences rather than rows: the same bug met twice is one report that has
+  happened twice, matched by meaning. Twelve of them, as with a want.
+*/
+CREATE TABLE IF NOT EXISTS bug_reports (
+  id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  -- One line, as the assistant would title it.
+  title    TEXT    NOT NULL,
+  -- What it was doing when it happened.
+  doing    TEXT    NOT NULL,
+  -- What it expected to happen.
+  expected TEXT    NOT NULL,
+  -- What happened instead.
+  happened TEXT    NOT NULL,
+  hits     INTEGER NOT NULL DEFAULT 1,
+  -- Set when somebody says it is dealt with; it then leaves the open list.
+  fixed_at TEXT,
+  first_at TEXT    NOT NULL DEFAULT (datetime('now')),
+  last_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (title)
+);
+
+CREATE TABLE IF NOT EXISTS bug_occurrences (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  bug_id  INTEGER NOT NULL REFERENCES bug_reports(id) ON DELETE CASCADE,
+  -- The state of the app when it was filed, as JSON. See bugs.ts.
+  context TEXT    NOT NULL,
+  -- What the assistant said this time, which is not always what it said last.
+  said    TEXT    NOT NULL,
+  at      TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS bug_occurrences_by_bug ON bug_occurrences (bug_id, at);
+
+/*
   The things still worth asking somebody about their profile, in order.
 
   This exists because of one screenshot. An import had been read, and the
