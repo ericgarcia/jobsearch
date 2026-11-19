@@ -46,7 +46,8 @@ import {
   type Share,
 } from "./apply/facts.js";
 import { describe as describeForm } from "./apply/form.js";
-import { clearEdit, pendingEdit, proposeEdit, resolveEdit } from "./pending.js";
+import { clearEdit, pendingEdit, proposeEdit, resolveEdit, type Answer } from "./pending.js";
+import { wishedActions } from "./wishes.js";
 import { clearQueue, progress as questionProgress, waitingQuestions } from "./queue.js";
 import { askingThread, turnIsFrom } from "./asking.js";
 import {
@@ -429,9 +430,11 @@ app.post("/api/pending-edit", async (request, reply) => {
     target_key?: string;
     action?: "set" | "delete";
     question_id?: number;
+    recommend?: Answer;
   };
   try {
     return await proposeEdit({
+      ...(body.recommend !== undefined ? { recommend: body.recommend } : {}),
       target: body.target ?? "profile",
       field: body.field ?? "",
       value: body.value ?? "",
@@ -447,13 +450,16 @@ app.post("/api/pending-edit", async (request, reply) => {
 });
 
 app.post("/api/pending-edit/resolve", async (request, reply) => {
-  const body = (request.body ?? {}) as { keep?: boolean; value?: string };
+  const body = (request.body ?? {}) as { answer?: Answer; value?: string };
   try {
-    return { resolved: await resolveEdit(body.keep !== false, body.value) };
+    return { resolved: await resolveEdit(body.answer ?? "use", body.value) };
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }
 });
+
+/* What the assistant wanted a card to be able to do. See wishes.ts. */
+app.get("/api/wished-actions", async () => ({ wished: await wishedActions() }));
 
 app.delete("/api/pending-edit", async () => {
   await clearEdit();

@@ -15,6 +15,7 @@ import { Chat } from "./components/Chat.tsx";
 import { Profile } from "./components/Profile.tsx";
 import { useChanges } from "./changes.ts";
 import { LayoutEditor } from "./components/LayoutEditor.tsx";
+import { Admin } from "./components/Admin.tsx";
 import { Projects } from "./components/Projects.tsx";
 import { useReportState } from "./reportState.ts";
 import { Boards } from "./components/Boards.tsx";
@@ -31,7 +32,7 @@ import {
 import { ResumeView } from "./components/ResumeView.tsx";
 import { CoverLetter } from "./components/CoverLetter.tsx";
 
-type Tab = "jobs" | "applications" | "drafts" | "profile" | "projects" | "design" | "boards";
+type Tab = "jobs" | "applications" | "drafts" | "profile" | "projects" | "design" | "boards" | "admin";
 
 /*
   The open thread lives in the URL.
@@ -79,7 +80,7 @@ interface Workspace {
   pane: boolean;
 }
 
-const TABS: Tab[] = ["jobs", "applications", "drafts", "profile", "projects", "design", "boards"];
+const TABS: Tab[] = ["jobs", "applications", "drafts", "profile", "projects", "design", "boards", "admin"];
 
 /*
   How wide the assistant's column is, as a share of the window.
@@ -836,6 +837,9 @@ export function App() {
         <button aria-selected={tab === "boards"} onClick={() => goToTab("boards")}>
           Boards
         </button>
+        <button aria-selected={tab === "admin"} onClick={() => goToTab("admin")}>
+          Admin
+        </button>
       </div>
 
       {tab === "jobs" && (
@@ -890,7 +894,9 @@ export function App() {
             scrolledTo.current = event.currentTarget.scrollTop;
           }}
         >
-          {tab === "projects" ? (
+          {tab === "admin" ? (
+            <Admin />
+          ) : tab === "projects" ? (
             <Projects />
           ) : tab === "design" ? (
             <LayoutEditor onSurface={setSurface} />

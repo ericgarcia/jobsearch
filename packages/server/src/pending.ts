@@ -74,6 +74,50 @@ const REMOVABLE = new Set(["role", "bullet", "fact", "education"]);
  */
 export type EditAction = "set" | "delete" | "ask" | "add";
 
+/**
+ * The answers a card can be given. A closed set, for two reasons.
+ *
+ * The server has to carry the answer out, so an answer it does not know is a
+ * button that does nothing. And the assistant reads documents and postings
+ * that somebody else wrote: if what a button does came from text rather than
+ * from this list, a line in an imported resume could name its own effect.
+ * Wording is the assistant's; effect is not.
+ *
+ * "use" writes what is in the box, "leave" writes nothing and changes
+ * nothing, "drop" removes the row the card is about. Which of the three a
+ * card offers follows from what it is asking — see `answersFor`.
+ *
+ * When none of them is what the assistant wanted, it says so with
+ * wish_for_answer and the want is recorded for whoever decides the next one.
+ * See wishes.ts: a want is data, never a fourth answer at runtime.
+ */
+export type Answer = "use" | "leave" | "drop";
+
+const ANSWERS = new Set<Answer>(["use", "leave", "drop"]);
+
+/**
+ * Which answers this card offers, and in which order.
+ *
+ * The card used to work this out from the action as it rendered, which is
+ * how it came to ask "keep it as it is, trim it, or drop it?" above two
+ * buttons, neither of which dropped anything. The question is the
+ * assistant's, so the answers have to be able to match it.
+ */
+export function answersFor(edit: {
+  action: EditAction;
+  target: string;
+  target_id: number | null;
+  target_key: string | null;
+}): Answer[] {
+  if (edit.action === "add") return ["use", "leave"];
+  if (edit.action === "delete") return ["use", "leave"];
+
+  /* A row that exists can be removed outright; a profile field cannot. */
+  const named =
+    edit.target === "fact" ? Boolean(edit.target_key) : edit.target_id != null;
+  return REMOVABLE.has(edit.target) && named ? ["use", "leave", "drop"] : ["use", "leave"];
+}
+
 /*
   "add" proposes something that is not there yet.
 
@@ -105,6 +149,10 @@ export interface PendingEdit {
   why: string;
   /** What is there now, so the page can show this as a change. */
   current: string | null;
+  /** The answers this card offers, in the order it shows them. */
+  answers: Answer[];
+  /** The one it recommends, which is the highlighted button. */
+  recommend: Answer;
   at: string;
 }
 
@@ -117,6 +165,7 @@ interface Row {
   action: string;
   value: string;
   why: string;
+  recommend: string;
   at: string;
 }
 
@@ -156,20 +205,31 @@ async function currently(row: {
 
 export async function pendingEdit(): Promise<PendingEdit | null> {
   const row = await get<Row>(
-    `SELECT target, target_id, target_key, question_id, field, action, value, why, at
+    `SELECT target, target_id, target_key, question_id, field, action, value, why, recommend, at
        FROM pending_edit WHERE id = 1`,
   );
   if (!row) return null;
+  const action: EditAction =
+    row.action === "delete"
+      ? "delete"
+      : row.action === "ask"
+        ? "ask"
+        : row.action === "add"
+          ? "add"
+          : "set";
+  const answers = answersFor({ ...row, action });
+  /*
+    A recommendation the card cannot offer is not one. It can only happen to
+    a row written before this column existed, or to a line that was removed
+    by hand after the card was made, and the first answer is the safe
+    reading: it is the one the question is chiefly about.
+  */
+  const wanted = row.recommend as Answer;
   return {
     ...row,
-    action:
-      row.action === "delete"
-        ? "delete"
-        : row.action === "ask"
-          ? "ask"
-          : row.action === "add"
-            ? "add"
-            : "set",
+    action,
+    answers,
+    recommend: answers.includes(wanted) ? wanted : (answers[0] ?? "use"),
     current: await currently(row),
   };
 }
@@ -184,6 +244,14 @@ export interface Proposal {
   action?: EditAction;
   /** The queued question this is an answer to, from next_question. */
   question_id?: number | null;
+  /**
+   * Which answer the assistant recommends, which the card highlights.
+   *
+   * Left out it is the answer that carries the proposal out, except for an
+   * add, where the import had already judged the line not worth keeping and
+   * the card is only there so somebody can overrule that.
+   */
+  recommend?: Answer;
 }
 
 /**
@@ -236,6 +304,31 @@ export async function proposeEdit(
   }
 
   /*
+    Every card recommends one of its own answers.
+
+    The card used to work the highlight out from the action, which meant it
+    recommended by accident: an ask that offered three answers highlighted
+    the first of them whether or not the assistant held that view. So the
+    recommendation is part of the proposal and is checked against what this
+    card can actually offer.
+  */
+  const answers = answersFor({
+    action,
+    target: proposal.target,
+    target_id: proposal.target_id ?? null,
+    target_key: proposal.target_key ?? null,
+  });
+  const recommend: Answer = proposal.recommend ?? (action === "add" ? "leave" : "use");
+  if (!ANSWERS.has(recommend)) {
+    throw new Error(`"${recommend}" is not an answer. Recommend one of: ${answers.join(", ")}.`);
+  }
+  if (!answers.includes(recommend)) {
+    throw new Error(
+      `This card cannot offer "${recommend}", so it cannot recommend it. Its answers are: ${answers.join(", ")}.`,
+    );
+  }
+
+  /*
     One slot, but a second thought about the same line is not a second
     question.
 
@@ -266,8 +359,8 @@ export async function proposeEdit(
 
   await run(
     `INSERT INTO pending_edit
-            (id, target, target_id, target_key, question_id, field, action, value, why, at)
-          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+            (id, target, target_id, target_key, question_id, field, action, value, why, recommend, at)
+          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
     proposal.target,
     proposal.target_id ?? null,
     proposal.target_key ?? null,
@@ -276,12 +369,26 @@ export async function proposeEdit(
     action,
     proposal.value.trim(),
     proposal.why.trim(),
+    recommend,
   );
 
   /* So the progress bar can lead back to wherever this was asked. */
   await noteAsking();
   changed("focus");
   return { pending: (await pendingEdit())! };
+}
+
+/** Take the row away. One place, because two answers end here. */
+async function remove(edit: PendingEdit): Promise<void> {
+  if (edit.target === "bullet" && edit.target_id != null) {
+    await profile.deleteBullet(edit.target_id);
+  } else if (edit.target === "role" && edit.target_id != null) {
+    await profile.deleteRole(edit.target_id);
+  } else if (edit.target === "fact" && edit.target_key) {
+    await forgetFact(edit.target_key);
+  } else if (edit.target === "education" && edit.target_id != null) {
+    await profile.deleteEducation(edit.target_id);
+  }
 }
 
 export interface Resolved {
@@ -299,12 +406,18 @@ export interface Resolved {
  * Their answer, which is the only thing that writes.
  *
  * `value` is whatever was in the box when they clicked, so an edit and a
- * plain acceptance come through the same door. Skipping stores nothing and
- * leaves what was there.
+ * plain acceptance come through the same door. "leave" stores nothing and
+ * leaves what was there; "drop" removes the row the card was about, which is
+ * the third thing the assistant's own questions kept offering and the card
+ * had no button for.
  */
-export async function resolveEdit(keep: boolean, value?: string): Promise<Resolved> {
+export async function resolveEdit(answer: Answer, value?: string): Promise<Resolved> {
+  if (!ANSWERS.has(answer)) throw new Error(`"${answer}" is not an answer.`);
   const waiting = await pendingEdit();
   if (!waiting) throw new Error("Nothing is waiting to be decided.");
+  if (!waiting.answers.includes(answer)) {
+    throw new Error(`This card does not offer "${answer}".`);
+  }
 
   await run(`DELETE FROM pending_edit WHERE id = 1`);
   changed("focus");
@@ -316,10 +429,24 @@ export async function resolveEdit(keep: boolean, value?: string): Promise<Resolv
   */
   if (waiting.question_id != null) {
     const { settleQuestion } = await import("./queue.js");
-    await settleQuestion(waiting.question_id, keep ? "changed" : "left as it was");
+    await settleQuestion(
+      waiting.question_id,
+      answer === "leave" ? "left as it was" : "changed",
+    );
   }
 
-  if (!keep) return { field: waiting.field, kept: false };
+  if (answer === "leave") return { field: waiting.field, kept: false };
+
+  /*
+    Dropping the row, which any card about a row that exists can do. The
+    delete action below is the same ending reached from the other side: there
+    the removal is what was proposed, here it is what they chose instead.
+  */
+  if (answer === "drop") {
+    await remove(waiting);
+    changed("profile");
+    return { field: waiting.field, kept: true, removed: true };
+  }
 
   /*
     One place that writes, with one branch per target. A target listed in
@@ -327,15 +454,7 @@ export async function resolveEdit(keep: boolean, value?: string): Promise<Resolv
     nothing could carry out, so the two lists are kept side by side.
   */
   if (waiting.action === "delete") {
-    if (waiting.target === "bullet" && waiting.target_id != null) {
-      await profile.deleteBullet(waiting.target_id);
-    } else if (waiting.target === "role" && waiting.target_id != null) {
-      await profile.deleteRole(waiting.target_id);
-    } else if (waiting.target === "fact" && waiting.target_key) {
-      await forgetFact(waiting.target_key);
-    } else if (waiting.target === "education" && waiting.target_id != null) {
-      await profile.deleteEducation(waiting.target_id);
-    }
+    await remove(waiting);
     changed("profile");
     return { field: waiting.field, kept: true, removed: true };
   }

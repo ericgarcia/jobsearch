@@ -566,7 +566,37 @@ CREATE TABLE IF NOT EXISTS pending_edit (
   -- and the case that asked for it was a role carrying a company's sales
   -- copy among its achievements.
   action     TEXT    NOT NULL DEFAULT 'set',
+  -- Which answer the assistant recommends: "use", "leave" or "drop". The
+  -- card highlights that one, so a card never argues for an answer nobody
+  -- chose. See pending.ts.
+  recommend  TEXT    NOT NULL DEFAULT 'use',
   at         TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+/*
+  Answers the assistant wanted and could not give.
+
+  What a card can do is a closed set, because the server has to carry it out
+  and because a label read off an imported document must never be able to
+  invent a button. But a closed set is a guess about what the work needs, and
+  the assistant is the one that meets the cases the guess missed — the line
+  that wants splitting in two, the role that wants merging with another.
+
+  So a want is recorded rather than acted on: the assistant says what it
+  would have chosen, the same want gets a vote instead of a second row, and
+  the admin page shows what is piling up. Nothing here changes what a card
+  does. It is a list for whoever decides what the next action type is.
+*/
+CREATE TABLE IF NOT EXISTS wished_actions (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  -- A short name for the answer, as the assistant would label the button.
+  name    TEXT    NOT NULL,
+  -- The latest account of what it was for, in the assistant's own words.
+  why     TEXT    NOT NULL,
+  votes   INTEGER NOT NULL DEFAULT 1,
+  first_at TEXT   NOT NULL DEFAULT (datetime('now')),
+  last_at  TEXT   NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (name)
 );
 
 /*

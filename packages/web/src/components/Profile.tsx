@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { GrowText } from "./GrowText.tsx";
 import { useChanges } from "../changes.ts";
 import { Interests } from "./Interests.tsx";
-import { api, type Bullet, type Profile as ProfileData, type Role } from "../api.ts";
+import { api, type Answer, type Bullet, type Profile as ProfileData, type Role } from "../api.ts";
 import { say } from "../say.ts";
 import { claim, release, useClaimed } from "../claimed.ts";
 import { useFieldHistory } from "../undo.ts";
@@ -101,11 +101,11 @@ export function Proposal({
   const asking = asked.action === "ask";
   const adding = asked.action === "add";
 
-  async function resolve(keep: boolean) {
-    const answer = await api.resolveEdit(keep, draft);
+  async function resolve(chosen: Answer) {
+    const answer = await api.resolveEdit(chosen, draft);
     onDone();
-    if (!keep) {
-      say(`I skipped that one — leave ${name} as it is.`);
+    if (chosen === "leave") {
+      say(`I left that one — leave ${name} as it is.`);
     } else if (answer.resolved.removed) {
       say(`I removed ${name}.`);
     } else {
@@ -113,6 +113,43 @@ export function Proposal({
         `I kept that${answer.resolved.edited ? ", with an edit" : ""}: ${name} is now “${answer.resolved.value}”.`,
       );
     }
+  }
+
+  /*
+    What each answer is called, in words that say what the button does.
+
+    The labels used to be read off the action, which is how an ask that said
+    "keep it as it is, trim it, or drop it?" came to sit above "That's right"
+    and "Skip" — two buttons, neither of which dropped anything, and a
+    primary one whose words claimed the text was right at the moment the
+    person had just finished editing it. So each label names its effect, and
+    the one the assistant recommends is the highlighted one. The app writes
+    these, not the assistant: a label is what the person reads to find out
+    what a click will do, and a label that came out of an imported document
+    could promise one thing and do another.
+  */
+  /*
+    Three words for three things: Update, Keep original, Drop it.
+
+    Each one names what the button does to the profile, which the old labels
+    did not. "That's right" and "Skip" sat under a question that offered to
+    keep, trim or drop a line, so there were three choices and two buttons,
+    and neither of them dropped anything; the first draft of the replacement
+    went the other way and produced "It is right as it is" beside "Leave it
+    as it is", two phrasings of one choice. These three are told apart by
+    what they touch, not by shade of meaning: the text in the box, the text
+    already stored, or the row itself.
+
+    An offered line and a proposed removal keep their own words, because
+    there is no "original" in the first case and nothing to update in the
+    second.
+  */
+  function label(answer: Answer): string {
+    if (answer === "drop") return "Drop it";
+    if (answer === "leave") return adding ? "Leave it out" : "Keep original";
+    if (removing) return "Drop it";
+    if (adding) return "Add it";
+    return "Update";
   }
 
   /*
@@ -156,22 +193,28 @@ export function Proposal({
       )}
       <div className="field-answer">
         {/*
-          The highlighted button is whichever one the app is actually
-          recommending, which is not always the one that acts.
+          The highlighted button is the one the assistant recommends, which is
+          not always the one that acts.
 
           An offered line is the case that shows it. The import read that
           paragraph, judged it a pitch for the consultancy rather than work
           this person did, and left it out; it is only on the screen so they
           can overrule that. Highlighting "Add it" there argues the opposite
           of what the card says, and pushes somebody towards the answer the
-          app thinks is wrong.
+          app thinks is wrong. The recommendation used to be guessed from the
+          action for exactly that reason — one hard-coded exception — and now
+          it comes with the proposal, so a card can recommend dropping a line
+          as easily as keeping it.
         */}
-        <button className={adding ? undefined : "primary"} onClick={() => void resolve(true)}>
-          {removing ? "Remove" : asking ? "That's right" : adding ? "Add it" : "Keep"}
-        </button>
-        <button className={adding ? "primary" : undefined} onClick={() => void resolve(false)}>
-          {adding ? "Leave it out" : "Skip"}
-        </button>
+        {asked.answers.map((answer) => (
+          <button
+            key={answer}
+            className={answer === asked.recommend ? "primary" : undefined}
+            onClick={() => void resolve(answer)}
+          >
+            {label(answer)}
+          </button>
+        ))}
       </div>
     </div>
   );

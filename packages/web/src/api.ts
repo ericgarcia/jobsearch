@@ -1,3 +1,24 @@
+/**
+ * What a proposal card can be answered with.
+ *
+ * A closed set, and deliberately so: the server carries the answer out, and
+ * what a button does must never come from text the assistant read in a
+ * document. See the note on Answer in the server's pending.ts. When the
+ * assistant wants one that is not here it says so, and the want is listed on
+ * the admin page rather than becoming a button.
+ */
+export type Answer = "use" | "leave" | "drop";
+
+/** An answer type the assistant asked for and could not have. */
+export interface Wish {
+  id: number;
+  name: string;
+  why: string;
+  votes: number;
+  first_at: string;
+  last_at: string;
+}
+
 export interface Job {
   id: number;
   company: string;
@@ -487,17 +508,25 @@ export const api = {
         value: string;
         why: string;
         current: string | null;
+        /** The answers this card offers, in the order to show them. */
+        answers: Answer[];
+        /** The one the assistant recommends, which is the highlighted button. */
+        recommend: Answer;
         at: string;
       } | null;
     }>("/api/pending-edit"),
 
-  resolveEdit: (keep: boolean, value?: string) =>
+  resolveEdit: (answer: Answer, value?: string) =>
     json<{
       resolved: { field: string; kept: boolean; removed?: boolean; value?: string; edited?: boolean };
     }>(
       "/api/pending-edit/resolve",
-      { method: "POST", body: JSON.stringify({ keep, value }) },
+      { method: "POST", body: JSON.stringify({ answer, value }) },
     ),
+
+  /* What the assistant wanted a card to be able to do, for the admin page. */
+  wishedActions: () =>
+    json<{ wished: Wish[] }>("/api/wished-actions"),
 
   importHelp: () =>
     json<{

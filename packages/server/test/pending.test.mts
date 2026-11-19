@@ -71,7 +71,7 @@ ok("and the one that was refused stored nothing either");
 
 console.log("\n3. Their answer is the only thing that writes");
 
-const kept = await resolveEdit(true);
+const kept = await resolveEdit("use");
 assert.equal(kept.kept, true);
 assert.equal(kept.edited, undefined);
 assert.equal((await profile.getProfile()).headline, "PhD ML Engineer · Production ML, LLMs & Agents");
@@ -93,7 +93,7 @@ await proposeEdit({
   value: "New York, United States",
   why: "From the document.",
 });
-const edited = await resolveEdit(true, "Brooklyn, NY");
+const edited = await resolveEdit("use", "Brooklyn, NY");
 
 assert.equal(edited.kept, true);
 assert.equal(edited.edited, true);
@@ -109,7 +109,7 @@ await proposeEdit({
   value: "someone.else@example.com",
   why: "The document lists this one.",
 });
-const skipped = await resolveEdit(false);
+const skipped = await resolveEdit("leave");
 
 assert.equal(skipped.kept, false);
 assert.equal(skipped.value, undefined);
@@ -137,7 +137,7 @@ await proposeEdit({
   why: "The PDF gives the longer title.",
 });
 assert.equal((await pendingEdit())?.current, "Founder");
-await resolveEdit(true);
+await resolveEdit("use");
 assert.equal((await profile.listRoles()).find((one) => one.id === role.id)?.title, "Founder & Principal Consultant");
 ok("a job's title is proposed, shows what it is now, and is stored when kept");
 
@@ -154,7 +154,7 @@ await proposeEdit({
   why: "This is what the business charges, not something you did.",
   action: "delete",
 });
-const removed = await resolveEdit(true);
+const removed = await resolveEdit("use");
 assert.equal(removed.removed, true);
 assert.deepEqual(
   (await profile.listBullets(role.id)).map((one) => one.text),
@@ -169,7 +169,7 @@ await proposeEdit({
   value: "Shipped a vision pipeline for a biotech client.",
   why: "It is in the present tense elsewhere; change it here if you want.",
 });
-await resolveEdit(true, "Shipped a vision pipeline for a biotech imaging client.");
+await resolveEdit("use", "Shipped a vision pipeline for a biotech imaging client.");
 assert.deepEqual(
   (await profile.listBullets(role.id)).map((one) => one.text),
   ["Shipped a vision pipeline for a biotech imaging client."],
@@ -185,7 +185,7 @@ await proposeEdit({
   why: "You said three months just now.",
 });
 assert.equal((await pendingEdit())?.current, "One month");
-await resolveEdit(true);
+await resolveEdit("use");
 const fact = await getFact("notice_period");
 assert.equal(fact?.answer, "Three months");
 assert.equal(fact?.question, "What notice do you have to give?");
@@ -199,7 +199,7 @@ await proposeEdit({
   why: "You said this is not something you want on file.",
   action: "delete",
 });
-await resolveEdit(true);
+await resolveEdit("use");
 assert.equal(await getFact("notice_period"), null);
 ok("and one they do not want on file is removed");
 
@@ -253,7 +253,7 @@ assert.equal(await pendingEdit(), null);
 assert.equal((await profile.getProfile()).phone, null);
 ok("withdrawing removes it and stores nothing");
 
-await assert.rejects(() => resolveEdit(true), /Nothing is waiting/i);
+await assert.rejects(() => resolveEdit("use"), /Nothing is waiting/i);
 ok("and answering nothing says so rather than writing something");
 
 console.log("\n8. The slot is a slot, in the table");
@@ -353,7 +353,7 @@ assert.equal(offered.pending.current, null);
 ok("and it has no current value, because there is nothing there yet");
 
 const before = (await profile.listBullets()).filter((one) => one.role_id === host.id).length;
-await resolveEdit(true);
+await resolveEdit("use");
 const after = (await profile.listBullets()).filter((one) => one.role_id === host.id);
 assert.equal(after.length, before + 1);
 assert.equal(after.at(-1)?.text, "Building systems that work in production.");
@@ -368,7 +368,7 @@ await proposeEdit({
   value: "Another line nobody wants.",
   why: "Offered.",
 });
-await resolveEdit(true, "   ");
+await resolveEdit("use", "   ");
 assert.equal(
   (await profile.listBullets()).filter((one) => one.role_id === host.id).length,
   after.length,
@@ -387,5 +387,87 @@ await assert.rejects(
   /Only a bullet can be added/,
 );
 ok("only a bullet can be added this way, so the action cannot be misaimed");
+
+console.log("\nThe answers a card offers, and the one it recommends");
+
+/*
+  The card used to work its buttons out from the action as it rendered, which
+  is how a question that said "keep it as it is, trim it, or drop it?" came
+  to sit above two buttons, neither of which dropped anything. So the answers
+  belong to the proposal, and so does the recommendation.
+*/
+const aLine = (await profile.listBullets()).find((one) => one.role_id === host.id)!;
+
+const aboutALine = await proposeEdit({
+  target: "bullet",
+  target_id: aLine.id,
+  field: "text",
+  action: "ask",
+  value: "",
+  why: "Mostly describes the architecture.",
+  recommend: "drop",
+});
+assert.deepEqual(aboutALine.pending.answers, ["use", "leave", "drop"]);
+assert.equal(aboutALine.pending.recommend, "drop");
+ok("a card about a line that exists can drop it, and can recommend dropping it");
+await clearEdit();
+
+await assert.rejects(
+  proposeEdit({
+    target: "profile",
+    field: "headline",
+    value: "A headline.",
+    why: "From the document.",
+    recommend: "drop",
+  }),
+  /cannot offer "drop"/,
+);
+ok("a profile field cannot be dropped, so no card about one may recommend it");
+
+const alsoOffered = await proposeEdit({
+  target: "bullet",
+  target_id: host.id,
+  field: "text",
+  action: "add",
+  value: "A line the import left out.",
+  why: "Reads as a pitch rather than work.",
+});
+assert.deepEqual(alsoOffered.pending.answers, ["use", "leave"]);
+assert.equal(alsoOffered.pending.recommend, "leave");
+ok("an offered line recommends leaving it out, which is what the import judged");
+await clearEdit();
+
+const suggested = await proposeEdit({
+  target: "profile",
+  field: "headline",
+  value: "ML engineer, the recommendation case",
+  why: "From the document.",
+});
+assert.equal(suggested.pending.recommend, "use");
+ok("and a suggestion recommends itself, so a card never highlights by accident");
+
+await assert.rejects(resolveEdit("drop"), /does not offer "drop"/);
+ok("an answer the card does not offer is refused rather than guessed at");
+await resolveEdit("leave");
+
+console.log("\nDropping the line from the card");
+
+const doomed = (await profile.listBullets()).find((one) => one.role_id === host.id)!;
+await proposeEdit({
+  target: "bullet",
+  target_id: doomed.id,
+  field: "text",
+  action: "ask",
+  value: "",
+  why: "Is this worth keeping?",
+  recommend: "drop",
+});
+const dropped = await resolveEdit("drop");
+assert.equal(dropped.removed, true);
+assert.equal(
+  (await profile.listBullets()).some((one) => one.id === doomed.id),
+  false,
+);
+ok("choosing drop takes the line away, which no button on the card could do before");
 
 console.log(`\n${passed} passed, 0 failed`);
