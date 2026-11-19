@@ -39,11 +39,21 @@ export function Proposal({
   asked,
   name,
   onDone,
+  claims = true,
 }: {
   asked: Pending;
   /** What to call this in the sentence that goes back to the assistant. */
   name: string;
   onDone: () => void;
+  /**
+   * Whether this card counts as the question being on the screen.
+   *
+   * True everywhere except the fallback below, which exists *because*
+   * nothing claimed it. A fallback that claimed would answer its own
+   * question: claiming hides it, hiding releases the claim, and it shows
+   * itself again — which it did, about six hundred times a second.
+   */
+  claims?: boolean;
 }) {
   /*
     An ask carries no suggested value, so the box starts from what is
@@ -81,9 +91,10 @@ export function Proposal({
 
   /* On the screen, so nothing has to show it plainly instead. See claimed.ts. */
   useEffect(() => {
+    if (!claims) return;
     claim(asked.at);
     return () => release(asked.at);
-  }, [asked.at]);
+  }, [asked.at, claims]);
 
   const removing = asked.action === "delete";
   const asking = asked.action === "ask";
@@ -427,28 +438,35 @@ function AboutField({
   stored,
   pending,
   onSaved,
+  long,
 }: {
   field: string;
   stored: string;
   pending: Pending | null;
   onSaved: () => void;
+  /** Prose rather than a line: a box that grows, across the whole width. */
+  long?: boolean;
 }) {
   const asked = asksAbout(pending, "profile", { field });
+  const common = {
+    key: stored,
+    defaultValue: stored,
+    ...(asked ? { tabIndex: -1, "aria-hidden": true } : {}),
+    onBlur: (event: { target: { value: string } }) => {
+      if (!asked && event.target.value !== stored) {
+        void api.patchProfile({ [field]: event.target.value }).then(onSaved);
+      }
+    },
+  };
 
   return (
-    <label className={asked ? "field-asked" : undefined}>
+    <label className={`${asked ? "field-asked" : ""} ${long ? "field-long" : ""}`.trim() || undefined}>
       <span>{field}</span>
-      <input
-        key={stored}
-        defaultValue={stored}
-        placeholder={field === "headline" ? "Staff Backend Engineer" : ""}
-        {...(asked ? { tabIndex: -1, "aria-hidden": true } : {})}
-        onBlur={(event) => {
-          if (!asked && event.target.value !== stored) {
-            void api.patchProfile({ [field]: event.target.value }).then(onSaved);
-          }
-        }}
-      />
+      {long ? (
+        <GrowText {...common} rows={3} placeholder="A few lines about your work…" />
+      ) : (
+        <input {...common} placeholder={field === "headline" ? "Staff Backend Engineer" : ""} />
+      )}
       {asked && <Proposal asked={asked} name={field} onDone={onSaved} />}
     </label>
   );
@@ -488,7 +506,7 @@ function Stranded({ pending, onDone }: { pending: Pending | null; onDone: () => 
         This question is about something that is not on this page.
       </div>
       <div className="stranded-card">
-        <Proposal asked={pending} name="this" onDone={onDone} />
+        <Proposal asked={pending} name="this" onDone={onDone} claims={false} />
       </div>
     </div>
   );
@@ -574,7 +592,7 @@ export function Profile() {
 
       <h3>About you</h3>
       <div className="field-grid">
-        {(["name", "headline", "email", "location"] as const).map((field) => (
+        {(["name", "headline", "email", "phone", "location"] as const).map((field) => (
           <AboutField
             key={field}
             field={field}
@@ -583,6 +601,19 @@ export function Profile() {
             onSaved={saved}
           />
         ))}
+        {/*
+          The summary, which was stored and shown nowhere. It is the longest
+          thing on a profile and the first thing a resume restates, and a
+          question about it had no row to be asked over — it was the first
+          thing the stranded card ever caught for real.
+        */}
+        <AboutField
+          field="summary"
+          stored={data.profile.summary ?? ""}
+          pending={pending}
+          onSaved={saved}
+          long
+        />
       </div>
 
       {data.empty && <StartFromLinkedIn />}

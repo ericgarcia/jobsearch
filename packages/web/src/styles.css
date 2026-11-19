@@ -477,6 +477,9 @@ a { color: var(--accent); }
   box-shadow: none;
 }
 
+/* Prose in the About grid: its own row, full width. */
+.field-long { grid-column: 1 / -1; }
+
 /*
   What the question is about, as a heading rather than a label. The names are
   written as phrases — "a line under Founder at MuffinLabs" — so the capital
