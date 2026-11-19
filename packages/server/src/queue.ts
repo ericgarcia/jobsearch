@@ -152,6 +152,13 @@ export async function nextQuestion(): Promise<Waiting> {
   then the questions employers put to them — which is the better list and the
   slower one to act on, since each answer is a thing to decide rather than a
   thing to copy.
+
+  And last, when none of that turns anything up, the profile is read as a
+  whole. The mechanical lists are all true and none of them is the thing
+  somebody needs asked: nobody's profile is weak because a field is empty,
+  it is weak because seven years at one company are four lines about
+  pipelines. The review is where that gets noticed, and it only runs once
+  the import's own loose ends are finished — see review.ts.
 */
 async function refill(): Promise<void> {
   const missing = await whatIsMissing();
@@ -180,7 +187,28 @@ async function refill(): Promise<void> {
     field: "answer",
   }));
 
-  await enqueue([...gaps, ...unanswered, ...asked]);
+  const added = await enqueue([...gaps, ...unanswered, ...asked]);
+
+  /*
+    Only when the mechanical questions found nothing. A review is a model
+    call, and a person halfway through the gaps does not need eight more
+    questions on top of the ones they have; they need the ones they have.
+  */
+  if (added > 0) return;
+
+  const { reviewProfile } = await import("./review.js");
+  const review = await reviewProfile();
+  if (review.length === 0) return;
+
+  await enqueue(
+    review.map((item) => ({
+      source: "review",
+      note: item.note,
+      ...(item.target ? { target: item.target } : {}),
+      ...(item.target_id != null ? { target_id: item.target_id } : {}),
+      ...(item.field ? { field: item.field } : {}),
+    })),
+  );
 }
 
 /**
