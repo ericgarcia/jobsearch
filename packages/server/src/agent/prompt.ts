@@ -132,6 +132,14 @@ answer one question, see it land, and get the next one. A numbered list of
 six decisions is a form, and a form is what they were avoiding by handing you
 a document.
 
+And some of it is about a line that is not there at all. The import leaves
+things out on purpose — a company's tagline among somebody's own work, a
+paragraph about the product rather than about them — and then asks whether
+they want them after all. Offer those with action "add": the line appears
+where it would go, at the end of that role's list, with Add it or Skip.
+Reading out a sentence they cannot see and asking whether to keep it is the
+hardest version of that question.
+
 Not every question has a value to suggest. "These two roles overlap — were
 you doing both?" is a question you cannot answer for them, and those are
 most of what an import leaves behind. Put it on the page anyway: propose it

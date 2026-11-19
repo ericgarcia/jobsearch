@@ -491,10 +491,10 @@ const proposeEditTool = tool(
       .optional()
       .describe("The queued question this answers, from next_question. It is settled when they reply."),
     action: z
-      .enum(["set", "delete", "ask"])
+      .enum(["set", "delete", "ask", "add"])
       .optional()
       .describe(
-        "set is the default and suggests a value. delete removes the role, bullet or fact instead of changing it — use it for a line that is not an achievement, a company's sales copy among their work, rather than importing it and tidying up later. ask suggests nothing: it highlights the thing on their profile and puts your question over it, with the stored text in the box for them to correct. Use ask whenever the question is one you cannot answer for them — two roles whose dates overlap, a figure two parts of the profile disagree about — instead of asking in the conversation alone, which leaves them reading about a role without being shown which one.",
+        "set is the default and suggests a value for something already stored. delete removes the role, bullet or fact — use it for a line that is not an achievement, a company's sales copy among their work. ask suggests nothing: it highlights the thing and puts your question over it with the stored text in the box, for a question you cannot answer for them, such as two roles whose dates overlap. add offers a line that is NOT on their profile — the ones an import left out — as a new bullet under a role: pass target \"bullet\", field \"text\", the line in value, and target_id set to the ROLE it would go under. Every one of these puts the question on the thing it is about; asking in the conversation alone leaves them reading about a line they cannot see.",
       ),
   },
   async (args) =>

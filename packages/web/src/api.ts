@@ -483,7 +483,7 @@ export const api = {
         target_id: number | null;
         target_key: string | null;
         field: string;
-        action: "set" | "delete" | "ask";
+        action: "set" | "delete" | "ask" | "add";
         value: string;
         why: string;
         current: string | null;
