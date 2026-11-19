@@ -1,3 +1,4 @@
+import { GrowText } from "./GrowText.tsx";
 import { useEffect, useRef, useState } from "react";
 import { api, type Project, type ProseSection } from "../api.ts";
 import { useChanges } from "../changes.ts";
@@ -93,7 +94,7 @@ function ProjectCard({
 
           <label>
             <span>The long version</span>
-            <textarea
+            <GrowText
               rows={10}
               value={draft.narrative ?? ""}
               placeholder="What the problem was, what you tried, what it cost, what changed. Write it for yourself — the agent turns this into bullets, and the fact-checker uses it to tell a true summary from an invented one."
@@ -249,7 +250,7 @@ export function Projects() {
               defaultValue={section.heading}
               onBlur={(e) => void api.saveSection(section.id, { heading: e.target.value }).then(reload)}
             />
-            <textarea
+            <GrowText
               rows={4}
               defaultValue={section.body}
               onBlur={(e) => void api.saveSection(section.id, { body: e.target.value }).then(reload)}

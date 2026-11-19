@@ -59,6 +59,12 @@ button.ghost { background: none; border-color: transparent; color: var(--text-di
 
 input, textarea, select {
   font: inherit;
+  /*
+    No drag handle anywhere. Every multi-line field in the app sizes itself
+    to what is in it — see components/GrowText.tsx — so a handle would be a
+    control that fights the box it is on.
+  */
+  resize: none;
   color: var(--text);
   background: var(--bg-input);
   border: 1px solid var(--line);
@@ -331,7 +337,7 @@ a { color: var(--accent); }
 }
 .tool-line b { color: var(--accent); font-weight: 500; }
 .chat-form { display: flex; gap: 6px; padding: 8px 12px 10px; flex: none; }
-.chat-form textarea { resize: none; height: 54px; }
+
 
 .thread-list {
   flex: none; max-height: 160px; overflow-y: auto;
@@ -409,10 +415,32 @@ a { color: var(--accent); }
   box-shadow: 0 10px 28px rgb(0 0 0 / 0.45);
 }
 .field-why { font-size: 11px; color: var(--text-dim); line-height: 1.45; }
-.field-was { font-size: 11px; color: var(--text-faint); }
+
+/*
+  Which of the two is which.
+
+  The box held the suggestion and the old text sat under it in small faint
+  type, so the first question anybody asked was whether they were looking at
+  their line or the new one. Both are now labelled, and the old text is set
+  in the box's own type and metrics — same size, same line height, same
+  padding, same radius, same width — so the two stack up as a before and an
+  after and the eye can run down them.
+*/
+.field-label {
+  font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-faint); margin-top: 2px;
+}
+.field-now {
+  font: inherit; line-height: inherit;
+  color: var(--text-dim);
+  padding: 5px 8px; border-radius: var(--radius);
+  border: 1px dashed var(--line);
+  background: color-mix(in srgb, var(--bg-input) 55%, transparent);
+  white-space: pre-wrap;
+}
 .field-answer { display: flex; gap: 6px; margin-top: 2px; }
 .field-answer button { font-size: 11.5px; padding: 3px 10px; }
-.field-card textarea { resize: vertical; min-height: 30px; font: inherit; }
+.field-card textarea { min-height: 30px; font: inherit; }
 /* What a deletion would remove, shown rather than offered for editing. */
 .field-removing {
   font-size: 12px; color: var(--text-dim); line-height: 1.5;
@@ -569,7 +597,7 @@ button.tiny { padding: 1px 6px; font-size: 11px; }
 .bullet span { flex: 1; cursor: text; }
 .bullet span:hover { color: var(--text); }
 .bullet.editing { flex-direction: column; }
-.bullet textarea { height: 54px; resize: vertical; }
+
 .bullet-actions { display: flex; gap: 6px; }
 
 .add-bullet input { font-size: 12px; }
@@ -845,7 +873,7 @@ button.tiny { padding: 1px 6px; font-size: 11px; }
 
 .project-body { padding: 0 11px 12px; display: flex; flex-direction: column; gap: 10px; }
 .project-body label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-dim); }
-.project-body textarea { font: inherit; line-height: 1.55; resize: vertical; }
+.project-body textarea { font: inherit; line-height: 1.55; }
 .project-public { flex-direction: row !important; align-items: flex-start; gap: 8px !important; }
 .project-public input { width: auto; flex: none; margin-top: 3px; }
 .project-public em { color: var(--text-faint); font-style: normal; }
@@ -856,4 +884,4 @@ button.tiny { padding: 1px 6px; font-size: 11px; }
 .section-prose-list li { display: flex; flex-direction: column; gap: 6px;
   border: 1px solid var(--line-soft); border-radius: var(--radius);
   background: var(--bg-raised); padding: 10px 11px; }
-.section-prose-list textarea { font: inherit; line-height: 1.55; resize: vertical; }
+.section-prose-list textarea { font: inherit; line-height: 1.55; }

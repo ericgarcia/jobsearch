@@ -1,3 +1,4 @@
+import { GrowText } from "./GrowText.tsx";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Markdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -593,8 +594,10 @@ export function Chat({
         >
           {sending ? "…" : "+"}
         </button>
-        <textarea
+        <GrowText
           value={draft}
+          rows={2}
+          max={200}
           placeholder={dragging ? "Drop it here" : "Ask the assistant, or drop in a resume…"}
           onChange={(event) => {
             setDraft(event.target.value);
