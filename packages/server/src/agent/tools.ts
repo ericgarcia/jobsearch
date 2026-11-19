@@ -523,7 +523,7 @@ const proposeEditTool = tool(
 
 const nextQuestionTool = tool(
   "next_question",
-  "The next thing worth asking them about their profile, one at a time. It comes from what a document you read could not settle, then the gaps in their profile, then the questions real employers asked that nothing on file could answer — already ordered, so take what you are given rather than choosing. Read the note, ask them about it in one short line, and propose the change with propose_edit passing this question_id. If it needs no change, settle_question says so. Call this again only once the current one is answered. The reply says how many are left: offer to stop after a handful, because a profile filled in over two sittings is better than one abandoned in the middle of a long one.",
+  "The next thing worth asking them about their profile, one at a time. It comes from what a document you read could not settle, then the gaps in their profile, then the questions real employers asked that nothing on file could answer — already ordered, so take what you are given rather than choosing. Read the note, ask them about it in one short line, and propose the change with propose_edit passing this question_id. When the question carries a `value`, that is the exact text to propose — pass it through word for word rather than retyping or summarising it, with action \"add\" when the question also names a target, which offers the line where it would go. If it needs no change, settle_question says so. Call this again only once the current one is answered. The reply says how many are left: offer to stop after a handful, because a profile filled in over two sittings is better than one abandoned in the middle of a long one.",
   {},
   async () =>
     guard(async () => {

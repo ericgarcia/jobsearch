@@ -244,6 +244,8 @@ async function addMissingColumns(): Promise<void> {
     ["conversations", "workspace", "TEXT"],
     // The rules this conversation was last run under. Null means never run.
     ["conversations", "rules_at", "TEXT"],
+    // The exact text a queued question would store, when it has one.
+    ["question_queue", "value", "TEXT"],
     /*
       Which stored thing answers an identity or link field, and the two
       columns a cached classification expires by. Added here because the
