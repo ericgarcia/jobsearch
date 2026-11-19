@@ -81,8 +81,20 @@ export interface Proposed {
   skills: { name: string; years?: number }[];
   /** Answers the document states outright, for the fact store. */
   facts: { slug: string; question: string; answer: string }[];
-  /** Read, and deliberately not asserted. Shown to the person, stored nowhere. */
+  /** Read, and deliberately not asserted. Becomes something to ask about. */
   unsure: string[];
+  /**
+   * What was deliberately not imported, kept word for word.
+   *
+   * A note in `unsure` is prose about a decision — "I left out the paragraph
+   * starting After a PhD in Signal Processing" — and prose is all it is. When
+   * the queue later asked whether that paragraph was wanted after all, the
+   * assistant had the opening words and nothing else, and said so: "I only
+   * have the opening words, so I can't put the whole thing on the page for
+   * you to look at." A decision to leave something out is only reversible if
+   * the thing itself was kept, so it is kept here.
+   */
+  left_out: { company?: string; text: string; why?: string }[];
 }
 
 export interface Import {
@@ -117,13 +129,16 @@ field that looks already filled in.
   that. A line like "We charge by the deliverable, not the hour", a heading
   like "What we offer:", or a list of services is the business describing
   itself: it is part of the summary if it came from the opening section, and
-  otherwise it is left out. Say in "unsure" what you left out of a role and
-  why, so they can disagree.
+  otherwise it is left out. Put every line you leave out of a role in
+  "left_out", word for word, with the company it came from and one line on
+  why — not a description of it, the text itself. They may want it after
+  all, and it can only be offered back to them if you kept it.
 - A date the document does not give is omitted, not estimated. Keep the
   document's own form — "2019", "Mar 2019", "2019-03" — rather than
   normalising it.
 - Anything you read but would not state as fact goes in "unsure", as a short
-  line each. That list is shown to the person and stored nowhere.
+  line each: a thing to ask about, not a thing you leave out. Text you are
+  leaving out goes in "left_out" with the words themselves.
 
 Never report any of the following, however plainly the document seems to
 show it:
@@ -161,6 +176,7 @@ give:
  "education": [{"school": "", "degree": "", "field": "", "end_date": ""}],
  "skills": [{"name": "", "years": 0}],
  "facts": [{"slug": "", "question": "", "answer": ""}],
+ "left_out": [{"company": "", "text": "", "why": ""}],
  "unsure": [""]}
 `.trim();
 
@@ -477,6 +493,19 @@ function vetted(reply: unknown): Proposed {
     unsure: list(given.unsure, 30)
       .map((note) => line(note, 400))
       .filter((note): note is string => note !== undefined),
+    /* Generous with length: this is somebody's paragraph, kept to offer back. */
+    left_out: list(given.left_out, 30)
+      .map((entry) => {
+        const item = (entry ?? {}) as Record<string, unknown>;
+        const text = line(item.text, 2000);
+        if (!text) return null;
+        return {
+          ...(line(item.company, 200) ? { company: line(item.company, 200)! } : {}),
+          text,
+          ...(line(item.why, 400) ? { why: line(item.why, 400)! } : {}),
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null),
   };
 }
 
@@ -935,8 +964,42 @@ export async function applyImport(id: number, choices: Choices = {}): Promise<Ap
   */
   // Imported here, not at the top: the queue reads this module for what is
   // missing, so a static import either way round would be a cycle.
-  const { enqueueFromImport } = await import("./queue.js");
+  const { enqueue, enqueueFromImport } = await import("./queue.js");
   applied.to_ask = await enqueueFromImport(id, stored.proposal.unsure);
+
+  /*
+    And what it left out, as a question that can actually be shown.
+
+    Each one points at the role it came from and carries the words
+    themselves, so the question becomes a line offered at the end of that
+    role with Add it or Skip, instead of a sentence quoting the first few
+    words and explaining that the rest is not available.
+
+    A paragraph whose company matches nothing on file is still worth asking
+    about; it simply has no role to sit under, and is asked without one.
+  */
+  const onFile = await profile.listRoles();
+  const under = (company?: string) => {
+    if (!company) return null;
+    const plain = company.trim().toLowerCase();
+    return onFile.find((role) => role.company.trim().toLowerCase() === plain) ?? null;
+  };
+
+  applied.to_ask += await enqueue(
+    /* An import stored before this existed has no list, which is not none. */
+    (stored.proposal.left_out ?? []).map((item) => {
+      const role = under(item.company);
+      const where = role ? ` from ${role.company}` : item.company ? ` from ${item.company}` : "";
+      return {
+        source: `import:${id}`,
+        note:
+          `The import left this line out${where}${item.why ? `, because ${item.why}` : ""}.` +
+          ` Offer it back to them as it stands: “${item.text}”`,
+        ...(role ? { target: "bullet", target_id: role.id, field: "text" } : {}),
+        value: item.text,
+      };
+    }),
+  );
 
   changed("profile");
   return applied;

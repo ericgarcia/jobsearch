@@ -598,6 +598,12 @@ CREATE TABLE IF NOT EXISTS question_queue (
   target_id  INTEGER,
   target_key TEXT,
   field      TEXT,
+  /*
+    The exact text this question would store, when it has one: the paragraph
+    an import left out, kept so it can be offered back word for word. The
+    note is prose about a decision; this is the thing the decision was about.
+  */
+  value      TEXT,
   state      TEXT    NOT NULL DEFAULT 'waiting',
   /** What happened, once it is settled. */
   outcome    TEXT,

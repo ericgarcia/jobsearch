@@ -43,6 +43,8 @@ export interface Question {
   target_id: number | null;
   target_key: string | null;
   field: string | null;
+  /** The exact text to propose, when the question carries one. */
+  value: string | null;
 }
 
 export interface Waiting {
@@ -61,6 +63,7 @@ interface Entry {
   target_id?: number | null;
   target_key?: string | null;
   field?: string | null;
+  value?: string | null;
 }
 
 /**
@@ -75,8 +78,8 @@ export async function enqueue(entries: Entry[]): Promise<number> {
   for (const entry of entries) {
     if (!entry.note.trim()) continue;
     const written = await run(
-      `INSERT INTO question_queue (source, note, target, target_id, target_key, field)
-            VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO question_queue (source, note, target, target_id, target_key, field, value)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (source, note) DO NOTHING`,
       entry.source,
       entry.note.trim(),
@@ -84,6 +87,7 @@ export async function enqueue(entries: Entry[]): Promise<number> {
       entry.target_id ?? null,
       entry.target_key ?? null,
       entry.field ?? null,
+      entry.value ?? null,
     );
     if (written.changes > 0) added += 1;
   }
@@ -99,9 +103,23 @@ export async function enqueueFromImport(
   return await enqueue(unsure.map((note) => ({ source: `import:${importId}`, note })));
 }
 
+/* What clearQueue writes, and what counts() must not call an answer. */
+const PUT_AWAY = "left for another time";
+
+/*
+  Answered, and still waiting.
+
+  A question put away is neither. It is marked done so that it does not come
+  back, but counting it as answered makes the bar say somebody has dealt
+  with something they explicitly set aside — forty questions abandoned read
+  as forty answered, and the bar jumped from 20 to 60.
+*/
 async function counts(): Promise<{ left: number; settled: number }> {
   const row = await get<{ left: number; settled: number }>(
-    `SELECT SUM(state = 'waiting') AS left, SUM(state = 'done') AS settled FROM question_queue`,
+    `SELECT SUM(state = 'waiting') AS left,
+            SUM(state = 'done' AND COALESCE(outcome, '') != ?) AS settled
+       FROM question_queue`,
+    PUT_AWAY,
   );
   return { left: row?.left ?? 0, settled: row?.settled ?? 0 };
 }
@@ -120,7 +138,7 @@ export async function nextQuestion(): Promise<Waiting> {
   if (left === 0) await refill();
 
   const question = await get<Question>(
-    `SELECT id, source, note, target, target_id, target_key, field
+    `SELECT id, source, note, target, target_id, target_key, field, value
        FROM question_queue WHERE state = 'waiting' ORDER BY id LIMIT 1`,
   );
   const now = await counts();
@@ -197,7 +215,7 @@ export async function progress(): Promise<{ left: number; settled: number }> {
 /** Everything still waiting, for the person's own page rather than the agent. */
 export async function waitingQuestions(): Promise<Question[]> {
   return await all<Question>(
-    `SELECT id, source, note, target, target_id, target_key, field
+    `SELECT id, source, note, target, target_id, target_key, field, value
        FROM question_queue WHERE state = 'waiting' ORDER BY id`,
   );
 }
@@ -205,9 +223,10 @@ export async function waitingQuestions(): Promise<Question[]> {
 /** Put the queue away — when somebody says they have had enough for now. */
 export async function clearQueue(): Promise<number> {
   const done = await run(
-    `UPDATE question_queue SET state = 'done', outcome = 'left for another time',
+    `UPDATE question_queue SET state = 'done', outcome = ?,
             settled_at = datetime('now')
       WHERE state = 'waiting'`,
+    PUT_AWAY,
   );
   if (done.changes > 0) changed("profile");
   return done.changes;
