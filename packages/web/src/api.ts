@@ -34,6 +34,21 @@ export interface WishCase {
   at: string;
 }
 
+/** A line an import held back, with why it did. */
+export interface LeftOutLine {
+  id: number;
+  text: string;
+  why: string | null;
+}
+
+/** The lines held back from one role. */
+export interface LeftOutGroup {
+  role_id: number;
+  company: string;
+  title: string;
+  lines: LeftOutLine[];
+}
+
 /** An answer type the assistant asked for and could not have. */
 export interface Wish {
   id: number;
@@ -549,6 +564,24 @@ export const api = {
       "/api/pending-edit/resolve",
       { method: "POST", body: JSON.stringify({ answer, value }) },
     ),
+
+  /*
+    The lines an import kept back, as an item on the profile rather than a
+    queue of identical questions waiting on a conversation.
+  */
+  leftOutLines: () => json<{ groups: LeftOutGroup[] }>("/api/profile/left-out"),
+
+  addLeftOut: (id: number) =>
+    json<{ added: boolean }>("/api/profile/left-out/add", {
+      method: "POST",
+      body: JSON.stringify({ id }),
+    }),
+
+  leaveLeftOut: (ids: number[]) =>
+    json<{ settled: number }>("/api/profile/left-out/leave", {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    }),
 
   /* What the assistant wanted a card to be able to do, for the admin page. */
   wishedActions: () =>

@@ -1004,3 +1004,25 @@ button.tiny { padding: 1px 6px; font-size: 11px; }
 }
 .wish-shape { color: var(--text-dim); font-size: 11.5px; }
 .wish-shape b { color: var(--text); font-weight: 600; }
+
+/*
+  Lines an import kept back from a role. See HeldBack in Profile.tsx.
+
+  Quiet and folded: they are held back because they are probably not wanted,
+  so the role mentions them and carries on rather than arguing for them.
+*/
+.held { margin: 2px 0 8px; }
+.held-head {
+  display: flex; align-items: baseline; gap: 7px;
+  font-size: 11.5px; color: var(--text-dim); padding: 3px 2px;
+}
+.held-mark { color: var(--text-faint); }
+.held .field-why { margin: 4px 0 8px; max-width: 60ch; }
+.held-lines { list-style: none; margin: 0 0 8px; padding: 0;
+  display: flex; flex-direction: column; gap: 8px; }
+.held-lines li {
+  border-left: 2px solid var(--line); padding-left: 9px;
+}
+.held-text { margin: 0 0 4px; font-size: 12px; line-height: 1.5; color: var(--text-dim); }
+.held-row { display: flex; align-items: baseline; gap: 10px; }
+.held-why { font-size: 11px; color: var(--text-faint); flex: 1; }

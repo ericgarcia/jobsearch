@@ -3,7 +3,14 @@ import { useEffect, useRef, useState } from "react";
 import { GrowText } from "./GrowText.tsx";
 import { useChanges } from "../changes.ts";
 import { Interests } from "./Interests.tsx";
-import { api, type Answer, type Bullet, type Profile as ProfileData, type Role } from "../api.ts";
+import {
+  api,
+  type Answer,
+  type Bullet,
+  type LeftOutGroup,
+  type Profile as ProfileData,
+  type Role,
+} from "../api.ts";
 import { say } from "../say.ts";
 import { claim, release, useClaimed } from "../claimed.ts";
 import { useFieldHistory } from "../undo.ts";
@@ -306,13 +313,84 @@ function BulletRow({
   );
 }
 
+/**
+ * The lines an import held back from this role.
+ *
+ * Folded shut, because they are held back for a reason and the reason is
+ * usually right: the nine that prompted this were a consultancy's services
+ * menu, its commercial terms and its call to action, read off the same
+ * document as somebody's actual work. Shut, the role says there are nine and
+ * gets on with it; open, each line is there with why it was held and a
+ * button to put it on the profile after all.
+ *
+ * "Leave them all out" settles the lot. It is the same answer the import
+ * already gave and the same answer nine separate cards would have collected
+ * one at a time, which is the thing this exists to avoid.
+ */
+function HeldBack({ group, onChanged }: { group: LeftOutGroup; onChanged: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const act = (work: Promise<unknown>) => {
+    setBusy(true);
+    void work.then(onChanged).finally(() => setBusy(false));
+  };
+
+  const count = group.lines.length;
+
+  return (
+    <div className="held">
+      <button className="ghost held-head" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <span className="held-mark">{open ? "▾" : "▸"}</span>
+        {count === 1 ? "1 line was held back from this role" : `${count} lines were held back from this role`}
+      </button>
+
+      {open && (
+        <>
+          <p className="field-why">
+            The import read these on the same document and judged them not to be your work.
+            Put any of them on the profile, or leave them out.
+          </p>
+          <ul className="held-lines">
+            {group.lines.map((line) => (
+              <li key={line.id}>
+                <p className="held-text">{line.text}</p>
+                <div className="held-row">
+                  {line.why && <span className="held-why">{line.why}</span>}
+                  <button
+                    className="ghost tiny"
+                    disabled={busy}
+                    onClick={() => act(api.addLeftOut(line.id))}
+                  >
+                    Add it
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <button
+            className="ghost tiny"
+            disabled={busy}
+            onClick={() => act(api.leaveLeftOut(group.lines.map((one) => one.id)))}
+          >
+            {count === 1 ? "Leave it out" : "Leave them all out"}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 function RoleCard({
   role,
   pending,
+  heldBack,
   onChanged,
 }: {
   role: Role;
   pending: Pending | null;
+  /** Lines the import kept back from this role, when there are any. */
+  heldBack: LeftOutGroup | undefined;
   onChanged: () => void;
 }) {
   const [draft, setDraft] = useState("");
@@ -374,6 +452,10 @@ function RoleCard({
           </li>
         )}
       </ul>
+
+      {heldBack && heldBack.lines.length > 0 && (
+        <HeldBack group={heldBack} onChanged={onChanged} />
+      )}
 
       <form
         className="add-bullet"
@@ -615,14 +697,25 @@ export function Profile() {
   const [adding, setAdding] = useState(false);
   const [role, setRole] = useState({ company: "", title: "", start_date: "", end_date: "" });
   const [skill, setSkill] = useState("");
+  /* Lines an import kept back, which belong to the role they came from. */
+  const [heldBack, setHeldBack] = useState<LeftOutGroup[]>([]);
 
   const load = () => void api.profile().then(setData);
   const loadPending = () => void api.pendingEdit().then((answer) => setPending(answer.pending));
+  const loadHeldBack = () =>
+    void api
+      .leftOutLines()
+      .then((answer) => setHeldBack(answer.groups))
+      .catch(() => setHeldBack([]));
   useEffect(load, []);
   useEffect(loadPending, []);
+  useEffect(loadHeldBack, []);
   // The agent edits the profile through the same functions this page calls,
   // so a change it makes shows up here without anyone reloading.
   useChanges("profile", load);
+  // Answering one of the held-back lines settles its question, so the count
+  // on the role has to move with it.
+  useChanges("profile", loadHeldBack);
   // And what it is asking about arrives the same way.
   useChanges("focus", loadPending);
 
@@ -631,6 +724,7 @@ export function Profile() {
   const saved = () => {
     load();
     loadPending();
+    loadHeldBack();
   };
 
   return (
@@ -713,7 +807,13 @@ export function Profile() {
       )}
 
       {data.roles.map((item) => (
-        <RoleCard key={item.id} role={item} pending={pending} onChanged={saved} />
+        <RoleCard
+          key={item.id}
+          role={item}
+          pending={pending}
+          heldBack={heldBack.find((group) => group.role_id === item.id)}
+          onChanged={saved}
+        />
       ))}
 
       <h3>Education</h3>
