@@ -1,5 +1,6 @@
 import { get, run } from "./db/client.js";
 import { changed } from "./notify.js";
+import { noteAsking } from "./asking.js";
 import * as profile from "./profile.js";
 import { forgetFact, getFact, setFact } from "./apply/facts.js";
 
@@ -214,6 +215,8 @@ export async function proposeEdit(
     proposal.why.trim(),
   );
 
+  /* So the progress bar can lead back to wherever this was asked. */
+  await noteAsking();
   changed("focus");
   return { pending: (await pendingEdit())! };
 }

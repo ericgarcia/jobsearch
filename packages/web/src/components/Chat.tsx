@@ -350,6 +350,56 @@ export function Chat({
     [threadId, running],
   );
 
+  /*
+    Carrying on with the profile questions.
+
+    Called "continue" throughout, never "resume": a resume is the document
+    this app writes, and a button called Resume beside a profile would read
+    as one.
+
+    Three cases, and the point of the button is that the person does not
+    have to know which they are in:
+
+      the thread that was asking is still here and they are not in it —
+      open it, since the conversation about these questions is there;
+
+      they are already in it, or there is nowhere to go back to but a
+      thread is open — ask for the next question here;
+
+      the asking thread has been deleted, or nothing has asked yet — start
+      a new one and carry on in it. The queue is not owned by a thread, so
+      losing the thread does not lose the questions, and the work should
+      not be stuck behind a conversation somebody threw away.
+  */
+  const CARRY_ON = "Let's carry on with my profile. What is the next question?";
+  const [pendingSay, setPendingSay] = useState<string | null>(null);
+
+  const continueAsking = (asking: number | null) => {
+    if (running) return;
+    if (asking !== null && asking !== threadId) {
+      onOpenThread(asking);
+      return;
+    }
+    if (threadId !== null) {
+      void send(CARRY_ON);
+      return;
+    }
+    onOpenThread(null);
+    setPendingSay(CARRY_ON);
+  };
+
+  /*
+    Said once the new thread is the one on screen, rather than in the same
+    breath as asking for it: send reads the thread it is in from state, so
+    sending immediately would send into the thread being left behind.
+  */
+  useEffect(() => {
+    if (pendingSay === null || threadId !== null || running) return;
+    const said = pendingSay;
+    setPendingSay(null);
+    void send(said);
+  }, [pendingSay, threadId, running]);
+
   async function hand(files: FileList | File[]) {
     const chosen = [...files].slice(0, 4);
     if (chosen.length === 0 || running) return;
@@ -528,7 +578,7 @@ export function Chat({
         </div>
       )}
 
-      <Progress />
+      <Progress onContinue={continueAsking} busy={running} />
 
       <div className="chat-log scroll" ref={logRef}>
         {entries.length === 0 && (

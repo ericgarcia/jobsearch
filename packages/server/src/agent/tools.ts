@@ -18,6 +18,7 @@ import { fillApplication } from "../apply/fill.js";
 import { listAnswers, markApplied, recordAnswers } from "../apply/record.js";
 import { keepable } from "../apply/keep.js";
 import { clearEdit, pendingEdit, proposeEdit } from "../pending.js";
+import { noteAsking } from "../asking.js";
 import { clearQueue, nextQuestion, settleQuestion } from "../queue.js";
 import {
   applyImport,
@@ -522,6 +523,13 @@ const nextQuestionTool = tool(
   {},
   async () =>
     guard(async () => {
+      /*
+        Taking a question is what makes this the thread that is asking, more
+        than proposing is: the assistant often puts the question in words and
+        waits for an answer before it proposes anything, and somebody who
+        clicks Continue in between should be taken back to here.
+      */
+      await noteAsking();
       const waiting = await nextQuestion();
       return waiting.question
         ? {

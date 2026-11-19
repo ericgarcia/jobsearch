@@ -48,6 +48,7 @@ import {
 import { describe as describeForm } from "./apply/form.js";
 import { clearEdit, pendingEdit, proposeEdit, resolveEdit } from "./pending.js";
 import { clearQueue, progress as questionProgress, waitingQuestions } from "./queue.js";
+import { askingThread, turnIsFrom } from "./asking.js";
 import {
   applyImport,
   documentForUpload,
@@ -467,6 +468,7 @@ app.delete("/api/pending-edit", async () => {
 app.get("/api/questions", async () => ({
   waiting: await waitingQuestions(),
   ...(await questionProgress()),
+  asking: await askingThread(),
 }));
 
 app.delete("/api/questions", async () => ({ put_away: await clearQueue() }));
@@ -1168,6 +1170,9 @@ app.post("/api/chat", async (request, reply) => {
   });
 
   send({ type: "conversation", conversationId });
+
+  /* Whose turn this is, so a proposal made during it can be traced back. */
+  turnIsFrom(conversationId);
 
   const replyText: string[] = [];
   try {
