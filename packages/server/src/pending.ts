@@ -51,12 +51,28 @@ const FIELDS: Record<string, readonly string[]> = {
   role: ["company", "title", "location", "start_date", "end_date"],
   bullet: ["text"],
   fact: ["answer"],
+  education: ["school", "degree", "field", "start_date", "end_date"],
 };
 
 /** Which targets are a row that can be removed outright. */
-const REMOVABLE = new Set(["role", "bullet", "fact"]);
+const REMOVABLE = new Set(["role", "bullet", "fact", "education"]);
 
-export type EditAction = "set" | "delete";
+/**
+ * What a proposal is doing.
+ *
+ * "ask" is the one that is not a proposal at all. Some of what the queue
+ * holds is a question nobody can answer from the document — two roles whose
+ * dates overlap, a degree the summary and the education section disagree
+ * about — and the assistant had no way to put one of those on the page. It
+ * asked in the conversation instead, and the profile highlighted nothing,
+ * so the person was asked about a role without being shown which one.
+ *
+ * An "ask" highlights the thing and carries the question, with the stored
+ * text in the box to correct. Keeping it writes whatever is in the box,
+ * exactly as a "set" does, so an answer and a correction are the same
+ * gesture.
+ */
+export type EditAction = "set" | "delete" | "ask";
 
 export interface PendingEdit {
   target: string;
@@ -109,6 +125,10 @@ async function currently(row: {
     const kept = (await profile.listBullets()).find((one) => one.id === row.target_id);
     return kept?.text ?? null;
   }
+  if (row.target === "education" && row.target_id != null) {
+    const kept = (await profile.listEducation()).find((one) => one.id === row.target_id);
+    return kept ? text((kept as unknown as Record<string, unknown>)[row.field]) : null;
+  }
   if (row.target === "fact" && row.target_key) {
     return (await getFact(row.target_key))?.answer ?? null;
   }
@@ -123,7 +143,8 @@ export async function pendingEdit(): Promise<PendingEdit | null> {
   if (!row) return null;
   return {
     ...row,
-    action: row.action === "delete" ? "delete" : "set",
+    action:
+      row.action === "delete" ? "delete" : row.action === "ask" ? "ask" : "set",
     current: await currently(row),
   };
 }
@@ -159,7 +180,8 @@ export async function proposeEdit(
   }
   if (!proposal.why.trim()) throw new Error("Say why, in one line. It is shown beside the field.");
 
-  const action: EditAction = proposal.action === "delete" ? "delete" : "set";
+  const action: EditAction =
+    proposal.action === "delete" ? "delete" : proposal.action === "ask" ? "ask" : "set";
   if (action === "delete" && !REMOVABLE.has(proposal.target)) {
     throw new Error(`A ${proposal.target} cannot be removed, only changed.`);
   }
@@ -168,6 +190,7 @@ export async function proposeEdit(
   } else if (proposal.target !== "profile" && proposal.target_id == null) {
     throw new Error(`A ${proposal.target} is named by its id; pass target_id.`);
   }
+  /* An ask has nothing to suggest, so an empty value is the normal case. */
   if (action === "set" && !proposal.value.trim()) {
     throw new Error("Nothing to set. To remove it, propose a deletion instead.");
   }
@@ -270,18 +293,32 @@ export async function resolveEdit(keep: boolean, value?: string): Promise<Resolv
       await profile.deleteRole(waiting.target_id);
     } else if (waiting.target === "fact" && waiting.target_key) {
       await forgetFact(waiting.target_key);
+    } else if (waiting.target === "education" && waiting.target_id != null) {
+      await profile.deleteEducation(waiting.target_id);
     }
     changed("profile");
     return { field: waiting.field, kept: true, removed: true };
   }
 
   const text = (value ?? waiting.value).trim();
+
+  /*
+    An ask with nothing typed into it is an answer, not an edit. It carries
+    no suggested value, so writing what is in the box when the box is empty
+    would clear the field somebody was only being asked about.
+  */
+  if (waiting.action === "ask" && !text) {
+    return { field: waiting.field, kept: true };
+  }
+
   if (waiting.target === "profile") {
     await profile.updateProfile({ [waiting.field]: text });
   } else if (waiting.target === "role" && waiting.target_id != null) {
     await profile.updateRole(waiting.target_id, { [waiting.field]: text });
   } else if (waiting.target === "bullet" && waiting.target_id != null) {
     await profile.updateBullet(waiting.target_id, text);
+  } else if (waiting.target === "education" && waiting.target_id != null) {
+    await profile.updateEducation(waiting.target_id, { [waiting.field]: text });
   } else if (waiting.target === "fact" && waiting.target_key) {
     /*
       A fact keeps the question it already had: that wording is what later

@@ -45,11 +45,17 @@ export function Proposal({
   name: string;
   onDone: () => void;
 }) {
-  const [draft, setDraft] = useState(asked.value);
+  /*
+    An ask carries no suggested value, so the box starts from what is
+    stored: the question is "is this right?", and the thing to answer it
+    with is the text itself, there to be corrected.
+  */
+  const seed = asked.action === "ask" ? (asked.current ?? "") : asked.value;
+  const [draft, setDraft] = useState(seed);
   const box = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setDraft(asked.value);
+    setDraft(seed);
 
     /*
       After the page has settled, not during it.
@@ -71,7 +77,7 @@ export function Proposal({
       cancelAnimationFrame(frame);
       clearTimeout(again);
     };
-  }, [asked.at, asked.value]);
+  }, [asked.at, seed]);
 
   /* On the screen, so nothing has to show it plainly instead. See claimed.ts. */
   useEffect(() => {
@@ -80,6 +86,7 @@ export function Proposal({
   }, [asked.at]);
 
   const removing = asked.action === "delete";
+  const asking = asked.action === "ask";
 
   async function resolve(keep: boolean) {
     const answer = await api.resolveEdit(keep, draft);
@@ -105,7 +112,9 @@ export function Proposal({
     is the stored text offered back for correction.
   */
   const original =
-    !removing && asked.current && asked.current !== asked.value ? asked.current : null;
+    !removing && !asking && asked.current && asked.current !== asked.value
+      ? asked.current
+      : null;
 
   return (
     <div className="field-card" ref={box}>
@@ -116,6 +125,7 @@ export function Proposal({
       ) : (
         <>
           {original && <div className="field-label">suggested — edit it here</div>}
+          {asking && <div className="field-label">on your profile — correct it here</div>}
           <GrowText
             autoFocus
             rows={1}
@@ -132,7 +142,7 @@ export function Proposal({
       )}
       <div className="field-answer">
         <button className="primary" onClick={() => void resolve(true)}>
-          {removing ? "Remove" : "Keep"}
+          {removing ? "Remove" : asking ? "That's right" : "Keep"}
         </button>
         <button onClick={() => void resolve(false)}>Skip</button>
       </div>
@@ -445,6 +455,55 @@ function Stranded({ pending, onDone }: { pending: Pending | null; onDone: () => 
   );
 }
 
+/**
+ * One stored degree, with its parts editable.
+ *
+ * Education was imported and then shown nowhere, which made it the second
+ * kind of thing the app held and the person could not see. It also meant a
+ * question about a degree had nothing on the page to be asked over — the
+ * assistant put "your summary says signal processing and your education
+ * says electrical engineering" into the conversation and the profile
+ * highlighted nothing, because there was nothing to highlight.
+ */
+function EducationRow({
+  item,
+  pending,
+  onChanged,
+}: {
+  item: { id: number; school: string; degree: string | null; field: string | null; start_date: string | null; end_date: string | null };
+  pending: Pending | null;
+  onChanged: () => void;
+}) {
+  const parts = ["degree", "field", "school", "start_date", "end_date"] as const;
+
+  return (
+    <div className="education-row">
+      {parts.map((part) => {
+        const asked = asksAbout(pending, "education", { id: item.id, field: part });
+        const stored = item[part] ?? "";
+        return (
+          <label key={part} className={asked ? "field-asked education-part" : "education-part"}>
+            <span>{part === "start_date" ? "from" : part === "end_date" ? "to" : part}</span>
+            <input
+              key={stored}
+              defaultValue={stored}
+              {...(asked ? { tabIndex: -1, "aria-hidden": true } : {})}
+              onBlur={(event) => {
+                if (!asked && event.target.value !== stored) {
+                  void api.patchEducation(item.id, { [part]: event.target.value }).then(onChanged);
+                }
+              }}
+            />
+            {asked && (
+              <Proposal asked={asked} name={`the ${part} of this degree`} onDone={onChanged} />
+            )}
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
 export function Profile() {
   const [data, setData] = useState<ProfileData | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
@@ -538,6 +597,15 @@ export function Profile() {
       {data.roles.map((item) => (
         <RoleCard key={item.id} role={item} pending={pending} onChanged={saved} />
       ))}
+
+      <h3>Education</h3>
+      {data.education.length === 0 ? (
+        <p className="editor-note">Nothing stored yet.</p>
+      ) : (
+        data.education.map((item) => (
+          <EducationRow key={item.id} item={item} pending={pending} onChanged={saved} />
+        ))
+      )}
 
       <ApplicationAnswers />
 

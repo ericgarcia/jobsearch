@@ -467,6 +467,12 @@ export const api = {
     is in the box at that moment. See the server's pending.ts.
   */
   /** How far through the queue of things still worth asking about. */
+  patchEducation: (id: number, patch: Record<string, string>) =>
+    json<unknown>(`/api/profile/education/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
   questionProgress: () =>
     json<{ left: number; settled: number; asking: number | null }>("/api/questions"),
 
@@ -477,7 +483,7 @@ export const api = {
         target_id: number | null;
         target_key: string | null;
         field: string;
-        action: "set" | "delete";
+        action: "set" | "delete" | "ask";
         value: string;
         why: string;
         current: string | null;
@@ -657,7 +663,14 @@ export interface Profile {
   };
   roles: Role[];
   unassigned_bullets: Bullet[];
-  education: { id: number; school: string; degree: string | null; field: string | null; end_date: string | null }[];
+  education: {
+    id: number;
+    school: string;
+    degree: string | null;
+    field: string | null;
+    start_date: string | null;
+    end_date: string | null;
+  }[];
   skills: { id: number; name: string; category: string | null; years: number | null }[];
   empty: boolean;
 }

@@ -292,6 +292,39 @@ export async function addEducation(item: Omit<EducationRow, "id">): Promise<Educ
   return (await dbGet(`SELECT * FROM profile_education WHERE id = ?`, info.lastInsertRowid)) as EducationRow;
 }
 
+/**
+ * Change one stored degree.
+ *
+ * Added when the assistant turned out to have no way to ask about one. The
+ * education rows were stored by the import, shown nowhere and changeable
+ * only by deleting and re-adding, so a question like "your summary says
+ * signal processing and this says electrical engineering" had nothing on
+ * the page to point at.
+ */
+export async function updateEducation(
+  id: number,
+  patch: Partial<EducationRow>,
+): Promise<EducationRow> {
+  const fields = ["school", "degree", "field", "start_date", "end_date", "note"] as const;
+  const set: string[] = [];
+  const params: InValue[] = [];
+  for (const field of fields) {
+    if (patch[field] !== undefined) {
+      set.push(`${field} = ?`);
+      params.push(patch[field] ?? null);
+    }
+  }
+  if (set.length > 0) {
+    await dbRun(`UPDATE profile_education SET ${set.join(", ")} WHERE id = ?`, ...params, id);
+  }
+  const row = (await dbGet(`SELECT * FROM profile_education WHERE id = ?`, id)) as
+    | EducationRow
+    | undefined;
+  if (!row) throw new Error(`No education with id ${id}`);
+  changed("profile");
+  return row;
+}
+
 export async function deleteEducation(id: number): Promise<boolean> {
   const gone = (await dbRun(`DELETE FROM profile_education WHERE id = ?`, id)).changes > 0;
   if (gone) changed("profile");

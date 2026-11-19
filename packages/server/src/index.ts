@@ -1026,6 +1026,13 @@ app.post("/api/profile/education", async (request, reply) => {
   }
 });
 
+app.patch("/api/profile/education/:id", async (request) => ({
+  education: await profile.updateEducation(
+    Number((request.params as { id: string }).id),
+    request.body as Record<string, string>,
+  ),
+}));
+
 app.delete("/api/profile/education/:id", async (request) => ({
   removed: await profile.deleteEducation(Number((request.params as { id: string }).id)),
 }));
