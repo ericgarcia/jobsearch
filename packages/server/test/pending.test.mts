@@ -319,4 +319,73 @@ assert.ok(elsewhere.waiting, "a proposal about something else was allowed throug
 assert.equal(elsewhere.pending.target_id, openLine.id);
 ok("a proposal aimed anywhere else still waits its turn");
 
+console.log("\nA line that is not on the profile yet");
+
+/*
+  The import leaves things out and then asks whether they were wanted. Until
+  "add" existed there was nothing on the page to ask that over: set, delete
+  and ask all name a row, and the line in question is the one that does not
+  exist. The assistant read the sentence out in the conversation instead and
+  the profile highlighted nothing.
+*/
+await clearEdit();
+const host = await profile.addRole({
+  company: "MuffinLabs",
+  title: "Founder",
+  location: null,
+  start_date: "2026-01",
+  end_date: null,
+  summary: null,
+});
+
+const offered = await proposeEdit({
+  target: "bullet",
+  target_id: host.id,
+  field: "text",
+  action: "add",
+  value: "Building systems that work in production.",
+  why: "The import left this out as a tagline. Want it?",
+});
+assert.equal(offered.pending.action, "add");
+ok("a line can be offered under a role rather than changed in place");
+
+assert.equal(offered.pending.current, null);
+ok("and it has no current value, because there is nothing there yet");
+
+const before = (await profile.listBullets()).filter((one) => one.role_id === host.id).length;
+await resolveEdit(true);
+const after = (await profile.listBullets()).filter((one) => one.role_id === host.id);
+assert.equal(after.length, before + 1);
+assert.equal(after.at(-1)?.text, "Building systems that work in production.");
+ok("keeping it creates the line under that role");
+
+/* Emptying the box is how somebody says no to a line, so nothing is made. */
+await proposeEdit({
+  target: "bullet",
+  target_id: host.id,
+  field: "text",
+  action: "add",
+  value: "Another line nobody wants.",
+  why: "Offered.",
+});
+await resolveEdit(true, "   ");
+assert.equal(
+  (await profile.listBullets()).filter((one) => one.role_id === host.id).length,
+  after.length,
+);
+ok("and emptying the box adds nothing rather than an empty line");
+
+await assert.rejects(
+  proposeEdit({
+    target: "role",
+    target_id: host.id,
+    field: "company",
+    action: "add",
+    value: "Something",
+    why: "Not allowed.",
+  }),
+  /Only a bullet can be added/,
+);
+ok("only a bullet can be added this way, so the action cannot be misaimed");
+
 console.log(`\n${passed} passed, 0 failed`);

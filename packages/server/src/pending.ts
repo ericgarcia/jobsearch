@@ -72,7 +72,23 @@ const REMOVABLE = new Set(["role", "bullet", "fact", "education"]);
  * exactly as a "set" does, so an answer and a correction are the same
  * gesture.
  */
-export type EditAction = "set" | "delete" | "ask";
+export type EditAction = "set" | "delete" | "ask" | "add";
+
+/*
+  "add" proposes something that is not there yet.
+
+  The import deliberately leaves lines out — a company tagline among
+  somebody's own work, a paragraph that describes the product rather than
+  what they did — and then asks whether they want them after all. Until this
+  existed there was no way to put that question on the page: set, delete and
+  ask all name a row that exists, and the line in question is precisely the
+  one that does not. So the assistant asked in the conversation, and the
+  profile highlighted nothing, because there was nothing yet to highlight.
+
+  For an add, target_id names the parent rather than the row: the role the
+  line would go under. There is no current value, so the card shows the
+  proposed line alone.
+*/
 
 export interface PendingEdit {
   target: string;
@@ -110,6 +126,7 @@ async function currently(row: {
   target_id: number | null;
   target_key: string | null;
   field: string;
+  action?: string;
 }): Promise<string | null> {
   const text = (value: unknown) => (typeof value === "string" ? value : null);
 
@@ -122,6 +139,8 @@ async function currently(row: {
     return kept ? text((kept as unknown as Record<string, unknown>)[row.field]) : null;
   }
   if (row.target === "bullet" && row.target_id != null) {
+    /* For an add, target_id is the role it would join: nothing is stored yet. */
+    if (row.action === "add") return null;
     const kept = (await profile.listBullets()).find((one) => one.id === row.target_id);
     return kept?.text ?? null;
   }
@@ -144,7 +163,13 @@ export async function pendingEdit(): Promise<PendingEdit | null> {
   return {
     ...row,
     action:
-      row.action === "delete" ? "delete" : row.action === "ask" ? "ask" : "set",
+      row.action === "delete"
+        ? "delete"
+        : row.action === "ask"
+          ? "ask"
+          : row.action === "add"
+            ? "add"
+            : "set",
     current: await currently(row),
   };
 }
@@ -181,7 +206,22 @@ export async function proposeEdit(
   if (!proposal.why.trim()) throw new Error("Say why, in one line. It is shown beside the field.");
 
   const action: EditAction =
-    proposal.action === "delete" ? "delete" : proposal.action === "ask" ? "ask" : "set";
+    proposal.action === "delete"
+      ? "delete"
+      : proposal.action === "ask"
+        ? "ask"
+        : proposal.action === "add"
+          ? "add"
+          : "set";
+  if (action === "add" && proposal.target !== "bullet") {
+    throw new Error(`Only a bullet can be added this way, not a ${proposal.target}.`);
+  }
+  if (action === "add" && proposal.target_id == null) {
+    throw new Error("An added line needs target_id: the id of the role it goes under.");
+  }
+  if (action === "add" && !proposal.value.trim()) {
+    throw new Error("Nothing to add. Say the line in `value`.");
+  }
   if (action === "delete" && !REMOVABLE.has(proposal.target)) {
     throw new Error(`A ${proposal.target} cannot be removed, only changed.`);
   }
@@ -301,6 +341,18 @@ export async function resolveEdit(keep: boolean, value?: string): Promise<Resolv
   }
 
   const text = (value ?? waiting.value).trim();
+
+  /*
+    An add makes the row rather than changing one, and its target_id is the
+    role the line joins. Nothing in the box means they emptied it, which is
+    the same as not wanting the line.
+  */
+  if (waiting.action === "add") {
+    if (text && waiting.target_id != null) {
+      await profile.addBullet(waiting.target_id, text);
+    }
+    return { field: waiting.field, kept: Boolean(text), value: text };
+  }
 
   /*
     An ask with nothing typed into it is an answer, not an edit. It carries

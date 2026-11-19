@@ -87,6 +87,7 @@ export function Proposal({
 
   const removing = asked.action === "delete";
   const asking = asked.action === "ask";
+  const adding = asked.action === "add";
 
   async function resolve(keep: boolean) {
     const answer = await api.resolveEdit(keep, draft);
@@ -126,6 +127,7 @@ export function Proposal({
         <>
           {original && <div className="field-label">suggested — edit it here</div>}
           {asking && <div className="field-label">on your profile — correct it here</div>}
+          {adding && <div className="field-label">not on your profile — add it?</div>}
           <GrowText
             autoFocus
             rows={1}
@@ -142,7 +144,7 @@ export function Proposal({
       )}
       <div className="field-answer">
         <button className="primary" onClick={() => void resolve(true)}>
-          {removing ? "Remove" : asking ? "That's right" : "Keep"}
+          {removing ? "Remove" : asking ? "That's right" : adding ? "Add it" : "Keep"}
         </button>
         <button onClick={() => void resolve(false)}>Skip</button>
       </div>
@@ -162,7 +164,13 @@ function BulletRow({
 }) {
   const [text, setText] = useState(bullet.text);
   const [editing, setEditing] = useState(false);
-  const asked = asksAbout(pending, "bullet", { id: bullet.id });
+  /*
+    Not an add. For an add, target_id names the role the line would join
+    rather than a bullet, so a bullet whose id happens to equal that role's
+    claims the card and shows it under the wrong job — which is what it did.
+  */
+  const match = asksAbout(pending, "bullet", { id: bullet.id });
+  const asked = match?.action === "add" ? null : match;
 
   useEffect(() => setText(bullet.text), [bullet.text]);
 
@@ -241,6 +249,9 @@ function RoleCard({
 }) {
   const [draft, setDraft] = useState("");
   const asked = asksAbout(pending, "role", { id: role.id });
+  /* An added line names the role it would join, not a bullet of its own. */
+  const offered = asksAbout(pending, "bullet", { id: role.id });
+  const adding = offered?.action === "add" ? offered : null;
 
   const dates = [role.start_date, role.end_date ?? "present"].filter(Boolean).join(" – ");
 
@@ -279,6 +290,21 @@ function RoleCard({
         {role.bullets.map((bullet) => (
           <BulletRow key={bullet.id} bullet={bullet} pending={pending} onChanged={onChanged} />
         ))}
+        {adding && (
+          /*
+            A line being offered rather than one that is there. It sits where
+            it would go, at the end of this role's list, so the question is
+            asked in the place the answer lands — the same rule as every
+            other card, applied to something that does not exist yet.
+          */
+          <li className="bullet bullet-adding field-asked">
+            <Proposal
+              asked={adding}
+              name={`a line under ${role.title} at ${role.company}`}
+              onDone={onChanged}
+            />
+          </li>
+        )}
       </ul>
 
       <form
