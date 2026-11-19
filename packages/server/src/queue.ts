@@ -184,6 +184,16 @@ export async function settleQuestion(id: number, outcome: string): Promise<boole
   return done.changes > 0;
 }
 
+/**
+ * How far through the queue they are.
+ *
+ * The same two numbers nextQuestion carries, on their own, so the page can
+ * show progress without asking for a question and taking one out.
+ */
+export async function progress(): Promise<{ left: number; settled: number }> {
+  return await counts();
+}
+
 /** Everything still waiting, for the person's own page rather than the agent. */
 export async function waitingQuestions(): Promise<Question[]> {
   return await all<Question>(

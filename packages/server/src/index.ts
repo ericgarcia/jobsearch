@@ -47,7 +47,7 @@ import {
 } from "./apply/facts.js";
 import { describe as describeForm } from "./apply/form.js";
 import { clearEdit, pendingEdit, proposeEdit, resolveEdit } from "./pending.js";
-import { clearQueue, waitingQuestions } from "./queue.js";
+import { clearQueue, progress as questionProgress, waitingQuestions } from "./queue.js";
 import {
   applyImport,
   documentForUpload,
@@ -464,7 +464,10 @@ app.delete("/api/pending-edit", async () => {
   takes these one at a time through next_question; this is so they can see
   how many are left without being read the list. See queue.ts.
 */
-app.get("/api/questions", async () => ({ waiting: await waitingQuestions() }));
+app.get("/api/questions", async () => ({
+  waiting: await waitingQuestions(),
+  ...(await questionProgress()),
+}));
 
 app.delete("/api/questions", async () => ({ put_away: await clearQueue() }));
 
