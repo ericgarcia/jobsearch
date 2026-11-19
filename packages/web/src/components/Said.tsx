@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { api, type ContextNote } from "../api.ts";
 
 /**
@@ -36,6 +36,8 @@ export function Said({
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const panel = useRef<HTMLDivElement>(null);
+
 
   const mine = notes.filter(
     (one) =>
@@ -43,6 +45,46 @@ export function Said({
       (targetId == null || one.target_id === targetId) &&
       (targetKey == null || one.target_key === targetKey),
   );
+
+  /*
+    Kept inside the pane it belongs to.
+
+    The panel hangs off the mark, and the mark sits wherever its row ends —
+    which for a line of a resume is a long way left. Anchored to the mark
+    alone, a 340px panel opened on a short line reached two hundred pixels
+    past the left edge of the profile and opened underneath the conversation,
+    where it could be read but not reached.
+
+    So it is measured once it is up and pushed back inside: the mark keeps
+    the panel's right edge where it is unless that would take the left edge
+    out of the pane, and then the pane wins. Measured rather than guessed
+    because the pane is resizable and the rows are not all the same width.
+  */
+  useLayoutEffect(() => {
+    const node = panel.current;
+    if (!open || !node) return;
+
+    const fit = () => {
+      node.style.right = "0px";
+      const pane = node.closest(".profile")?.getBoundingClientRect();
+      if (!pane) return;
+      const box = node.getBoundingClientRect();
+      const past = pane.left + 8 - box.left;
+      /*
+        How far it can move before it hangs off the other side — which is
+        what it has to be measured against. Capping the shift by the pane's
+        width instead left the panel on the About heading 38px outside,
+        because a mark that sits near the left edge needs to move further
+        than a panel-width of slack allows.
+      */
+      const room = pane.right - 8 - box.right;
+      if (past > 0) node.style.right = `${-Math.max(0, Math.min(past, room))}px`;
+    };
+
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [open, mine.length]);
 
   async function keep() {
     const said = draft.trim();
@@ -78,7 +120,7 @@ export function Said({
       </button>
 
       {open && (
-        <div className="said-panel">
+        <div className="said-panel" ref={panel}>
           <div className="field-label">what you have said about {what}</div>
 
           {mine.length === 0 && (
