@@ -34,6 +34,26 @@ export interface WishCase {
   at: string;
 }
 
+/**
+ * Something the person has said about a part of their profile.
+ *
+ * Why a line is worded as it is, what cannot be given, what they have
+ * decided to leave off. Shown on the row it is about, and read by the
+ * review so it stops asking what they have already answered. Never used to
+ * write a resume, a letter or an application answer.
+ */
+export interface ContextNote {
+  id: number;
+  target: "profile" | "role" | "bullet" | "education" | "fact" | "skills";
+  target_id: number | null;
+  target_key: string | null;
+  note: string;
+  /** The question it closes, when it closes one. */
+  settles: string | null;
+  source: "person" | "assistant";
+  at: string;
+}
+
 /** The app as it stood when a bug was filed, read off the server. */
 export interface BugContext {
   card: {
@@ -620,6 +640,24 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ ids }),
     }),
+
+  /* What they have said about parts of their profile. See notes.ts. */
+  notes: () => json<{ notes: ContextNote[] }>("/api/notes"),
+
+  keepNote: (entry: {
+    target: ContextNote["target"];
+    target_id?: number | null;
+    target_key?: string | null;
+    note: string;
+    settles?: string | null;
+  }) =>
+    json<{ note: ContextNote }>("/api/notes", {
+      method: "POST",
+      body: JSON.stringify(entry),
+    }),
+
+  forgetNote: (id: number) =>
+    json<{ removed: boolean }>(`/api/notes/${id}`, { method: "DELETE" }),
 
   /* What the assistant ran into, with what it takes to reproduce it. */
   bugs: () => json<{ bugs: Bug[] }>("/api/bugs"),

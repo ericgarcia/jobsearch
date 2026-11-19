@@ -20,6 +20,7 @@ import { keepable } from "../apply/keep.js";
 import { clearEdit, pendingEdit, proposeEdit, withdrawnEdit } from "../pending.js";
 import { wishForAnswer } from "../wishes.js";
 import { reportBug } from "../bugs.js";
+import { keepNote, notesFor } from "../notes.js";
 import { noteAsking } from "../asking.js";
 import { clearQueue, nextQuestion, settleQuestion } from "../queue.js";
 import {
@@ -676,6 +677,59 @@ const wishForAnswerTool = tool(
     }),
 );
 
+const noteContextTool = tool(
+  "note_context",
+  "Keep something they told you about a part of their profile, so nobody asks again. Use it the moment they explain rather than afterwards: why a line is worded that way, why a job is left off, why a figure cannot be given, what a client will not let them name, what they do not want said about a role. These arrive in the middle of a sentence while something else is being decided, and they are lost when the thread scrolls away — the review then reads the profile a month later and asks for the same figure. Note the constraint or the decision, not the conversation: \"the Preact numbers are under NDA\" is worth keeping, \"we talked about Preact\" is not. Put the question it closes in `settles` whenever it closes one, in the words somebody would ask it — that is what stops it being asked again. Put the note on the thing it is about: the role, the line, the degree, the stored answer. Do not note what the profile already says, do not note your own reasoning, and do not record anything they have not actually told you. Their words about illness, family, money or why they left somewhere belong here if they say them and nowhere else: this is context for asking, never material for a resume, a letter or an application answer.",
+  {
+    target: z
+      .enum(["profile", "role", "bullet", "education", "fact", "skills"])
+      .describe("What it is about. profile for the whole thing or the summary, skills for the list."),
+    note: z.string().describe("What they told you, in their terms, in a line or two"),
+    settles: z
+      .string()
+      .optional()
+      .describe(
+        "The question this answers or rules out, worded as somebody would ask it — 'what scale did Preact run at'. Leave it out when it closes nothing.",
+      ),
+    target_id: z.number().int().optional().describe("The role's, line's or degree's id"),
+    target_key: z.string().optional().describe("The fact's topic, for a note on a stored answer"),
+  },
+  async (args) =>
+    guard(async () => {
+      const { note, instead } = await keepNote({
+        target: args.target,
+        note: args.note,
+        ...(args.settles !== undefined ? { settles: args.settles } : {}),
+        ...(args.target_id !== undefined ? { target_id: args.target_id } : {}),
+        ...(args.target_key !== undefined ? { target_key: args.target_key } : {}),
+      });
+      return {
+        kept: note,
+        note: instead
+          ? "They had told you that before; the note is updated rather than repeated. Carry on."
+          : "Kept against that row, and shown to them on it. Carry on — do not read it back to them.",
+      };
+    }),
+);
+
+const whatTheySaidTool = tool(
+  "what_they_said",
+  "What they have already told you about a part of their profile: why a line is worded as it is, what cannot be said, what they have decided to leave off. Read it before asking about something, so you do not ask what they have already answered. Each note may name the question it closes.",
+  {
+    target: z.enum(["profile", "role", "bullet", "education", "fact", "skills"]),
+    target_id: z.number().int().optional(),
+    target_key: z.string().optional(),
+  },
+  async (args) =>
+    guard(async () => ({
+      said: await notesFor(args.target, {
+        ...(args.target_id !== undefined ? { id: args.target_id } : {}),
+        ...(args.target_key !== undefined ? { key: args.target_key } : {}),
+      }),
+    })),
+  { annotations: { readOnlyHint: true } },
+);
+
 const reportBugTool = tool(
   "report_bug",
   "File a fault in this app, when it does not do what it says it does. Use it when something you did through a tool did not take, when what is on their screen does not match what you were told, when a card you put up came back unanswered without them answering it, when the same step fails twice. File it AND carry on serving the person — work round it, do the thing by hand, say plainly what you could not do — because a report is for later and they are here now. Write the three things only you know: what you were doing, what you expected, what happened instead. Do not describe the state of the app; it is read off the server as you file and attached for you, which is the part a report needs to be reproducible and the part you would have to guess at. A fault reported twice is one report that has happened twice, so file it as you see it rather than hunting for an earlier wording. This is not for a person's mistake, for something you decided not to do, or for an answer you did not like — only for the app behaving other than as built.",
@@ -988,6 +1042,8 @@ export const jobsearchServer = createSdkMcpServer({
     withdrawEditTool,
     wishForAnswerTool,
     reportBugTool,
+    noteContextTool,
+    whatTheySaidTool,
     applicationRecordTool,
     markAppliedTool,
     coverageTool,

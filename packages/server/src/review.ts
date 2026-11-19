@@ -3,6 +3,7 @@ import { DATA_DIR } from "./config.js";
 import { get, run } from "./db/client.js";
 import * as profile from "./profile.js";
 import { credentialEnv, readCredential } from "./settings.js";
+import { notesForReview } from "./notes.js";
 
 /**
  * Reading the profile as a whole, once the document is done with.
@@ -81,6 +82,12 @@ What is worth asking:
 
 What is not worth asking:
 
+- anything a note already answers or rules out. The profile comes with what
+  the person has said about it: why a line is worded as it is, what cannot
+  be given, what they have decided to leave off. Each note may name the
+  question it settles. Do not ask those, and do not ask around them — "the
+  figures are under NDA" closes the figures, not just the sentence that said
+  so;
 - anything already answered by a line that is there;
 - dates, spelling, formatting, or anything you could fix without them;
 - how they would like the wording changed, which is a question for when
@@ -104,7 +111,15 @@ async function fingerprint(): Promise<string> {
     profile.listSkills(),
     profile.getProfile(),
   ]);
+  /*
+    Notes count towards the state. Something they explained changes what is
+    worth asking even when not a word of the profile moved — usually by
+    taking a question off the list — so a profile with new context on it is
+    a profile worth reading again.
+  */
+  const notes = await notesForReview();
   const shape = [
+    notes.map((one) => `${one.id}:${one.at}`),
     roles.map((one) => `${one.id}:${one.company}:${one.title}:${one.start_date}:${one.end_date}`),
     bullets.map((one) => `${one.id}:${one.text.length}`),
     education.map((one) => `${one.id}:${one.school}:${one.degree}`),
@@ -130,35 +145,53 @@ async function rememberReview(mark: string): Promise<void> {
   );
 }
 
-/** The work, and nothing else. See the note above on what is left out. */
-async function workOnly(): Promise<string> {
-  const [roles, bullets, education, skills, kept] = await Promise.all([
+/**
+ * The work, what they have said about it, and nothing else.
+ *
+ * Exported so a test can see what a review is given without a model in the
+ * way: what is in here is what reaches the prompt, and the things that are
+ * not in here are the point — no contact details, no standing answers, no
+ * voluntary self-identification. The way to keep those out of a prompt is
+ * not to fetch them.
+ */
+export async function reviewPayload(): Promise<string> {
+  const [roles, bullets, education, skills, kept, notes] = await Promise.all([
     profile.listRoles(),
     profile.listBullets(),
     profile.listEducation(),
     profile.listSkills(),
     profile.getProfile(),
+    notesForReview(),
   ]);
+
+  const said = (target: string, id: number | null) =>
+    notes
+      .filter((one) => one.target === target && (id == null || one.target_id === id))
+      .map((one) => ({ said: one.note, ...(one.settles ? { settles: one.settles } : {}) }));
 
   return JSON.stringify(
     {
       headline: kept.headline ?? null,
       summary: kept.summary ?? null,
+      /* What they have said about the profile as a whole, and about skills. */
+      notes: [...said("profile", null), ...said("skills", null)],
       roles: roles.map((role) => ({
         id: role.id,
         company: role.company,
         title: role.title,
         from: role.start_date,
         to: role.end_date,
+        notes: said("role", role.id),
         lines: bullets
           .filter((one) => one.role_id === role.id)
-          .map((one) => ({ id: one.id, text: one.text })),
+          .map((one) => ({ id: one.id, text: one.text, notes: said("bullet", one.id) })),
       })),
       education: education.map((one) => ({
         id: one.id,
         school: one.school,
         degree: one.degree,
         field: one.field,
+        notes: said("education", one.id),
       })),
       skills: skills.map((one) => (typeof one === "string" ? one : (one as { name?: string }).name)),
     },
@@ -221,7 +254,7 @@ export async function reviewProfile(force = false): Promise<ReviewItem[]> {
   let answered = "";
   try {
     for await (const message of query({
-      prompt: `PROFILE\n\n${await workOnly()}`,
+      prompt: `PROFILE\n\n${await reviewPayload()}`,
       options: {
         model: REVIEW_MODEL,
         cwd: DATA_DIR,

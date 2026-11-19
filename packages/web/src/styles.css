@@ -1039,3 +1039,40 @@ button.tiny { padding: 1px 6px; font-size: 11px; }
 .bug-actions { display: flex; gap: 8px; }
 .bugs-fixed { margin: 4px 0 18px; }
 .bugs-fixed summary { font-size: 11.5px; color: var(--text-faint); cursor: pointer; padding: 4px 2px; }
+
+/*
+  What has been said about a row, behind a small mark. See Said.tsx.
+
+  Quiet until there is something behind it: a page of filled-in marks would
+  say "there is context everywhere" when the useful signal is which parts of
+  a history have been explained and which have only been stated.
+*/
+.said { position: relative; display: inline-flex; align-items: center; }
+.said-mark {
+  width: 15px; height: 15px; line-height: 13px; padding: 0;
+  border: 1px solid var(--line); border-radius: 50%;
+  background: transparent; color: var(--text-faint);
+  font-size: 10px; font-style: italic; font-family: var(--mono);
+  cursor: pointer; flex: none;
+}
+.said-mark:hover { color: var(--text); border-color: var(--text-dim); }
+.said-has { color: var(--accent); border-color: var(--accent); }
+h3 .said { margin-left: 8px; vertical-align: middle; }
+
+.said-panel {
+  position: absolute; top: 20px; right: 0; z-index: 20; width: 340px;
+  background: var(--bg-raised); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 10px 11px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+}
+.said-panel .field-why { margin: 2px 0 8px; }
+.said-list { list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 9px; }
+.said-list li { border-left: 2px solid var(--line); padding-left: 9px; }
+.said-text { margin: 0 0 3px; font-size: 12px; line-height: 1.5; }
+.said-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.said-settles { font-size: 10.5px; color: var(--accent); flex-basis: 100%; }
+.said-when { font-size: 10.5px; color: var(--text-faint); }
+.said-row button { margin-left: auto; }
+.said-add { margin-top: 9px; }
+.said-add input { width: 100%; font-size: 12px; }

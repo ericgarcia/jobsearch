@@ -50,6 +50,7 @@ import { clearEdit, pendingEdit, proposeEdit, resolveEdit, type Answer } from ".
 import { wishedActions } from "./wishes.js";
 import { addLeftOut, leaveLeftOut, leftOutLines } from "./leftOut.js";
 import { bugReports, markFixed } from "./bugs.js";
+import { allNotes, forgetNote, keepNote, type NoteTarget } from "./notes.js";
 import { clearQueue, progress as questionProgress, waitingQuestions } from "./queue.js";
 import { askingThread, turnIsFrom } from "./asking.js";
 import {
@@ -478,6 +479,40 @@ app.post("/api/profile/left-out/leave", async (request, reply) => {
     return reply.code(400).send({ error: "Which lines? Pass ids." });
   }
   return await leaveLeftOut(body.ids);
+});
+
+/*
+  What they have said about parts of their profile. See notes.ts — context
+  for asking, never material for a resume or an application answer.
+*/
+app.get("/api/notes", async () => ({ notes: await allNotes() }));
+
+app.post("/api/notes", async (request, reply) => {
+  const body = (request.body ?? {}) as {
+    target?: NoteTarget;
+    target_id?: number;
+    target_key?: string;
+    note?: string;
+    settles?: string;
+  };
+  try {
+    const { note } = await keepNote({
+      target: body.target ?? "profile",
+      note: body.note ?? "",
+      source: "person",
+      ...(body.settles !== undefined ? { settles: body.settles } : {}),
+      ...(body.target_id !== undefined ? { target_id: body.target_id } : {}),
+      ...(body.target_key !== undefined ? { target_key: body.target_key } : {}),
+    });
+    return { note };
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.delete("/api/notes/:id", async (request) => {
+  const { id } = request.params as { id: string };
+  return await forgetNote(Number(id));
 });
 
 /* What the assistant ran into, and what it takes to reproduce it. */

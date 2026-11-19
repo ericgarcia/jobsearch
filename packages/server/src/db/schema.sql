@@ -721,6 +721,49 @@ CREATE TABLE IF NOT EXISTS bug_occurrences (
 CREATE INDEX IF NOT EXISTS bug_occurrences_by_bug ON bug_occurrences (bug_id, at);
 
 /*
+  What the person has said about a part of their profile.
+
+  The profile holds what is true. This holds why: the figure that cannot be
+  given because the client is under NDA, the job left off on purpose because
+  six weeks of it reads as a detour, the line kept as it is because a
+  recruiter once asked about that exact wording. All of it arrives in
+  conversation, in the middle of a sentence, and until this existed all of it
+  was lost when the thread scrolled away — so the review would read the
+  profile a month later and ask for the Preact figures again.
+
+  Keyed like a proposal, on a row rather than on a section, because that is
+  the size context comes in. "Experience" cannot hold "that client will not
+  be named"; the role can.
+
+  `settles` is the part that stops the re-asking. A note of "we talked about
+  scale" is worth nothing. A note that says the question "what scale did
+  Preact run at" is answered — or cannot be answered — is a question the
+  review is told not to ask again.
+
+  These are context for asking, never material for claiming. Nothing that
+  writes a resume, a letter or an application answer reads this table. See
+  notes.ts.
+*/
+CREATE TABLE IF NOT EXISTS context_notes (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  -- "profile", "role", "bullet", "education", "fact", or "skills".
+  target     TEXT    NOT NULL,
+  target_id  INTEGER,
+  -- For a fact, whose key is a slug rather than a row id.
+  target_key TEXT,
+  -- What was said, in the person's own terms.
+  note       TEXT    NOT NULL,
+  -- The question this closes, when it closes one.
+  settles    TEXT,
+  -- "person" when they wrote it themselves, "assistant" when it was captured.
+  source     TEXT    NOT NULL DEFAULT 'assistant',
+  at         TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS context_notes_by_target
+  ON context_notes (target, target_id, target_key);
+
+/*
   The things still worth asking somebody about their profile, in order.
 
   This exists because of one screenshot. An import had been read, and the

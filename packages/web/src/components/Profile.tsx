@@ -7,6 +7,7 @@ import {
   api,
   type Answer,
   type Bullet,
+  type ContextNote,
   type LeftOutGroup,
   type Profile as ProfileData,
   type Role,
@@ -14,6 +15,7 @@ import {
 import { say } from "../say.ts";
 import { claim, release, useClaimed } from "../claimed.ts";
 import { onShowCard } from "../focusCard.ts";
+import { Said } from "./Said.tsx";
 import { useFieldHistory } from "../undo.ts";
 
 type Pending = NonNullable<Awaited<ReturnType<typeof api.pendingEdit>>["pending"]>;
@@ -242,10 +244,12 @@ export function Proposal({
 function BulletRow({
   bullet,
   pending,
+  notes,
   onChanged,
 }: {
   bullet: Bullet;
   pending: Pending | null;
+  notes: ContextNote[];
   onChanged: () => void;
 }) {
   const [text, setText] = useState(bullet.text);
@@ -273,6 +277,13 @@ function BulletRow({
     return (
       <li className="bullet">
         <span onClick={() => setEditing(true)}>{bullet.text}</span>
+        <Said
+          notes={notes}
+          target="bullet"
+          targetId={bullet.id}
+          what="this line"
+          onChanged={onChanged}
+        />
         <button
           className="ghost tiny"
           title="Remove this fact"
@@ -396,10 +407,13 @@ function RoleCard({
   role,
   pending,
   heldBack,
+  notes,
   onChanged,
 }: {
   role: Role;
   pending: Pending | null;
+  /** Everything said about anything; the marks pick out their own. */
+  notes: ContextNote[];
   /** Lines the import kept back from this role, when there are any. */
   heldBack: LeftOutGroup | undefined;
   onChanged: () => void;
@@ -430,6 +444,13 @@ function RoleCard({
             {role.location ? ` · ${role.location}` : ""}
           </div>
         </div>
+        <Said
+          notes={notes}
+          target="role"
+          targetId={role.id}
+          what={role.company}
+          onChanged={onChanged}
+        />
         <button
           className="ghost tiny"
           title="Remove this role and its facts"
@@ -445,7 +466,13 @@ function RoleCard({
 
       <ul>
         {role.bullets.map((bullet) => (
-          <BulletRow key={bullet.id} bullet={bullet} pending={pending} onChanged={onChanged} />
+          <BulletRow
+            key={bullet.id}
+            bullet={bullet}
+            pending={pending}
+            notes={notes}
+            onChanged={onChanged}
+          />
         ))}
         {adding && (
           /*
@@ -710,9 +737,16 @@ export function Profile() {
   const [skill, setSkill] = useState("");
   /* Lines an import kept back, which belong to the role they came from. */
   const [heldBack, setHeldBack] = useState<LeftOutGroup[]>([]);
+  /* What they have said about parts of this, shown on the rows. See Said.tsx. */
+  const [notes, setNotes] = useState<ContextNote[]>([]);
 
   const load = () => void api.profile().then(setData);
   const loadPending = () => void api.pendingEdit().then((answer) => setPending(answer.pending));
+  const loadNotes = () =>
+    void api
+      .notes()
+      .then((answer) => setNotes(answer.notes))
+      .catch(() => setNotes([]));
   const loadHeldBack = () =>
     void api
       .leftOutLines()
@@ -721,12 +755,14 @@ export function Profile() {
   useEffect(load, []);
   useEffect(loadPending, []);
   useEffect(loadHeldBack, []);
+  useEffect(loadNotes, []);
   // The agent edits the profile through the same functions this page calls,
   // so a change it makes shows up here without anyone reloading.
   useChanges("profile", load);
   // Answering one of the held-back lines settles its question, so the count
   // on the role has to move with it.
   useChanges("profile", loadHeldBack);
+  useChanges("profile", loadNotes);
   // And what it is asking about arrives the same way.
   useChanges("focus", loadPending);
 
@@ -736,6 +772,7 @@ export function Profile() {
     load();
     loadPending();
     loadHeldBack();
+    loadNotes();
   };
 
   return (
@@ -743,7 +780,15 @@ export function Profile() {
       <Stranded pending={pending} onDone={saved} />
       <Interests />
 
-      <h3>About you</h3>
+      <h3>
+        About you
+        <Said
+          notes={notes}
+          target="profile"
+          what="your profile as a whole"
+          onChanged={saved}
+        />
+      </h3>
       <div className="field-grid">
         {(["name", "headline", "email", "phone", "location"] as const).map((field) => (
           <AboutField
@@ -823,6 +868,7 @@ export function Profile() {
           role={item}
           pending={pending}
           heldBack={heldBack.find((group) => group.role_id === item.id)}
+          notes={notes}
           onChanged={saved}
         />
       ))}
