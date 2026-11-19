@@ -1,5 +1,6 @@
 import { Progress } from "./Progress.tsx";
 import { GrowText } from "./GrowText.tsx";
+import { showCard } from "../focusCard.ts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Markdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -637,7 +638,15 @@ export function Chat({
         </div>
       )}
 
-      <Progress onContinue={(asking) => void continueAsking(asking)} busy={running} />
+      <Progress
+        onContinue={(asking) => void continueAsking(asking)}
+        onShowQuestion={() => {
+          onShowQuestions();
+          /* After the tab has changed, so the card is on the page to hear it. */
+          requestAnimationFrame(() => requestAnimationFrame(showCard));
+        }}
+        busy={running}
+      />
 
       <div className="chat-log scroll" ref={logRef}>
         {entries.length === 0 && (

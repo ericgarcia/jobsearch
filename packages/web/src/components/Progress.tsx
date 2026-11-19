@@ -22,6 +22,7 @@ import { useChanges } from "../changes.ts";
  */
 export function Progress({
   onContinue,
+  onShowQuestion,
   busy,
 }: {
   /**
@@ -30,18 +31,34 @@ export function Progress({
    * Chat, which is where the two cases are told apart.
    */
   onContinue: (asking: number | null) => void;
+  /**
+   * Take them back to the question that is already being asked.
+   *
+   * While a turn is running there is nothing to continue, so Continue is
+   * disabled — correctly, and uselessly: a disabled button is a dead end at
+   * exactly the moment somebody is looking for where the question went. This
+   * is what stands in its place.
+   */
+  onShowQuestion: () => void;
   /** A turn is running, so there is nothing to resume into. */
   busy: boolean;
 }) {
   const [counts, setCounts] = useState<
     { left: number; settled: number; asking: number | null } | null
   >(null);
+  /* Whether there is a card to go back to, which decides the button. */
+  const [waiting, setWaiting] = useState(false);
 
-  const load = () =>
+  const load = () => {
     void api
       .questionProgress()
       .then(setCounts)
       .catch(() => setCounts(null));
+    void api
+      .pendingEdit()
+      .then((answer) => setWaiting(Boolean(answer.pending)))
+      .catch(() => setWaiting(false));
+  };
 
   useEffect(load, []);
   /* Both: a question settles on "profile", and a new one arrives on "focus". */
@@ -75,16 +92,33 @@ export function Progress({
       <span className="progress-count">
         {settled} of {total} answered
       </span>
-      {left > 0 && (
-        <button
-          className="ghost tiny progress-continue"
-          disabled={busy}
-          onClick={() => onContinue(asking)}
-          title="Carry on with these questions"
-        >
-          Continue
-        </button>
-      )}
+      {/*
+        One button, two jobs, because they are never both available: either a
+        question is being asked, and the useful thing is to be taken to it,
+        or none is, and the useful thing is to ask for the next one. While a
+        turn is running with nothing yet on the screen there is nowhere to go
+        and nothing to continue, so there is no button at all rather than a
+        dead one.
+      */}
+      {busy
+        ? waiting && (
+            <button
+              className="ghost tiny progress-continue"
+              onClick={onShowQuestion}
+              title="Go to the question you are being asked"
+            >
+              Show me
+            </button>
+          )
+        : left > 0 && (
+            <button
+              className="ghost tiny progress-continue"
+              onClick={() => onContinue(asking)}
+              title="Carry on with these questions"
+            >
+              Continue
+            </button>
+          )}
     </div>
   );
 }

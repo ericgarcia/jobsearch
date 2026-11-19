@@ -13,6 +13,7 @@ import {
 } from "../api.ts";
 import { say } from "../say.ts";
 import { claim, release, useClaimed } from "../claimed.ts";
+import { onShowCard } from "../focusCard.ts";
 import { useFieldHistory } from "../undo.ts";
 
 type Pending = NonNullable<Awaited<ReturnType<typeof api.pendingEdit>>["pending"]>;
@@ -96,6 +97,16 @@ export function Proposal({
       clearTimeout(again);
     };
   }, [asked.at, seed]);
+
+  /*
+    And again whenever somebody asks where the question went — from the top
+    of the thread, while a turn is running and Continue has nothing to do.
+    See focusCard.ts.
+  */
+  useEffect(
+    () => onShowCard(() => box.current?.scrollIntoView({ behavior: "smooth", block: "center" })),
+    [],
+  );
 
   /* On the screen, so nothing has to show it plainly instead. See claimed.ts. */
   useEffect(() => {
