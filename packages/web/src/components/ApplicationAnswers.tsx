@@ -41,6 +41,19 @@ export function ApplicationAnswers() {
   const [keys, setKeys] = useState<string[]>([]);
   const [choices, setChoices] = useState<Record<string, { token: string; label: string }[] | undefined>>({});
   const [refused, setRefused] = useState<Set<string>>(new Set());
+  /*
+    Every stored fact, not only the refused ones.
+
+    The fact store is open on purpose: a resume or a conversation can teach
+    the app something nobody listed in advance. The eight questions below
+    are seeded, and for a while they were the only ones with a row — so a
+    fact learned from a document existed, could be proposed, and had nowhere
+    on the screen to be proposed on. The assistant asked about the PhD and
+    the page highlighted nothing.
+  */
+  const [learned, setLearned] = useState<
+    { slug: string; question: string; sensitivity: string }[]
+  >([]);
   const [standing, setStanding] = useState<"ask" | "never">("ask");
   const [pending, setPending] = useState<Awaited<ReturnType<typeof api.pendingEdit>>["pending"]>(null);
 
@@ -56,6 +69,7 @@ export function ApplicationAnswers() {
     });
     void api.pendingEdit().then((answer) => setPending(answer.pending));
     void api.facts().then((data) => {
+      setLearned(data.facts);
       setRefused(
         new Set(
           data.facts
@@ -79,6 +93,77 @@ export function ApplicationAnswers() {
   const answerFor = (topic: string) =>
     answers.find((row) => row.topic === topic)?.answer ?? "";
 
+  /*
+    One row, wherever its question came from. Used for the seeded questions
+    and for the ones a document taught the app, because a proposal has to be
+    able to land on either — the card is painted over the row, so a question
+    with no row is a question the page cannot show.
+  */
+  const row = (topic: string, question: string) => {
+      const asked = asksAbout(pending, "fact", { key: topic });
+      if (asked) {
+        /*
+          The row exactly as it always is, with the question painted over
+          it. Showing the answer as text instead of leaving the box there
+          made the row shorter and moved the thirteen rows below it.
+        */
+        return (
+          <label className="standing-row field-asked" key={topic}>
+            <span className="standing-question">{question}</span>
+            <GrowText
+              key={answerFor(topic)}
+              rows={1}
+              defaultValue={answerFor(topic)}
+              tabIndex={-1}
+              aria-hidden
+              readOnly
+            />
+            <Proposal asked={asked} name={`your answer to “${question}”`} onDone={load} />
+          </label>
+        );
+      }
+      return refused.has(topic) ? (
+        <div className="standing-row" key={topic}>
+          <span className="standing-question">{question}</span>
+          <span className="standing-refused">You asked not to be asked this.</span>
+          <button className="standing-aside" onClick={() => void api.reopenFact(topic).then(load)}>
+            ask me again
+          </button>
+        </div>
+      ) : (
+        <label className="standing-row" key={topic}>
+          <span className="standing-question">{question}</span>
+          <GrowText
+            /*
+              Keyed on the value: these are uncontrolled, so without a key
+              React keeps whatever the box was first rendered with and a
+              refetch cannot put a new answer on the screen.
+            */
+            key={answerFor(topic)}
+            rows={1}
+            defaultValue={answerFor(topic)}
+            placeholder="—"
+            onBlur={(event) => {
+              if (event.target.value === answerFor(topic)) return;
+              void api.setStandingAnswer(topic, event.target.value).then(load);
+            }}
+          />
+          {/*
+            Separate from leaving the box empty, and deliberately so. Empty
+            means the app has nothing and will ask you when a form wants
+            it. This means you have told it, and it stops asking.
+          */}
+          <button
+            className="standing-aside"
+            onClick={() => void api.declineFact(topic, question).then(load)}
+          >
+            rather not say
+          </button>
+        </label>
+      );
+  };
+
+
   return (
     <>
       <h3>Answers every application wants</h3>
@@ -88,69 +173,35 @@ export function ApplicationAnswers() {
         an application asks it.
       </p>
 
-      {Object.entries(topics).map(([topic, question]) => {
-        const asked = asksAbout(pending, "fact", { key: topic });
-        if (asked) {
-          /*
-            The row exactly as it always is, with the question painted over
-            it. Showing the answer as text instead of leaving the box there
-            made the row shorter and moved the thirteen rows below it.
-          */
-          return (
-            <label className="standing-row field-asked" key={topic}>
-              <span className="standing-question">{question}</span>
-              <GrowText
-                key={answerFor(topic)}
-                rows={1}
-                defaultValue={answerFor(topic)}
-                tabIndex={-1}
-                aria-hidden
-                readOnly
-              />
-              <Proposal asked={asked} name={`your answer to “${question}”`} onDone={load} />
-            </label>
-          );
-        }
-        return refused.has(topic) ? (
-          <div className="standing-row" key={topic}>
-            <span className="standing-question">{question}</span>
-            <span className="standing-refused">You asked not to be asked this.</span>
-            <button className="standing-aside" onClick={() => void api.reopenFact(topic).then(load)}>
-              ask me again
-            </button>
-          </div>
-        ) : (
-          <label className="standing-row" key={topic}>
-            <span className="standing-question">{question}</span>
-            <GrowText
-              /*
-                Keyed on the value: these are uncontrolled, so without a key
-                React keeps whatever the box was first rendered with and a
-                refetch cannot put a new answer on the screen.
-              */
-              key={answerFor(topic)}
-              rows={1}
-              defaultValue={answerFor(topic)}
-              placeholder="—"
-              onBlur={(event) => {
-                if (event.target.value === answerFor(topic)) return;
-                void api.setStandingAnswer(topic, event.target.value).then(load);
-              }}
-            />
-            {/*
-              Separate from leaving the box empty, and deliberately so. Empty
-              means the app has nothing and will ask you when a form wants
-              it. This means you have told it, and it stops asking.
-            */}
-            <button
-              className="standing-aside"
-              onClick={() => void api.declineFact(topic, question).then(load)}
-            >
-              rather not say
-            </button>
-          </label>
+      {Object.entries(topics).map(([topic, question]) => row(topic, question))}
+
+      {(() => {
+        /*
+          What a document or a conversation taught the app, which no seeded
+          question covers. Shown with the same row and the same card, so a
+          proposal about one of them has somewhere to land.
+
+          The self-identification answers are left out: they are rendered
+          below, and a private fact holds no answer here by design.
+        */
+        const own = learned.filter(
+          (fact) =>
+            !(fact.slug in topics) &&
+            !keys.includes(fact.slug) &&
+            fact.sensitivity !== "private",
         );
-      })}
+        if (own.length === 0) return null;
+        return (
+          <>
+            <h3>What else you have told it</h3>
+            <p className="editor-note">
+              Learned from a document you gave it or from something you said. Edit any of them
+              here; they are used the same way as the answers above.
+            </p>
+            {own.map((fact) => row(fact.slug, fact.question))}
+          </>
+        );
+      })()}
 
       <h3>Voluntary self-identification</h3>
       <p className="editor-note">
