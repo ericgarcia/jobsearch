@@ -1,5 +1,5 @@
 import { useCallback, useRef } from "react";
-import type { KeyboardEvent, FormEvent } from "react";
+import type { FormEvent, KeyboardEvent } from "react";
 
 /**
  * Undo that belongs to the field you are typing in.
@@ -44,7 +44,7 @@ function put(node: Field, step: Step): void {
 
 export function useFieldHistory(): {
   onKeyDown: (event: KeyboardEvent<Field>) => void;
-  onInput: (event: FormEvent<Field>) => void;
+  onBeforeInput: (event: FormEvent<Field>) => void;
 } {
   const past = useRef<Step[]>([]);
   const future = useRef<Step[]>([]);
@@ -56,30 +56,32 @@ export function useFieldHistory(): {
   */
   const applying = useRef(false);
 
-  const onInput = useCallback((event: FormEvent<Field>) => {
+  /*
+    Recorded before the edit, not after it.
+
+    The first version recorded on input, which fires once the change has
+    happened: the value had already moved on, and the cursor with it, so
+    undoing restored text from one moment and a caret from another — it
+    jumped. beforeinput fires with the box still as the person left it, so
+    what goes on the stack is exactly the state to come back to, cursor
+    included.
+  */
+  const onBeforeInput = useCallback((event: FormEvent<Field>) => {
     if (applying.current) return;
     const node = event.currentTarget;
     const now = Date.now();
-    const top = past.current.at(-1);
 
-    /*
-      The step recorded is the state *before* this keystroke, which is what
-      undo goes back to. The first one is recovered from the previous top,
-      or from an empty history by taking what is there now minus nothing —
-      so the very first edit in a field is undoable to what it held.
-    */
-    if (top === undefined) {
-      past.current.push({ value: node.defaultValue, start: 0, end: 0 });
-    } else if (now - last.current > APART) {
+    /* A run of typing with no pause is one thing to undo, not twenty. */
+    if (past.current.length === 0 || now - last.current > APART) {
       past.current.push({
-        value: top.value === node.value ? top.value : node.value,
-        start: node.selectionStart ?? 0,
-        end: node.selectionEnd ?? 0,
+        value: node.value,
+        start: node.selectionStart ?? node.value.length,
+        end: node.selectionEnd ?? node.value.length,
       });
+      if (past.current.length > 200) past.current.shift();
     }
     last.current = now;
     future.current = [];
-    if (past.current.length > 200) past.current.shift();
   }, []);
 
   const onKeyDown = useCallback((event: KeyboardEvent<Field>) => {
@@ -122,5 +124,5 @@ export function useFieldHistory(): {
     }
   }, []);
 
-  return { onKeyDown, onInput };
+  return { onKeyDown, onBeforeInput };
 }
