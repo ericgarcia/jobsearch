@@ -360,11 +360,16 @@ a { color: var(--accent); }
 }
 .thread-meta { font-size: 10.5px; color: var(--text-faint); font-family: var(--mono); }
 /* The answers every application wants, in the profile. */
-.standing-row { display: flex; align-items: center; gap: 10px; margin: 5px 0; }
+/*
+  Top-aligned, not centred: an answer that runs to three lines would
+  otherwise drag its question down to the middle of itself.
+*/
+.standing-row { display: flex; align-items: flex-start; gap: 10px; margin: 5px 0; }
+.standing-row > span { padding-top: 5px; }
 /* A row that is being asked about needs to anchor the card painted over it. */
 .standing-row.field-asked, .bullet.field-asked, .role.field-asked { position: relative; }
 .standing-question { flex: none; width: 300px; font-size: 12px; color: var(--text-dim); }
-.standing-row input { flex: 1; }
+.standing-row input, .standing-row textarea { flex: 1; }
 .standing-row select { flex: 1; }
 /*
   A refusal has to be visible on the page that holds it. An answer the app
