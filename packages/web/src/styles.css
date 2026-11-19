@@ -419,6 +419,23 @@ a { color: var(--accent); }
   border: 2px solid var(--accent);
   box-shadow: 0 10px 28px rgb(0 0 0 / 0.45);
 }
+/*
+  A question about something this page does not show.
+
+  The card is normally absolute, painted over the row it asks about. With no
+  row under it there is nothing to cover, so here it sits in the flow at the
+  top of the pane — still the same card, so the answer is given the same way.
+*/
+.stranded { margin: 0 0 14px; }
+.stranded-note {
+  font-size: 11px; color: var(--text-dim); margin-bottom: 6px;
+}
+.stranded-card { position: relative; }
+.stranded-card .field-card {
+  position: static; top: auto; left: auto; right: auto;
+  box-shadow: none;
+}
+
 .field-why { font-size: 11px; color: var(--text-dim); line-height: 1.45; }
 
 /*
