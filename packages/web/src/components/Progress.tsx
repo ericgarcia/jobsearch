@@ -32,14 +32,12 @@ export function Progress({
    */
   onContinue: (asking: number | null) => void;
   /**
-   * Take them back to the question that is already being asked.
-   *
-   * While a turn is running there is nothing to continue, so Continue is
-   * disabled — correctly, and uselessly: a disabled button is a dead end at
-   * exactly the moment somebody is looking for where the question went. This
-   * is what stands in its place.
+   * Take them back to the question that is already being asked: the card,
+   * and the conversation it was asked in. Given the thread that last asked,
+   * exactly as onContinue is — going back to a question and going on to the
+   * next one land in the same place, and only the card differs.
    */
-  onShowQuestion: () => void;
+  onShowQuestion: (asking: number | null) => void;
   /** A turn is running, so there is nothing to resume into. */
   busy: boolean;
 }) {
@@ -111,7 +109,7 @@ export function Progress({
       {waiting ? (
         <button
           className="ghost tiny progress-continue"
-          onClick={onShowQuestion}
+          onClick={() => onShowQuestion(asking)}
           title="Go to the question you are being asked"
         >
           Show me

@@ -640,10 +640,22 @@ export function Chat({
 
       <Progress
         onContinue={(asking) => void continueAsking(asking)}
-        onShowQuestion={() => {
+        onShowQuestion={(asking) => {
+          /*
+            The conversation first, because the question was asked in one and
+            the answer goes back to it. Going back to a question lands where
+            carrying on with them lands; the card is the only difference.
+          */
+          if (asking !== null && asking !== threadId) onOpenThread(asking);
           onShowQuestions();
-          /* After the tab has changed, so the card is on the page to hear it. */
+          /*
+            Then the card, once the page has settled. Twice, for the same
+            reason the card scrolls itself twice when it arrives: a thread
+            that has just been opened is still rendering, and where the card
+            is two frames from now is not where it ends up.
+          */
           requestAnimationFrame(() => requestAnimationFrame(showCard));
+          setTimeout(showCard, 400);
         }}
         busy={running}
       />
