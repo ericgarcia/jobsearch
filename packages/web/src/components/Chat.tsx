@@ -26,6 +26,15 @@ function label(thread: Thread): string {
 /*
   An unsent message, kept as it is typed.
 
+  It belongs to the message box, not to the thread. Drafts used to be kept
+  one per conversation, and that lost words: keeping a proposed change on the
+  profile page starts a turn, the turn reports which conversation it ran in,
+  the app opens that conversation — and the box, which had somebody's
+  half-written message in it, loaded the draft of the thread it had just
+  arrived in and emptied itself. The switch was not asked for and the words
+  were not finished, so neither clearing them nor filing them under the
+  thread being left is right. Only a send empties the box.
+
   In the browser rather than with the conversation on the server, for two
   reasons. A message being typed before the first one is sent belongs to no
   conversation yet — there is no row to put it on, and that is exactly when
@@ -37,22 +46,20 @@ function label(thread: Thread): string {
   private window or with site data blocked, and losing a draft must never
   take the message box with it.
 */
-function draftKey(threadId: number | null): string {
-  return `jobsearch:draft:${threadId ?? "new"}`;
-}
+const DRAFT = "jobsearch:draft";
 
-function readDraft(threadId: number | null): string {
+function readDraft(): string {
   try {
-    return window.localStorage.getItem(draftKey(threadId)) ?? "";
+    return window.localStorage.getItem(DRAFT) ?? "";
   } catch {
     return "";
   }
 }
 
-function writeDraft(threadId: number | null, text: string): void {
+function writeDraft(text: string): void {
   try {
-    if (text) window.localStorage.setItem(draftKey(threadId), text);
-    else window.localStorage.removeItem(draftKey(threadId));
+    if (text) window.localStorage.setItem(DRAFT, text);
+    else window.localStorage.removeItem(DRAFT);
   } catch {
     // Nothing the person is doing fails. They lose a draft on reload.
   }
@@ -157,7 +164,7 @@ export function Chat({
   onOpenJob: (id: number) => void;
 }) {
   const [entries, setEntries] = useState<Entry[]>([]);
-  const [draft, setDraft] = useState(() => readDraft(threadId));
+  const [draft, setDraft] = useState(readDraft);
   const [dragging, setDragging] = useState(false);
   const [sending, setSending] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
@@ -204,11 +211,6 @@ export function Chat({
     return () => {
       current = false;
     };
-  }, [threadId]);
-
-  /* Each conversation keeps its own unsent message. */
-  useEffect(() => {
-    setDraft(readDraft(threadId));
   }, [threadId]);
 
   /*
@@ -292,13 +294,6 @@ export function Chat({
       report(error);
       return;
     }
-
-    /*
-      The draft goes with it. Ids are handed out as one past the highest, so
-      a deleted conversation's number comes round again — and a new thread
-      would open with a stranger's half-written message in the box.
-    */
-    writeDraft(id, "");
 
     // After the thread is gone, so a refusal above leaves the tabs alone.
     await closeThreadTabs(splitId, id).catch(() => 0);
@@ -426,7 +421,7 @@ export function Chat({
 
     if (said === undefined) {
       setDraft("");
-      writeDraft(threadId, "");
+      writeDraft("");
     }
     setEntries((prior) => [...prior, { kind: "user", text: message }]);
     setRunning(true);
@@ -654,7 +649,7 @@ export function Chat({
           placeholder={dragging ? "Drop it here" : "Ask the assistant, or drop in a resume…"}
           onChange={(event) => {
             setDraft(event.target.value);
-            writeDraft(threadId, event.target.value);
+            writeDraft(event.target.value);
           }}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {
