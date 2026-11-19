@@ -1,5 +1,6 @@
 import { ApplicationAnswers } from "./ApplicationAnswers.tsx";
 import { useEffect, useRef, useState } from "react";
+import { GrowText } from "./GrowText.tsx";
 import { useChanges } from "../changes.ts";
 import { Interests } from "./Interests.tsx";
 import { api, type Bullet, type Profile as ProfileData, type Role } from "../api.ts";
@@ -87,22 +88,40 @@ export function Proposal({
     }
   }
 
+  /*
+    What this would replace, when it would replace something.
+
+    Shown under the box rather than beside it, in the same type and the same
+    metrics, because the question being asked is "is this better than that?"
+    and two differently styled blocks cannot be read that way. Left out when
+    there is nothing to compare: a field that was empty, or a proposal that
+    is the stored text offered back for correction.
+  */
+  const original =
+    !removing && asked.current && asked.current !== asked.value ? asked.current : null;
+
   return (
     <div className="field-card" ref={box}>
       <span>{removing ? `remove ${name}` : name}</span>
+      <div className="field-why">{asked.why}</div>
       {removing ? (
         <div className="field-removing">{asked.current ?? asked.value}</div>
       ) : (
-        <textarea
-          autoFocus
-          rows={Math.min(5, Math.ceil(draft.length / 44) || 1)}
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-        />
-      )}
-      <div className="field-why">{asked.why}</div>
-      {!removing && asked.current && asked.current !== asked.value && (
-        <div className="field-was">now: {asked.current}</div>
+        <>
+          {original && <div className="field-label">suggested — edit it here</div>}
+          <GrowText
+            autoFocus
+            rows={1}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+          />
+          {original && (
+            <>
+              <div className="field-label">now on your profile</div>
+              <div className="field-now">{original}</div>
+            </>
+          )}
+        </>
       )}
       <div className="field-answer">
         <button className="primary" onClick={() => void resolve(true)}>
@@ -156,9 +175,10 @@ function BulletRow({
 
   return (
     <li className="bullet editing">
-      <textarea
+      <GrowText
         value={text}
         autoFocus
+        rows={2}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Escape") {

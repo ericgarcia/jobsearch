@@ -1,3 +1,4 @@
+import { GrowText } from "./GrowText.tsx";
 import { useEffect, useState } from "react";
 import { api, type Interests as InterestsData } from "../api.ts";
 
@@ -120,7 +121,7 @@ export function Interests({ onChanged }: { onChanged?: () => void }) {
 
       <label>
         <span>Anything else</span>
-        <textarea
+        <GrowText
           rows={3}
           defaultValue={data.note ?? ""}
           placeholder="Team size, stage, what you would rather not repeat…"
