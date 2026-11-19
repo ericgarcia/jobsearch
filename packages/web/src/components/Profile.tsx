@@ -5,6 +5,7 @@ import { useChanges } from "../changes.ts";
 import { Interests } from "./Interests.tsx";
 import { api, type Bullet, type Profile as ProfileData, type Role } from "../api.ts";
 import { say } from "../say.ts";
+import { claim, release, useClaimed } from "../claimed.ts";
 
 type Pending = NonNullable<Awaited<ReturnType<typeof api.pendingEdit>>["pending"]>;
 
@@ -71,6 +72,12 @@ export function Proposal({
       clearTimeout(again);
     };
   }, [asked.at, asked.value]);
+
+  /* On the screen, so nothing has to show it plainly instead. See claimed.ts. */
+  useEffect(() => {
+    claim(asked.at);
+    return () => release(asked.at);
+  }, [asked.at]);
 
   const removing = asked.action === "delete";
 
@@ -398,6 +405,46 @@ function AboutField({
   );
 }
 
+/**
+ * A waiting question that nothing on the page claimed.
+ *
+ * Normally this renders nothing: a question is asked on the thing it is
+ * about, and the card there says so. This is for when it is about something
+ * the page does not show — a fact with no row, a bullet under a role that
+ * has gone, a target added to the server and not yet to this pane. Before
+ * this, that was silence: the assistant asked, the person looked, and there
+ * was nothing to find.
+ *
+ * It waits a moment before deciding. The cards claim their question in an
+ * effect, and on a first paint this component can run before the one that
+ * is about to claim it, so deciding immediately would show a stray card on
+ * every load.
+ */
+function Stranded({ pending, onDone }: { pending: Pending | null; onDone: () => void }) {
+  const claimed = useClaimed(pending?.at ?? null);
+  const [settled, setSettled] = useState(false);
+
+  useEffect(() => {
+    setSettled(false);
+    if (!pending) return;
+    const wait = setTimeout(() => setSettled(true), 400);
+    return () => clearTimeout(wait);
+  }, [pending?.at]);
+
+  if (!pending || claimed || !settled) return null;
+
+  return (
+    <div className="stranded">
+      <div className="stranded-note">
+        This question is about something that is not on this page.
+      </div>
+      <div className="stranded-card">
+        <Proposal asked={pending} name="this" onDone={onDone} />
+      </div>
+    </div>
+  );
+}
+
 export function Profile() {
   const [data, setData] = useState<ProfileData | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
@@ -424,6 +471,7 @@ export function Profile() {
 
   return (
     <div className="profile">
+      <Stranded pending={pending} onDone={saved} />
       <Interests />
 
       <h3>About you</h3>
