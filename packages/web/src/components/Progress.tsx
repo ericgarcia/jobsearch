@@ -93,32 +93,41 @@ export function Progress({
         {settled} of {total} answered
       </span>
       {/*
-        One button, two jobs, because they are never both available: either a
-        question is being asked, and the useful thing is to be taken to it,
-        or none is, and the useful thing is to ask for the next one. While a
-        turn is running with nothing yet on the screen there is nowhere to go
-        and nothing to continue, so there is no button at all rather than a
-        dead one.
+        One button, two jobs, decided by whether a question is on the screen
+        rather than by whether a turn is running.
+
+        Keying it on the turn was wrong, and wrong in the common case: the
+        assistant asks, the turn ends, and the card sits there waiting for an
+        answer. A question is being asked for as long as that card is up —
+        which is most of the time somebody spends with this app — and through
+        all of it the button offered to carry on with the next one instead of
+        taking them back to the one in front of them.
+
+        So: a card waiting means Show me. No card and nothing running means
+        Continue. No card and a turn running means neither — there is nowhere
+        to go yet and nothing to continue, so there is no button rather than
+        a dead one.
       */}
-      {busy
-        ? waiting && (
-            <button
-              className="ghost tiny progress-continue"
-              onClick={onShowQuestion}
-              title="Go to the question you are being asked"
-            >
-              Show me
-            </button>
-          )
-        : left > 0 && (
-            <button
-              className="ghost tiny progress-continue"
-              onClick={() => onContinue(asking)}
-              title="Carry on with these questions"
-            >
-              Continue
-            </button>
-          )}
+      {waiting ? (
+        <button
+          className="ghost tiny progress-continue"
+          onClick={onShowQuestion}
+          title="Go to the question you are being asked"
+        >
+          Show me
+        </button>
+      ) : (
+        !busy &&
+        left > 0 && (
+          <button
+            className="ghost tiny progress-continue"
+            onClick={() => onContinue(asking)}
+            title="Carry on with these questions"
+          >
+            Continue
+          </button>
+        )
+      )}
     </div>
   );
 }
