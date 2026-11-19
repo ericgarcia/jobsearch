@@ -48,6 +48,7 @@ import {
 import { describe as describeForm } from "./apply/form.js";
 import { clearEdit, pendingEdit, proposeEdit, resolveEdit, type Answer } from "./pending.js";
 import { wishedActions } from "./wishes.js";
+import { addLeftOut, leaveLeftOut, leftOutLines } from "./leftOut.js";
 import { clearQueue, progress as questionProgress, waitingQuestions } from "./queue.js";
 import { askingThread, turnIsFrom } from "./asking.js";
 import {
@@ -456,6 +457,26 @@ app.post("/api/pending-edit/resolve", async (request, reply) => {
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }
+});
+
+/*
+  The lines an import held back, as an item on the page rather than a queue
+  of identical questions waiting on a conversation. See leftOut.ts.
+*/
+app.get("/api/profile/left-out", async () => ({ groups: await leftOutLines() }));
+
+app.post("/api/profile/left-out/add", async (request, reply) => {
+  const body = (request.body ?? {}) as { id?: number };
+  if (typeof body.id !== "number") return reply.code(400).send({ error: "Which line? Pass id." });
+  return await addLeftOut(body.id);
+});
+
+app.post("/api/profile/left-out/leave", async (request, reply) => {
+  const body = (request.body ?? {}) as { ids?: number[] };
+  if (!Array.isArray(body.ids) || body.ids.some((one) => typeof one !== "number")) {
+    return reply.code(400).send({ error: "Which lines? Pass ids." });
+  }
+  return await leaveLeftOut(body.ids);
 });
 
 /* What the assistant wanted a card to be able to do. See wishes.ts. */
