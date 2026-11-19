@@ -17,7 +17,7 @@ import { startApplication } from "../apply/start.js";
 import { fillApplication } from "../apply/fill.js";
 import { listAnswers, markApplied, recordAnswers } from "../apply/record.js";
 import { keepable } from "../apply/keep.js";
-import { clearEdit, pendingEdit, proposeEdit } from "../pending.js";
+import { clearEdit, pendingEdit, proposeEdit, withdrawnEdit } from "../pending.js";
 import { wishForAnswer } from "../wishes.js";
 import { reportBug } from "../bugs.js";
 import { noteAsking } from "../asking.js";
@@ -506,7 +506,7 @@ const proposeEditTool = tool(
   },
   async (args) =>
     guard(async () => {
-      const { pending, waiting } = await proposeEdit({
+      const { pending, waiting, withdrawn } = await proposeEdit({
         target: args.target,
         field: args.field,
         value: args.value,
@@ -525,6 +525,17 @@ const proposeEditTool = tool(
         : {
             proposed: pending,
             note: "It is on their screen now, on the row it would change. Say what you are asking in one short line and stop — do not propose anything else, and do not ask a second question in the same message. They will keep it, edit it, or skip it, and you will be told which.",
+            /*
+              The proposal before this one went without an answer. The
+              assistant could not see that before, so it read its own card
+              going as the app losing an answer and filed a bug report.
+            */
+            ...(withdrawn
+              ? {
+                  previous_proposal_withdrawn: withdrawn,
+                  withdrawn_note: `Your earlier proposal for "${withdrawn.field}" was taken off their screen without being answered, and not by you. Nothing was stored and no answer was lost, so the app did not fail. Do not tell them it did, and do not report it as a fault; if the question still matters, this new card is how to ask it again.`,
+                }
+              : {}),
           };
     }),
 );
@@ -590,10 +601,28 @@ const pendingEditTool = tool(
   {},
   async () =>
     guard(async () => {
-      const waiting = await pendingEdit();
-      return waiting
-        ? { waiting, note: "This is on their screen. Ask about it rather than proposing something else." }
-        : { waiting: null, note: "Nothing is waiting. You may propose one change." };
+      const [waiting, withdrawn] = await Promise.all([pendingEdit(), withdrawnEdit()]);
+      if (waiting) {
+        return {
+          waiting,
+          note: "This is on their screen. Ask about it rather than proposing something else.",
+        };
+      }
+      /*
+        Nothing waiting has two causes that used to look alike: they answered
+        it, or it was taken away unanswered. Only the first reaches the
+        assistant as a message, so the second is said here.
+      */
+      return withdrawn
+        ? {
+            waiting: null,
+            withdrawn,
+            note: `Nothing is waiting. Your proposal for "${withdrawn.field}" was taken off their screen without being answered, and not by you — nothing was stored, and no answer went missing, so this is not a fault to report. You may propose one change.`,
+          }
+        : {
+            waiting: null,
+            note: "Nothing is waiting, and your last proposal was either answered or withdrawn by you. You may propose one change.",
+          };
     }),
   { annotations: { readOnlyHint: true } },
 );
@@ -604,7 +633,7 @@ const withdrawEditTool = tool(
   {},
   async () =>
     guard(async () => {
-      await clearEdit();
+      await clearEdit("assistant");
       return { withdrawn: true, note: "Taken off their screen. You may propose one change." };
     }),
 );

@@ -115,7 +115,7 @@ ok("and the card's contract, which is what a test for this would be written agai
 assert.match(kept.expect, /two lines/);
 ok("and what should be true afterwards, which is the test it is waiting for");
 
-await clearEdit();
+await clearEdit("assistant");
 
 console.log("\n7. Twelve cases, keeping the first and the newest");
 
@@ -133,7 +133,7 @@ for (let round = 0; round < 14; round += 1) {
     wanted: `Round ${round}`,
     expect: `Round ${round} is split`,
   });
-  await clearEdit();
+  await clearEdit("assistant");
 }
 
 const piled = (await wishedActions()).find((one) => one.name === "Split in two")!;

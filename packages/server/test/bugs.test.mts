@@ -73,7 +73,7 @@ ok("the card in the report is the card that was up, read off the server");
 assert.ok(seen.bug.occurrences[0]!.context.queue.settled >= 0);
 ok("and where the queue stood, which the assistant was not asked for");
 
-await clearEdit();
+await clearEdit("assistant");
 
 console.log("\n3. The same fault twice");
 

@@ -492,8 +492,14 @@ app.post("/api/bugs/fixed", async (request, reply) => {
 /* What the assistant wanted a card to be able to do. See wishes.ts. */
 app.get("/api/wished-actions", async () => ({ wished: await wishedActions() }));
 
+/*
+  Clearing the card from outside the conversation. Recorded as a withdrawal
+  the assistant did not make: this route cannot know who called it, and the
+  assistant reading its card gone with no answer as a fault in the app is
+  what made this matter. See clearEdit in pending.ts.
+*/
 app.delete("/api/pending-edit", async () => {
-  await clearEdit();
+  await clearEdit("elsewhere");
   return { pending: null };
 });
 
