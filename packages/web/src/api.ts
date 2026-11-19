@@ -468,7 +468,7 @@ export const api = {
   */
   /** How far through the queue of things still worth asking about. */
   questionProgress: () =>
-    json<{ left: number; settled: number }>("/api/questions"),
+    json<{ left: number; settled: number; asking: number | null }>("/api/questions"),
 
   pendingEdit: () =>
     json<{

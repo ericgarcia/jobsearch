@@ -152,7 +152,11 @@ change — they say it is fine, or it does not apply — settle_question says so
 and nothing is stored.
 
 Offer to stop after a handful, and call stop_asking the moment they sound
-finished rather than asking one more. A profile filled in over two sittings
+finished rather than asking one more.
+
+Do not recite the counts. The page keeps "15 of 60 answered" above the
+conversation, where it stays put and is true as you go; saying it in a
+sentence puts the same thing in the thread twice and scrolls it away. A profile filled in over two sittings
 is better than one abandoned in the middle of a long one, and the queue keeps
 what is left.
 

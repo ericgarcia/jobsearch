@@ -17,8 +17,22 @@ import { useChanges } from "../changes.ts";
  * now, and says the two numbers plainly beside it rather than a percentage
  * that can go backwards on its own.
  */
-export function Progress() {
-  const [counts, setCounts] = useState<{ left: number; settled: number } | null>(null);
+export function Progress({
+  onContinue,
+  busy,
+}: {
+  /**
+   * Carry on with the questions. Given the thread that last asked, or null
+   * when there is none left to go back to — see the note on resuming in
+   * Chat, which is where the two cases are told apart.
+   */
+  onContinue: (asking: number | null) => void;
+  /** A turn is running, so there is nothing to resume into. */
+  busy: boolean;
+}) {
+  const [counts, setCounts] = useState<
+    { left: number; settled: number; asking: number | null } | null
+  >(null);
 
   const load = () =>
     void api
@@ -31,7 +45,7 @@ export function Progress() {
   useChanges(["profile", "focus"], load);
 
   if (!counts) return null;
-  const { left, settled } = counts;
+  const { left, settled, asking } = counts;
   const total = left + settled;
   /* Nothing asked and nothing waiting is not a thing to show a bar for. */
   if (total === 0) return null;
@@ -39,8 +53,11 @@ export function Progress() {
   const done = Math.round((settled / total) * 100);
 
   return (
-    <div className="progress" title={`${settled} answered, ${left} still to go`}>
-      <div className="progress-track">
+    <div className="progress">
+      <span className="progress-name">
+        {left === 0 ? "Profile up to date" : "Updating profile"}
+      </span>
+      <div className="progress-track" title={`${settled} answered, ${left} still to go`}>
         <div className="progress-done" style={{ width: `${done}%` }} />
       </div>
       <span className="progress-count">
@@ -52,6 +69,16 @@ export function Progress() {
           </>
         )}
       </span>
+      {left > 0 && (
+        <button
+          className="ghost tiny progress-continue"
+          disabled={busy}
+          onClick={() => onContinue(asking)}
+          title="Carry on with these questions"
+        >
+          Continue
+        </button>
+      )}
     </div>
   );
 }
