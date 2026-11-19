@@ -477,6 +477,21 @@ a { color: var(--accent); }
   box-shadow: none;
 }
 
+/*
+  What the question is about, as a heading rather than a label. The names are
+  written as phrases — "a line under Founder at MuffinLabs" — so the capital
+  comes from here rather than from each caller remembering one.
+*/
+.field-name {
+  /*
+    Block, because ::first-letter does nothing to an inline box and the
+    capital silently did not happen.
+  */
+  display: block;
+  font-weight: 600; color: var(--text);
+}
+.field-name::first-letter { text-transform: uppercase; }
+
 .field-why { font-size: 11px; color: var(--text-dim); line-height: 1.45; }
 
 /*
