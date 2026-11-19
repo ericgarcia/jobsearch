@@ -18,6 +18,7 @@ import { fillApplication } from "../apply/fill.js";
 import { listAnswers, markApplied, recordAnswers } from "../apply/record.js";
 import { keepable } from "../apply/keep.js";
 import { clearEdit, pendingEdit, proposeEdit } from "../pending.js";
+import { wishForAnswer } from "../wishes.js";
 import { noteAsking } from "../asking.js";
 import { clearQueue, nextQuestion, settleQuestion } from "../queue.js";
 import {
@@ -496,6 +497,11 @@ const proposeEditTool = tool(
       .describe(
         "set is the default and suggests a value for something already stored. delete removes the role, bullet or fact — use it for a line that is not an achievement, a company's sales copy among their work. ask suggests nothing: it highlights the thing and puts your question over it with the stored text in the box, for a question you cannot answer for them, such as two roles whose dates overlap. add offers a line that is NOT on their profile — the ones an import left out — as a new bullet under a role: pass target \"bullet\", field \"text\", the line in value, and target_id set to the ROLE it would go under. Every one of these puts the question on the thing it is about; asking in the conversation alone leaves them reading about a line they cannot see.",
       ),
+    recommend: z
+      .enum(["use", "leave", "drop"])
+      .describe(
+        "Which answer you recommend. The card highlights it, so say what you actually think rather than what the card happens to do: use means take the text in the box, leave means change nothing, drop removes the row — offered only for a role, bullet, fact or degree that exists. A card about a line you judge not worth keeping should recommend drop, and an added line you are only offering so they can overrule an import should recommend leave. These three are all a card can do; if the answer you wanted is not among them, give the card your nearest recommendation and call wish_for_answer to say what you would rather have had.",
+      ),
   },
   async (args) =>
     guard(async () => {
@@ -504,6 +510,7 @@ const proposeEditTool = tool(
         field: args.field,
         value: args.value,
         why: args.why,
+        recommend: args.recommend,
         ...(args.target_id !== undefined ? { target_id: args.target_id } : {}),
         ...(args.target_key !== undefined ? { target_key: args.target_key } : {}),
         ...(args.action !== undefined ? { action: args.action } : {}),
@@ -598,6 +605,25 @@ const withdrawEditTool = tool(
     guard(async () => {
       await clearEdit();
       return { withdrawn: true, note: "Taken off their screen. You may propose one change." };
+    }),
+);
+
+const wishForAnswerTool = tool(
+  "wish_for_answer",
+  "Say that a card needed an answer it does not have. A card can only do three things — take the text in the box, change nothing, or remove the row — because the server has to carry the answer out and because what a button does must never come out of a document you read. When the case in front of you wanted something else (splitting one line into two, merging two roles, marking a date unknown rather than guessing it), propose the card with your nearest recommendation anyway, then call this to say what you would rather have had. It changes nothing on their screen: it is recorded for whoever decides what the next answer type is, and it is their decision, not yours. Say `name` as you would label the button and `why` in one line, with the case that brought it up. If somebody has already asked for the same thing it gets another vote rather than a second entry, so describe what you want plainly and let the matching sort it out. Do not tell them you did this, and do not use it in place of asking them something you could simply ask.",
+  {
+    name: z.string().describe("What the answer would be called, as a button label"),
+    why: z.string().describe("One line: what it would do, and the case that wanted it"),
+  },
+  async (args) =>
+    guard(async () => {
+      const { wish, voted } = await wishForAnswer(args.name, args.why);
+      return {
+        recorded: wish,
+        note: voted
+          ? `Somebody has wanted that before; it is now at ${wish.votes} votes. Carry on with the card as it is.`
+          : "Noted as a new one. Carry on with the card as it is.",
+      };
     }),
 );
 
@@ -888,6 +914,7 @@ export const jobsearchServer = createSdkMcpServer({
     stopAskingTool,
     pendingEditTool,
     withdrawEditTool,
+    wishForAnswerTool,
     applicationRecordTool,
     markAppliedTool,
     coverageTool,

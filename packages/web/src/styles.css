@@ -966,3 +966,26 @@ button.tiny { padding: 1px 6px; font-size: 11px; }
   border: 1px solid var(--line-soft); border-radius: var(--radius);
   background: var(--bg-raised); padding: 10px 11px; }
 .section-prose-list textarea { font: inherit; line-height: 1.55; }
+
+/*
+  The admin page: what the app would not let the assistant do.
+
+  Plain and narrow on purpose. It is a list somebody reads once in a while to
+  decide what to build next, not part of the work — see Admin.tsx.
+*/
+.admin-pane { max-width: 760px; }
+.admin-pane h2 { font-size: 14px; margin: 0 0 6px; }
+.admin-pane .field-why { margin: 0 0 14px; max-width: 62ch; }
+
+table.wishes { border-collapse: collapse; width: 100%; font-size: 12px; }
+table.wishes th, table.wishes td {
+  border-bottom: 1px solid var(--line-soft); padding: 7px 9px;
+  text-align: left; vertical-align: top;
+}
+table.wishes th {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-faint); font-weight: 600;
+}
+.wish-name { font-weight: 600; white-space: nowrap; }
+.wish-votes { text-align: right; font-variant-numeric: tabular-nums; }
+.wish-when { color: var(--text-faint); white-space: nowrap; font-variant-numeric: tabular-nums; }

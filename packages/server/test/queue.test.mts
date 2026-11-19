@@ -123,7 +123,7 @@ await proposeEdit({
   why: "From the document.",
   question_id: current.id,
 });
-await resolveEdit(true);
+await resolveEdit("use");
 
 const after = await nextQuestion();
 assert.notEqual(after.question?.id, current.id);
@@ -138,7 +138,7 @@ await proposeEdit({
   why: "From the document.",
   question_id: andThis.id,
 });
-await resolveEdit(false);
+await resolveEdit("leave");
 assert.notEqual((await nextQuestion()).question?.id, andThis.id);
 ok("and so does skipping it — saying no is answering");
 
