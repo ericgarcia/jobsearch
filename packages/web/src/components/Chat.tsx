@@ -26,14 +26,16 @@ function label(thread: Thread): string {
 /*
   An unsent message, kept as it is typed.
 
-  It belongs to the message box, not to the thread. Drafts used to be kept
-  one per conversation, and that lost words: keeping a proposed change on the
-  profile page starts a turn, the turn reports which conversation it ran in,
-  the app opens that conversation — and the box, which had somebody's
-  half-written message in it, loaded the draft of the thread it had just
-  arrived in and emptied itself. The switch was not asked for and the words
-  were not finished, so neither clearing them nor filing them under the
-  thread being left is right. Only a send empties the box.
+  One per conversation, because that is where the words were typed and that
+  is where somebody expects to find them again.
+
+  A thread with no number yet is the exception that used to lose them.
+  Keeping a proposed change on the profile page starts a turn in whatever
+  thread is open; when that is a new one the server makes the conversation
+  and the app opens it, and the box, with a half-written message in it,
+  loaded the draft of a thread that had not existed a moment ago and emptied
+  itself. The conversation did not change there — it only acquired a number —
+  so the draft is handed over with it.
 
   In the browser rather than with the conversation on the server, for two
   reasons. A message being typed before the first one is sent belongs to no
@@ -46,23 +48,33 @@ function label(thread: Thread): string {
   private window or with site data blocked, and losing a draft must never
   take the message box with it.
 */
-const DRAFT = "jobsearch:draft";
+function draftKey(threadId: number | null): string {
+  return `jobsearch:draft:${threadId ?? "new"}`;
+}
 
-function readDraft(): string {
+function readDraft(threadId: number | null): string {
   try {
-    return window.localStorage.getItem(DRAFT) ?? "";
+    return window.localStorage.getItem(draftKey(threadId)) ?? "";
   } catch {
     return "";
   }
 }
 
-function writeDraft(text: string): void {
+function writeDraft(threadId: number | null, text: string): void {
   try {
-    if (text) window.localStorage.setItem(DRAFT, text);
-    else window.localStorage.removeItem(DRAFT);
+    if (text) window.localStorage.setItem(draftKey(threadId), text);
+    else window.localStorage.removeItem(draftKey(threadId));
   } catch {
     // Nothing the person is doing fails. They lose a draft on reload.
   }
+}
+
+/** The same unsent message, now that the conversation it is in has a number. */
+function moveDraft(to: number): void {
+  const said = readDraft(null);
+  if (!said) return;
+  writeDraft(to, said);
+  writeDraft(null, "");
 }
 
 /*
@@ -164,7 +176,7 @@ export function Chat({
   onOpenJob: (id: number) => void;
 }) {
   const [entries, setEntries] = useState<Entry[]>([]);
-  const [draft, setDraft] = useState(readDraft);
+  const [draft, setDraft] = useState(() => readDraft(threadId));
   const [dragging, setDragging] = useState(false);
   const [sending, setSending] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
@@ -211,6 +223,17 @@ export function Chat({
     return () => {
       current = false;
     };
+  }, [threadId]);
+
+  /*
+    Each conversation keeps its own unsent message.
+
+    A new thread that has just been given a number is not a different
+    conversation, and moveDraft has already carried the words onto it, so
+    this reads them back rather than emptying the box.
+  */
+  useEffect(() => {
+    setDraft(readDraft(threadId));
   }, [threadId]);
 
   /*
@@ -294,6 +317,13 @@ export function Chat({
       report(error);
       return;
     }
+
+    /*
+      The draft goes with it. Ids are handed out as one past the highest, so
+      a deleted conversation's number comes round again — and a new thread
+      would open with a stranger's half-written message in the box.
+    */
+    writeDraft(id, "");
 
     // After the thread is gone, so a refusal above leaves the tabs alone.
     await closeThreadTabs(splitId, id).catch(() => 0);
@@ -421,7 +451,7 @@ export function Chat({
 
     if (said === undefined) {
       setDraft("");
-      writeDraft("");
+      writeDraft(threadId, "");
     }
     setEntries((prior) => [...prior, { kind: "user", text: message }]);
     setRunning(true);
@@ -448,6 +478,7 @@ export function Chat({
       case "conversation":
         // A thread the server just made for this first message. Record it
         // before anything else can reload the page out from under it.
+        moveDraft(event.conversationId);
         onOpenThread(event.conversationId);
         break;
       case "text":
@@ -649,7 +680,7 @@ export function Chat({
           placeholder={dragging ? "Drop it here" : "Ask the assistant, or drop in a resume…"}
           onChange={(event) => {
             setDraft(event.target.value);
-            writeDraft(event.target.value);
+            writeDraft(threadId, event.target.value);
           }}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {
