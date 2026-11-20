@@ -1,14 +1,43 @@
 /**
  * Talking to Split Pilot, the Chrome extension that holds the two panes.
  *
- * The extension answers pages on localhost, so the app can ask it directly:
- * no server round trip, and the tab that asks becomes the left pane, which is
- * exactly the tab this code runs in.
+ * The extension answers this app's own origins, so the app can ask it
+ * directly: no server round trip, and the tab that asks becomes the left
+ * pane, which is exactly the tab this code runs in.
  *
  * Every call degrades to "not there". The extension is optional — without it
  * the app works as it always did, links open in new tabs, and nothing here
  * should make a fuss about its absence.
  */
+
+/**
+ * The origins the extension will answer, which is its manifest's list.
+ *
+ * It used to be every port on localhost. That is a wide door on a developer's
+ * machine: any page served from any local port could pair and unpair their
+ * tabs, and could call set-token — and that token is what Playwright presents
+ * to drive the browser through an extension holding the debugger permission
+ * on every URL. The door is now the ports this app is actually served from.
+ *
+ * Kept here as well as in the manifest because a page on an origin the
+ * manifest does not list is never given `chrome.runtime` at all, so a port
+ * that has fallen off the list looks exactly like an extension that is not
+ * installed. With the list here, the app can tell the two apart and say so.
+ * extension/test/origins.test.mjs fails if the two ever disagree.
+ */
+export const ANSWERED_ORIGINS = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://localhost:5174",
+  "http://127.0.0.1:5174",
+  "http://localhost:5179",
+  "http://127.0.0.1:5179",
+];
+
+/** Whether this page is on an origin the extension is allowed to answer. */
+export function originAnswered(where = globalThis.location?.origin ?? ""): boolean {
+  return ANSWERED_ORIGINS.includes(where);
+}
 
 export interface SplitState {
   paired: boolean;
@@ -46,7 +75,20 @@ async function ask<T>(id: string, message: Record<string, unknown>): Promise<T |
 
 /** Is Split Pilot installed and answering? */
 export async function splitInstalled(id: string): Promise<boolean> {
-  return (await ask<SplitState>(id, { type: "split-pilot:state" })) != null;
+  const answered = (await ask<SplitState>(id, { type: "split-pilot:state" })) != null;
+  /*
+    Silence from an origin the extension was never going to answer is not
+    the extension being absent, and the two are indistinguishable from
+    here: Chrome does not expose runtime to a page outside the manifest's
+    list. Said once, in the console, because the alternative is somebody
+    reinstalling a working extension to fix a port number.
+  */
+  if (!answered && !originAnswered()) {
+    console.warn(
+      `Split Pilot does not answer ${globalThis.location?.origin}. Its manifest lists ${ANSWERED_ORIGINS.join(", ")} — add this origin to externally_connectable.matches and reload the extension.`,
+    );
+  }
+  return answered;
 }
 
 /*
