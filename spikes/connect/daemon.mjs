@@ -39,6 +39,13 @@ const ALLOWED = (process.env.SPIKE_ALLOWED_ORIGINS ?? "https://jobsearch.example
   .map((one) => one.trim())
   .filter(Boolean);
 
+/*
+  The one extension allowed to relay, when there is one. Named exactly: an
+  extension id is as good as an origin, and "any extension" would be a hole
+  the size of whatever else the person has installed.
+*/
+const EXTENSION_ID = process.env.SPIKE_EXTENSION_ID ?? null;
+
 /* What pairing produced: who owns this machine, and the secret we share. */
 let paired = null; // { daemon_id, owner, secret }
 
@@ -86,8 +93,28 @@ function ticketHolder(ticket) {
  * being reachable at all; refusing is how a daemon that did not mean to be
  * public stays unreachable.
  */
+/**
+ * The extension relaying for a page, which is the other way in.
+ *
+ * A fetch from a service worker carries the extension's own origin, not
+ * the page's, and a header claiming the page's origin would be a string
+ * the page could write. So on this path the Origin check cannot do its
+ * job, and the ticket is the whole of the proof — which it was anyway, the
+ * Origin being the cheap second fence rather than the lock. The fence moves
+ * into the extension's manifest: whatever may connect to the extension may
+ * relay through it.
+ */
+function fromExtension(request) {
+  const origin = request.headers.origin ?? "";
+  return EXTENSION_ID !== null && origin === `chrome-extension://${EXTENSION_ID}`;
+}
+
 function cors(request, response) {
   const origin = request.headers.origin;
+  if (fromExtension(request)) {
+    response.setHeader("Access-Control-Allow-Origin", origin);
+    return true;
+  }
   if (!origin || !ALLOWED.includes(origin)) return false;
 
   response.setHeader("Access-Control-Allow-Origin", origin);

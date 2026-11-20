@@ -34,6 +34,7 @@ node spikes/connect/test.mjs
 | `hub.mjs` | Next on Vercel | the account, the page, and the secret each paired machine shares |
 | `daemon.mjs` | the installed service | the pairing, and the work |
 | `page.html` | the hosted app | everything the person sees |
+| `bridge.js` | a handler for Split Pilot | the second way in, when the first is blocked |
 
 The hub never calls the daemon. The browser does, directly, so the person's
 work does not pass through the server — which is the reason to build it this
@@ -97,31 +98,70 @@ but a missing refusal fails quietly and in somebody else's favour.
   one: everything the product does well depends on a service being installed
   and running.
 
+## The second way in: through the extension
+
+`bridge.js` is the same work routed through Split Pilot instead. The page
+opens a port to the extension; the extension's service worker fetches the
+service. Run its own suite:
+
+```
+node spikes/connect/bridge.test.mjs
+```
+
+This path does not meet Chrome's private-network rule at all. The service
+worker holds `<all_urls>`, so its fetch is an ordinary one — no CORS, no
+preflight, nothing to be gated. The extension is already installed for the
+split view and is already the Playwright target, so it costs no new install.
+
+**What it takes away.** A fetch from a service worker does not carry the
+page's origin, and a header claiming one would be a string the page could
+write. So the Origin check that guards the direct path cannot work here,
+and the ticket is the whole of the proof. The second fence moves into the
+manifest: whatever may connect to the extension may relay through it.
+
+That matters today, because `externally_connectable.matches` is currently a
+wildcard over every localhost port. Any page served from any local port can
+already pair tabs and set the Playwright token; with a relay in place it
+could also reach the service. Before this ships, that list names the hosted
+origin, with localhost there only for development. `bridge.js` checks the
+sender against an exact list as well, which is cheap and catches a manifest
+left loose.
+
+The service tells the two paths apart by the extension's id, so another
+extension relaying a valid ticket is still refused.
+
+| Through the extension, a caller that | gets |
+| --- | --- |
+| is a page outside the exact sender list | refused, with no fetch made at all |
+| holds no ticket, or a forged, foreign, stale or wrong-machine one | `401`, five ways |
+| is a different extension with a good ticket | `403` |
+| is a good page with a good ticket | the work, streamed over the port |
+| holds a ticket for a machine that was disconnected | `401` |
+
 ## What is still unanswered
 
-**Whether Chrome lets a public HTTPS page reach `127.0.0.1` at all.**
+**Whether Chrome lets a public HTTPS page reach `127.0.0.1` directly.**
 
-Chrome gates public-to-private requests behind a preflight that asks for
-`Access-Control-Allow-Private-Network`. The service sends that header to a
-known origin and withholds it from everything else, and both are asserted —
-but asserting a header is not the same as watching a browser accept it, and
-the behaviour has shifted across Chrome versions.
-
-Testing it needs a genuinely public origin: a page on `localhost:7201`
-calling `127.0.0.1:7202` is private-to-private and never meets the rule. So:
+The service sends `Access-Control-Allow-Private-Network` to a known origin
+and withholds it from everything else, and both are asserted — but
+asserting a header is not watching a browser accept it, and the behaviour
+has moved across Chrome versions. Testing it needs a genuinely public
+origin: a page on `localhost:7201` calling `127.0.0.1:7202` is
+private-to-private and never meets the rule.
 
 1. Deploy `page.html` to a Vercel preview.
 2. Start the daemon with that origin allowed:
    `SPIKE_ALLOWED_ORIGINS=https://your-preview.vercel.app node spikes/connect/daemon.mjs`
-3. Open the preview and press Run, then read the daemon's log.
+3. Open the preview, press Run, and read the daemon's log.
 
-The log is the instrument. A line with `[private-network]` means the browser
-let the preflight through and the rule is satisfied. **No line at all** means
-the browser stopped it before it left, and the fallback is the extension:
-its service worker has host permissions, so it can reach the service without
-CORS or private-network preflights, and the page talks to the extension
-through `externally_connectable`. That is the reason to keep the transport
-swappable rather than calling `fetch` from fifty places.
+A line tagged `[private-network]` means the browser let the preflight
+through. **No line at all** means it stopped the request before it left.
+
+It is worth knowing either way, but it is no longer load-bearing: the
+extension path works whatever the answer is, and the extension is already
+required. The direct path is the one to prefer if it holds, because it
+keeps working when the extension is disabled or its service worker is
+asleep — so build both and let the page fall back.
 
 ## What this is not
 
