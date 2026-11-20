@@ -593,6 +593,25 @@ export const api = {
       body: JSON.stringify(patch),
     }),
 
+  /* Folders on this computer the assistant may read. See the server's files.ts. */
+  folders: () =>
+    json<{
+      grants: { id: number; path: string; why: string | null; at: string }[];
+      pending: { path: string; why: string; at: string } | null;
+    }>("/api/folders"),
+
+  answerFolder: (allow: boolean) =>
+    json<{ granted: { id: number; path: string } | null }>("/api/folders/answer", {
+      method: "POST",
+      body: JSON.stringify({ allow }),
+    }),
+
+  revokeFolder: (id: number) =>
+    json<{ revoked: boolean }>("/api/folders/revoke", {
+      method: "POST",
+      body: JSON.stringify({ id }),
+    }),
+
   questionProgress: () =>
     json<{
       left: number;

@@ -1,3 +1,4 @@
+import { FolderAsk } from "./FolderAsk.tsx";
 import { Progress } from "./Progress.tsx";
 import { GrowText } from "./GrowText.tsx";
 import { showCard } from "../focusCard.ts";
@@ -637,6 +638,13 @@ export function Chat({
           ))}
         </div>
       )}
+
+      {/*
+        A request to read a folder on this computer, where the question was
+        asked. Above the progress bar because nothing else on the screen is
+        waiting on the person in the way this is.
+      */}
+      <FolderAsk />
 
       <Progress
         onContinue={(asking) => void continueAsking(asking)}

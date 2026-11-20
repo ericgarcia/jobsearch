@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type Bug, type BugOccurrence, type Wish, type WishCase } from "../api.ts";
+import { useChanges } from "../changes.ts";
 
 /**
  * What the app would not let the assistant do.
@@ -25,6 +26,58 @@ import { api, type Bug, type BugOccurrence, type Wish, type WishCase } from "../
  * Nothing on this page is live. An answer becomes a button when it is built
  * as one, and that decision belongs to whoever reads this.
  */
+/**
+ * Folders on this computer the assistant may read.
+ *
+ * Here rather than in a settings page because this is the page that says
+ * what the assistant can do. Each one was allowed in answer to a request
+ * that said what it was for, and that wording is kept and shown: a grant
+ * nobody can remember the reason for is a grant to take back.
+ */
+function Folders() {
+  const [grants, setGrants] = useState<
+    { id: number; path: string; why: string | null; at: string }[] | null
+  >(null);
+
+  const load = () =>
+    void api
+      .folders()
+      .then((answer) => setGrants(answer.grants))
+      .catch(() => setGrants([]));
+
+  useEffect(load, []);
+  useChanges("files", load);
+
+  return (
+    <>
+      <h2>Folders the assistant can read</h2>
+      <p className="field-why">
+        Nothing on this computer is readable until you allow a folder, and it only ever reads:
+        there is no tool here that changes, moves or deletes a file. Hidden files are never
+        included, even inside a folder you have allowed. Take one back and it stops being
+        readable at once.
+      </p>
+
+      {grants && grants.length === 0 && (
+        <p className="field-why">None. The assistant has to ask, and you have not said yes yet.</p>
+      )}
+
+      {grants?.map((grant) => (
+        <div className="grant" key={grant.id}>
+          <div className="grant-path">{grant.path}</div>
+          {grant.why && <div className="grant-why">{grant.why}</div>}
+          <div className="grant-row">
+            <span className="grant-when">allowed {grant.at.slice(0, 10)}</span>
+            <button className="ghost tiny" onClick={() => void api.revokeFolder(grant.id).then(load)}>
+              Take it back
+            </button>
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
 export function Admin() {
   const [wished, setWished] = useState<Wish[] | null>(null);
   const [bugs, setBugs] = useState<Bug[] | null>(null);
@@ -46,6 +99,8 @@ export function Admin() {
 
   return (
     <div className="admin-pane">
+      <Folders />
+
       <Bugs bugs={bugs} onChanged={loadBugs} />
 
       <h2>Answers the assistant wanted</h2>

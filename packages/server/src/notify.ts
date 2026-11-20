@@ -28,7 +28,9 @@ export type Topic =
   | "threads"
   | "applications"
   /* What the assistant is proposing to change, and which field to look at. */
-  | "focus";
+  | "focus"
+  /* Folders on this computer the assistant may read, and requests for more. */
+  | "files";
 
 export interface Change {
   topic: Topic;

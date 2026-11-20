@@ -47,6 +47,12 @@ import {
 } from "./apply/facts.js";
 import { describe as describeForm } from "./apply/form.js";
 import {
+  answerRequest as answerFolderRequest,
+  grants as folderGrants,
+  pendingRequest as pendingFolder,
+  revokeGrant as revokeFolderGrant,
+} from "./files.js";
+import {
   clearEdit,
   pendingEdit,
   proposeEdit,
@@ -527,6 +533,34 @@ app.delete("/api/notes/:id", async (request) => {
 });
 
 /* What the assistant ran into, and what it takes to reproduce it. */
+/* --------------------------------------------------------- folders on disk */
+/*
+  Nothing on this computer is readable by the assistant until the person
+  allows a folder. These three routes are the person's side of that: what is
+  allowed, the answer to a request, and taking one back. The assistant's side
+  is ask_for_folder, which can only put the question. See files.ts.
+*/
+
+app.get("/api/folders", async () => ({
+  grants: await folderGrants(),
+  pending: await pendingFolder(),
+}));
+
+app.post("/api/folders/answer", async (request, reply) => {
+  const body = (request.body ?? {}) as { allow?: boolean };
+  try {
+    return await answerFolderRequest(body.allow === true);
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.post("/api/folders/revoke", async (request, reply) => {
+  const body = (request.body ?? {}) as { id?: number };
+  if (typeof body.id !== "number") return reply.code(400).send({ error: "Which grant?" });
+  return await revokeFolderGrant(body.id);
+});
+
 app.get("/api/bugs", async () => ({ bugs: await bugReports() }));
 
 app.post("/api/bugs/fixed", async (request, reply) => {

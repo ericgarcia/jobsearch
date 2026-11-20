@@ -818,3 +818,40 @@ CREATE TABLE IF NOT EXISTS question_queue (
   CHECK (state IN ('waiting', 'done')),
   UNIQUE (source, note)
 );
+
+/* ------------------------------------------------------- folders on disk */
+/*
+  Folders the person has let the assistant read.
+
+  Nothing on this computer is readable by default. A folder becomes readable
+  when the person answers a request that names it and says why, and stops
+  being readable the moment they take it back. The path stored here is the
+  resolved one, because that is what every check compares against: a grant
+  on a folder has to mean the folder it really is, not a string that can be
+  walked out of with "..". See files.ts.
+*/
+CREATE TABLE IF NOT EXISTS folder_grants (
+  id         INTEGER PRIMARY KEY,
+  path       TEXT NOT NULL UNIQUE,
+  -- What the assistant said it was for, kept so the admin page can show
+  -- what each grant was given for.
+  why        TEXT,
+  at         TEXT NOT NULL DEFAULT (datetime('now')),
+  -- Taken back. Marked rather than deleted, so what was once allowed stays
+  -- visible.
+  revoked_at TEXT
+);
+
+/*
+  The one folder the assistant is waiting to be allowed.
+
+  One slot, like the pending edit: a queue of requests is a dialog box
+  repeated, and the honest way to ask for a second folder is after the first
+  has been answered.
+*/
+CREATE TABLE IF NOT EXISTS pending_grant (
+  id   INTEGER PRIMARY KEY CHECK (id = 1),
+  path TEXT NOT NULL,
+  why  TEXT NOT NULL,
+  at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
