@@ -152,6 +152,13 @@ export function Proposal({
       say(`I closed that one — ${name} is not on the profile any more, so nothing changed.`);
     } else if (chosen === "leave") {
       say(`I left that one — leave ${name} as it is.`);
+    } else if (answer.resolved.dropped) {
+      const gone = answer.resolved.dropped;
+      say(
+        gone.length > 0
+          ? `I took ${gone.length === 1 ? "this skill" : "these skills"} off: ${gone.join(", ")}.`
+          : "I kept that, but those skills were not on the list, so nothing changed.",
+      );
     } else if (answer.resolved.added) {
       /*
         Skills are added rather than replaced, so saying the list "is now"
@@ -204,6 +211,12 @@ export function Proposal({
     second.
   */
   const skills = asked.target === "skills";
+  /*
+    A question about skills already on the list. There is nothing to type:
+    the card is about which names are there, and the answer is whether they
+    stay. A box here would invite an edit that no button could carry out.
+  */
+  const skillsAsked = skills && asked.action === "ask";
   /* A phrase to point at, and the stored text to point at it in. */
   const marked = Boolean(asked.quote && asked.current);
   /*
@@ -214,6 +227,10 @@ export function Proposal({
   const several = !removing && asked.fields.length > 1;
 
   function label(answer: Answer): string {
+    if (skillsAsked) {
+      const many = asked.value.includes(",");
+      return answer === "drop" ? (many ? "Drop them" : "Drop it") : many ? "Keep them" : "Keep it";
+    }
     if (answer === "drop") return "Drop it";
     if (answer === "leave") return adding ? "Leave it out" : "Keep original";
     if (removing) return "Drop it";
@@ -235,6 +252,27 @@ export function Proposal({
     !removing && !asking && asked.current && asked.current !== asked.value
       ? asked.current
       : null;
+
+  if (skillsAsked) {
+    return (
+      <div className="field-card" ref={box}>
+        <span className="field-name">{name}</span>
+        <div className="field-why">{asked.why}</div>
+        <div className="field-label">marked in your skills above</div>
+        <div className="field-answer">
+          {asked.answers.map((answer) => (
+            <button
+              key={answer}
+              className={answer === asked.recommend ? "primary" : undefined}
+              onClick={() => void resolve(answer)}
+            >
+              {label(answer)}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   if (gone) {
     return (
@@ -977,9 +1015,20 @@ export function Profile() {
   */
   const offeredSkills = asksAbout(pending, "skills");
   const have = new Set(data.skills.map((one) => one.name.toLowerCase()));
-  const offering = !offeredSkills
-    ? []
-    : namesIn(skillDraft || offeredSkills.value).filter((name) => !have.has(name.toLowerCase()));
+  /*
+    A skills card is one of two questions. "add" offers names that are not
+    on the list, drawn as outlined pills at the end of it. "ask" is about
+    names that are on it — no line of theirs shows these, do they stay? —
+    and those are the pills already drawn, marked where they sit.
+  */
+  const askingSkills = offeredSkills?.action === "ask" ? offeredSkills : null;
+  const offering =
+    !offeredSkills || askingSkills
+      ? []
+      : namesIn(skillDraft || offeredSkills.value).filter((name) => !have.has(name.toLowerCase()));
+  const inQuestion = new Set(
+    askingSkills ? namesIn(askingSkills.value).map((one) => one.toLowerCase()) : [],
+  );
 
   return (
     <div className="profile">
@@ -1105,7 +1154,10 @@ export function Profile() {
       <h3>Skills</h3>
       <div className={offeredSkills ? "skills skills-asked" : "skills"}>
         {data.skills.map((item) => (
-          <span className="pill" key={item.id}>
+          <span
+            className={inQuestion.has(item.name.toLowerCase()) ? "pill pill-asked" : "pill"}
+            key={item.id}
+          >
             {item.name}
             <button className="ghost tiny" onClick={() => void api.deleteSkill(item.id).then(load)}>
               ×

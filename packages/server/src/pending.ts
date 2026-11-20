@@ -140,6 +140,17 @@ export function answersFor(edit: {
   target_id: number | null;
   target_key: string | null;
 }): Answer[] {
+  /*
+    The skills list answers for itself. A card that offers names to add is
+    keep-or-not; a card about names already on the list is the opposite
+    question — "no line of yours shows these, do they stay?" — and the only
+    two answers to that are leaving them and dropping them. There is nothing
+    to update, because the card is about which names are there rather than
+    about the text of any one of them.
+  */
+  if (edit.target === "skills") {
+    return edit.action === "ask" ? ["leave", "drop"] : ["use", "leave"];
+  }
   if (edit.action === "add") return ["use", "leave"];
   if (edit.action === "delete") return ["use", "leave"];
 
@@ -487,11 +498,28 @@ export async function proposeEdit(
     one click on the pill itself.
   */
   if (proposal.target === "skills") {
-    if (action !== "add") {
-      throw new Error('A skills proposal adds names: pass action "add".');
+    if (action !== "add" && action !== "ask") {
+      throw new Error(
+        'A skills card either offers names to add (action "add") or asks about names already on the list (action "ask").',
+      );
     }
-    if (namesIn(proposal.value).length === 0) {
-      throw new Error("Name the skills to add in `value`, separated by commas.");
+    const names = namesIn(proposal.value);
+    if (names.length === 0) {
+      throw new Error("Name the skills in `value`, separated by commas.");
+    }
+    /*
+      An ask is about names that are there. One naming a skill they do not
+      have would mark nothing and offer to drop nothing, which is a question
+      about a pill that is not on the page.
+    */
+    if (action === "ask") {
+      const have = new Set((await profile.listSkills()).map((one) => one.name.toLowerCase()));
+      const missing = names.filter((one) => !have.has(one.toLowerCase()));
+      if (missing.length > 0) {
+        throw new Error(
+          `Not on their skills list: ${missing.join(", ")}. An ask is about skills they have; to offer new ones, use action "add".`,
+        );
+      }
     }
   }
   if (action === "delete" && !REMOVABLE.has(proposal.target)) {
@@ -700,6 +728,8 @@ export interface Resolved {
   edited?: boolean;
   /** For a skills card: the names that went in, which excludes any already there. */
   added?: string[];
+  /** For a skills card that asked about names on the list: the ones taken off. */
+  dropped?: string[];
   /** The row went away between the question and the answer, so nothing was written. */
   gone?: boolean;
 }
@@ -754,6 +784,55 @@ export async function resolveEdit(answer: Answer, value?: string): Promise<Resol
   if (answer === "leave") return { field: waiting.field, kept: false };
 
   /*
+    The skills list, which is answered in names rather than in text.
+
+    Both of its cards end here, before the general branches below: the
+    generic drop removes the row a card is about, and a skills card is not
+    about a row. It is about which names are on a list, so dropping means
+    dropping the ones it named and nothing else.
+  */
+  if (waiting.target === "skills") {
+    const stored = await profile.listSkills();
+
+    if (waiting.action === "ask") {
+      /* "leave" has already returned, so this is the drop. */
+      /*
+        In the order the question named them, not the order the list keeps
+        them in, so the sentence that goes back to the person reads as the
+        answer to what they were asked.
+      */
+      const going = namesIn(waiting.value)
+        .map((name) => stored.find((one) => one.name.toLowerCase() === name.toLowerCase()))
+        .filter((one): one is (typeof stored)[number] => one !== undefined);
+      for (const one of going) await profile.deleteSkill(one.id);
+      return {
+        field: waiting.field,
+        kept: true,
+        removed: going.length > 0,
+        dropped: going.map((one) => one.name),
+      };
+    }
+
+    /* Whatever is in the box, which is where an edited list of names is. */
+    const said = (value ?? waiting.value).trim();
+    const had = new Set(stored.map((one) => one.name.toLowerCase()));
+    const added: string[] = [];
+    for (const name of namesIn(said)) {
+      if (had.has(name.toLowerCase())) continue;
+      await profile.addSkill(name);
+      added.push(name);
+    }
+    if (added.length > 0) changed("profile");
+    return {
+      field: waiting.field,
+      kept: added.length > 0,
+      value: said,
+      added,
+      ...(said !== waiting.value ? { edited: true } : {}),
+    };
+  }
+
+  /*
     Dropping the row, which any card about a row that exists can do. The
     delete action below is the same ending reached from the other side: there
     the removal is what was proposed, here it is what they chose instead.
@@ -776,29 +855,6 @@ export async function resolveEdit(answer: Answer, value?: string): Promise<Resol
   }
 
   const text = (value ?? waiting.value).trim();
-
-  /*
-    Skills are added, never replaced. The box holds names; the ones already
-    in the list are skipped rather than written again, so the answer can say
-    what actually went in.
-  */
-  if (waiting.target === "skills") {
-    const had = new Set((await profile.listSkills()).map((one) => one.name.toLowerCase()));
-    const added: string[] = [];
-    for (const name of namesIn(text)) {
-      if (had.has(name.toLowerCase())) continue;
-      await profile.addSkill(name);
-      added.push(name);
-    }
-    if (added.length > 0) changed("profile");
-    return {
-      field: waiting.field,
-      kept: added.length > 0,
-      value: text,
-      added,
-      ...(text !== waiting.value ? { edited: true } : {}),
-    };
-  }
 
   /*
     An add makes the row rather than changing one, and its target_id is the

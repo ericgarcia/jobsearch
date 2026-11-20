@@ -545,6 +545,67 @@ assert.equal(
 );
 ok("and leaving it adds nothing, as on every other card");
 
+console.log("\nThe other half of the skills question");
+
+/*
+  "These are on your list and no line of yours shows them" is the reverse of
+  "these are in your lines and not on your list", and the card could only do
+  the second. So the assistant asked in the conversation, and the section it
+  was asking about lit up in no way at all — the same gap the add card was
+  built to close, left open on the other side.
+*/
+
+await profile.addSkill("SwiftUI");
+await profile.addSkill("Redshift");
+
+const about = await proposeEdit({
+  target: "skills",
+  field: "names",
+  action: "ask",
+  value: "SwiftUI, Redshift",
+  why: "These are on your list but no line of yours shows them.",
+  recommend: "leave",
+});
+assert.deepEqual(about.pending.answers, ["leave", "drop"]);
+ok("a question about skills they have offers keeping them or dropping them, and nothing else");
+
+const takenOff = await resolveEdit("drop");
+assert.deepEqual(takenOff.dropped, ["SwiftUI", "Redshift"]);
+assert.equal(
+  (await profile.listSkills()).some((one) => one.name === "SwiftUI" || one.name === "Redshift"),
+  false,
+);
+ok("and dropping takes off the ones it named");
+
+await profile.addSkill("Matlab");
+await proposeEdit({
+  target: "skills",
+  field: "names",
+  action: "ask",
+  value: "Matlab",
+  why: "No line shows it.",
+  recommend: "leave",
+});
+await resolveEdit("leave");
+assert.equal(
+  (await profile.listSkills()).some((one) => one.name === "Matlab"),
+  true,
+);
+ok("while leaving it keeps the skill, as the button says");
+
+await assert.rejects(
+  proposeEdit({
+    target: "skills",
+    field: "names",
+    action: "ask",
+    value: "Fortran",
+    why: "No line shows it.",
+    recommend: "leave",
+  }),
+  /Not on their skills list/,
+);
+ok("and a question about a skill they do not have is refused, since it would mark nothing");
+
 console.log("\nA row that is not there");
 
 /*

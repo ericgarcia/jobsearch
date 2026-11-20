@@ -656,6 +656,8 @@ export const api = {
         added?: string[];
         /** The row went away between the question and the answer, so nothing was written. */
         gone?: boolean;
+        /** For a skills card that asked about names on the list: the ones taken off. */
+        dropped?: string[];
       };
     }>(
       "/api/pending-edit/resolve",

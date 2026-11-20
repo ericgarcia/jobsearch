@@ -762,6 +762,11 @@ button.tiny { padding: 1px 6px; font-size: 11px; }
 .skills-asked {
   outline: 2px solid var(--accent); outline-offset: 7px; border-radius: 8px;
 }
+/* A skill the question is about: already theirs, and asked after where it sits. */
+.pill-asked {
+  border-color: var(--accent); color: var(--text);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
 .pill-offered {
   border-style: dashed; border-color: var(--accent); color: var(--accent);
 }
