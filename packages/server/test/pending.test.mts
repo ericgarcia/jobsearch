@@ -545,4 +545,59 @@ assert.equal(
 );
 ok("and leaving it adds nothing, as on every other card");
 
+console.log("\nA row that is not there");
+
+/*
+  Ids outlive the rows they named. A question queued against a line that was
+  deleted an hour later produced a card with no row to sit on and three
+  buttons of which none could do anything — an update that wrote to a
+  missing id, a drop that deleted nothing. So the card is refused when it is
+  made, and the answer says so when the row goes in between.
+*/
+
+const doomedToo = await profile.addBullet(host.id, "A line about to be deleted.");
+await profile.deleteBullet(doomedToo.id);
+
+await assert.rejects(
+  proposeEdit({
+    target: "bullet",
+    target_id: doomedToo.id,
+    field: "text",
+    action: "ask",
+    value: "",
+    why: "Is this right?",
+    recommend: "leave",
+  }),
+  /not on their profile/,
+);
+ok("a card about a line that is gone is refused rather than made");
+
+await assert.rejects(
+  proposeEdit({
+    target: "bullet",
+    target_id: 9999,
+    field: "text",
+    action: "add",
+    value: "Under a role that does not exist.",
+    why: "From the document.",
+    recommend: "leave",
+  }),
+  /not on their profile/,
+);
+ok("and so is a line offered under a role that is not there");
+
+const vanishing = await profile.addBullet(host.id, "Here when the card was made.");
+await proposeEdit({
+  target: "bullet",
+  target_id: vanishing.id,
+  field: "text",
+  value: "A better version of it.",
+  why: "Tighter.",
+});
+await profile.deleteBullet(vanishing.id);
+const nothing = await resolveEdit("use");
+assert.equal(nothing.gone, true);
+assert.equal(nothing.kept, false);
+ok("and a row that goes between the question and the answer writes nothing, and says so");
+
 console.log(`\n${passed} passed, 0 failed`);

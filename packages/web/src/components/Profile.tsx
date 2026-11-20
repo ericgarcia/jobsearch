@@ -52,6 +52,7 @@ export function Proposal({
   onDone,
   claims = true,
   onDraft,
+  gone = false,
 }: {
   asked: Pending;
   /** What to call this in the sentence that goes back to the assistant. */
@@ -65,6 +66,14 @@ export function Proposal({
    * while the box said something else would be two answers to one question.
    */
   onDraft?: (text: string) => void;
+  /**
+   * The row this is about is not on the profile any more.
+   *
+   * Three buttons that all write nothing is not a choice. There is one thing
+   * left to do with the question — close it — so that is the one button,
+   * and the box goes with the rest: there is nothing to correct.
+   */
+  gone?: boolean;
   /**
    * Whether this card counts as the question being on the screen.
    *
@@ -128,14 +137,20 @@ export function Proposal({
     return () => release(asked.at);
   }, [asked.at, claims]);
 
-  const removing = asked.action === "delete";
-  const asking = asked.action === "ask";
-  const adding = asked.action === "add";
+  const removing = asked.action === "delete" && !gone;
+  const asking = asked.action === "ask" && !gone;
+  const adding = asked.action === "add" && !gone;
 
   async function resolve(chosen: Answer) {
     const answer = await api.resolveEdit(chosen, draft);
     onDone();
-    if (chosen === "leave") {
+    if (answer.resolved.gone) {
+      /*
+        The row went between the question and the answer. Saying "I kept
+        that" here would report a change to something that is not there.
+      */
+      say(`I closed that one — ${name} is not on the profile any more, so nothing changed.`);
+    } else if (chosen === "leave") {
       say(`I left that one — leave ${name} as it is.`);
     } else if (answer.resolved.added) {
       /*
@@ -212,6 +227,20 @@ export function Proposal({
     !removing && !asking && asked.current && asked.current !== asked.value
       ? asked.current
       : null;
+
+  if (gone) {
+    return (
+      <div className="field-card" ref={box}>
+        <span className="field-name">{name}</span>
+        <div className="field-why">{asked.why}</div>
+        <div className="field-answer">
+          <button className="primary" onClick={() => void resolve("leave")}>
+            Close it
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="field-card" ref={box}>
@@ -703,6 +732,35 @@ function AboutField({
  * is about to claim it, so deciding immediately would show a stray card on
  * every load.
  */
+/*
+  What to call a question whose row this page does not show.
+
+  It used to be called "this", which is the one word that says nothing: the
+  card sits at the top of the pane with no row under it, so the heading is
+  all there is to say what is being asked about. Named from the proposal
+  instead — what kind of thing it is, and whether it is still stored, which
+  `current` answers for every target that has a stored value.
+*/
+function strandedName(pending: Pending): string {
+  const gone = pending.current === null && pending.action !== "add";
+  const kind =
+    pending.target === "bullet"
+      ? "a line"
+      : pending.target === "role"
+        ? "a job"
+        : pending.target === "education"
+          ? "a degree"
+          : pending.target === "fact"
+            ? "an answer you have stored"
+            : pending.target === "skills"
+              ? "your skills list"
+              : `your ${pending.field}`;
+
+  if (pending.target === "skills") return kind;
+  if (pending.action === "add") return `${kind} that is not on your profile yet`;
+  return gone ? `${kind} that is no longer on your profile` : `${kind} this page does not show`;
+}
+
 function Stranded({ pending, onDone }: { pending: Pending | null; onDone: () => void }) {
   const claimed = useClaimed(pending?.at ?? null);
   const [settled, setSettled] = useState(false);
@@ -719,10 +777,18 @@ function Stranded({ pending, onDone }: { pending: Pending | null; onDone: () => 
   return (
     <div className="stranded">
       <div className="stranded-note">
-        This question is about something that is not on this page.
+        {pending.current === null && pending.action !== "add"
+          ? "This question is about something that is no longer on your profile. Answering it closes the question; nothing will be written."
+          : "This question is about something that is not on this page."}
       </div>
       <div className="stranded-card">
-        <Proposal asked={pending} name="this" onDone={onDone} claims={false} />
+        <Proposal
+          asked={pending}
+          name={strandedName(pending)}
+          onDone={onDone}
+          claims={false}
+          gone={pending.current === null && pending.action !== "add"}
+        />
       </div>
     </div>
   );

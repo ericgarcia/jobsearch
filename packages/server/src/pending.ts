@@ -200,6 +200,41 @@ interface Row {
   at: string;
 }
 
+/**
+ * Whether the row a card is about is still there.
+ *
+ * A proposal names a row by id, and ids outlive the rows they named. The
+ * assistant read a question queued against a line, proposed a rewrite of it,
+ * and the line had been deleted an hour earlier — so the card had no row to
+ * paint itself over, fell through to the fallback at the top of the pane,
+ * and offered three buttons of which none could do anything: an update that
+ * wrote to a missing id, a drop that deleted nothing.
+ *
+ * Checked when the card is made, so the assistant is told to ask about
+ * something that exists, and again when it is answered, because a row can
+ * go between the two — which is the case the fallback was built for.
+ */
+async function stillThere(row: {
+  target: string;
+  target_id: number | null;
+  target_key: string | null;
+}): Promise<boolean> {
+  if (row.target === "role") {
+    return (await profile.listRoles()).some((one) => one.id === row.target_id);
+  }
+  if (row.target === "bullet") {
+    return (await profile.listBullets()).some((one) => one.id === row.target_id);
+  }
+  if (row.target === "education") {
+    return (await profile.listEducation()).some((one) => one.id === row.target_id);
+  }
+  if (row.target === "fact") {
+    return Boolean(row.target_key && (await getFact(row.target_key)));
+  }
+  /* The profile and the skills list are always there. */
+  return true;
+}
+
 /** What is stored for this thing right now, so the page can show a change. */
 async function currently(row: {
   target: string;
@@ -410,6 +445,27 @@ export async function proposeEdit(
   }
 
   /*
+    The row has to be there. For an add the id names the role the line would
+    join, so it is the role that has to exist; for everything else it is the
+    row the card is about. A question queued against a line that was deleted
+    afterwards is the way this happens, and the queue is where it should be
+    settled rather than on a card nobody can answer.
+  */
+  const needs =
+    action === "add" && proposal.target === "bullet"
+      ? { target: "role", target_id: proposal.target_id ?? null, target_key: null }
+      : {
+          target: proposal.target,
+          target_id: proposal.target_id ?? null,
+          target_key: proposal.target_key ?? null,
+        };
+  if (!(await stillThere(needs))) {
+    throw new Error(
+      `That ${needs.target} is not on their profile — it has been removed, or the id is wrong. Check the profile for what is there now, and settle the question with settle_question if it is about something that no longer exists.`,
+    );
+  }
+
+  /*
     Every card recommends one of its own answers.
 
     The card used to work the highlight out from the action, which meant it
@@ -518,6 +574,8 @@ export interface Resolved {
   edited?: boolean;
   /** For a skills card: the names that went in, which excludes any already there. */
   added?: string[];
+  /** The row went away between the question and the answer, so nothing was written. */
+  gone?: boolean;
 }
 
 /**
@@ -553,6 +611,18 @@ export async function resolveEdit(answer: Answer, value?: string): Promise<Resol
       waiting.question_id,
       answer === "leave" ? "left as it was" : "changed",
     );
+  }
+
+  /*
+    Gone between the question and the answer, which is what the fallback card
+    at the top of the pane exists for. Writing to a missing id changes
+    nothing and reports a change, so the answer says what actually happened
+    and the queued question is settled either way, above. Checked before
+    the answers are told apart, because the row is equally gone whichever
+    button was pressed.
+  */
+  if (!(await stillThere(waiting))) {
+    return { field: waiting.field, kept: false, gone: true };
   }
 
   if (answer === "leave") return { field: waiting.field, kept: false };

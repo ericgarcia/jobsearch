@@ -631,6 +631,8 @@ export const api = {
         edited?: boolean;
         /** For a skills card: the names that went in, which excludes any already there. */
         added?: string[];
+        /** The row went away between the question and the answer, so nothing was written. */
+        gone?: boolean;
       };
     }>(
       "/api/pending-edit/resolve",
