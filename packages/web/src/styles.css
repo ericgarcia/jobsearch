@@ -290,6 +290,25 @@ a { color: var(--accent); }
   background: var(--accent);
   transition: width 220ms ease;
 }
+/*
+  No count to show, because there is nothing to count yet: the queue is
+  empty and the next questions are being worked out. A stripe that crosses
+  and crosses again, rather than a bar that fills, since a bar that fills
+  claims to know how far along it is.
+*/
+.progress-working {
+  height: 100%; width: 32%; border-radius: 2px;
+  background: var(--accent);
+  animation: progress-sweep 1.4s ease-in-out infinite;
+}
+@keyframes progress-sweep {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(320%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress-working { animation: none; width: 100%; opacity: 0.35; }
+}
+
 .progress-count { font-size: 10.5px; color: var(--text-faint); white-space: nowrap; }
 .progress-name {
   font-size: 10.5px; font-weight: 600; color: var(--text-dim); white-space: nowrap;

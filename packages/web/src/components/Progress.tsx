@@ -42,7 +42,7 @@ export function Progress({
   busy: boolean;
 }) {
   const [counts, setCounts] = useState<
-    { left: number; settled: number; asking: number | null } | null
+    { left: number; settled: number; asking: number | null; refilling: boolean } | null
   >(null);
   /* Whether there is a card to go back to, which decides the button. */
   const [waiting, setWaiting] = useState(false);
@@ -63,7 +63,7 @@ export function Progress({
   useChanges(["profile", "focus"], load);
 
   if (!counts) return null;
-  const { left, settled, asking } = counts;
+  const { left, settled, asking, refilling } = counts;
   const total = left + settled;
 
   /*
@@ -77,7 +77,30 @@ export function Progress({
     import, or the queue refilling from the profile's gaps — because the
     counts are reloaded whenever either changes.
   */
-  if (left === 0) return null;
+  if (left === 0 && !refilling) return null;
+
+  /*
+    Empty because the next questions are still being worked out.
+
+    The queue refills lazily, and its last refill reads the whole profile
+    through a model — the better part of a minute in which nothing is
+    waiting and nothing is finished. Hiding here made the bar vanish
+    mid-session and come back with eight more questions, which reads as the
+    app losing its place. So the one state it cannot show is a count: there
+    is no total yet, and inventing one would mean the number jumped the
+    moment the real questions arrived.
+  */
+  if (left === 0) {
+    return (
+      <div className="progress">
+        <span className="progress-name">Reading your profile</span>
+        <div className="progress-track" title="Working out what else to ask">
+          <div className="progress-working" />
+        </div>
+        <span className="progress-count">working out what else to ask</span>
+      </div>
+    );
+  }
 
   const done = Math.round((settled / total) * 100);
 

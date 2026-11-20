@@ -594,7 +594,13 @@ export const api = {
     }),
 
   questionProgress: () =>
-    json<{ left: number; settled: number; asking: number | null }>("/api/questions"),
+    json<{
+      left: number;
+      settled: number;
+      asking: number | null;
+      /** True while the next questions are being worked out, so an empty queue is not a finished one. */
+      refilling: boolean;
+    }>("/api/questions"),
 
   pendingEdit: () =>
     json<{

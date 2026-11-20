@@ -133,9 +133,41 @@ async function counts(): Promise<{ left: number; settled: number }> {
  * rather than scheduled: a queue built in advance is a queue that is wrong by
  * the time it is read.
  */
+/*
+  Whether the next questions are being worked out right now.
+
+  The queue is empty for a moment every time it is about to refill, and the
+  last refill reads the whole profile through a model, which takes the better
+  part of a minute. The progress bar hides itself at zero — right when the
+  questions are finished, wrong here, because nothing is finished. It
+  disappeared mid-session and came back a minute later with eight more
+  questions, which reads as the app losing its place.
+
+  So an empty queue says which kind of empty it is. One boolean, held in
+  memory rather than in the table: it is true only while a call is inside
+  refill, so a server that restarts mid-refill comes back with it false,
+  which is the truth.
+*/
+let working = false;
+
+/** True while the next questions are being worked out. */
+export function refilling(): boolean {
+  return working;
+}
+
 export async function nextQuestion(): Promise<Waiting> {
   let left = (await counts()).left;
-  if (left === 0) await refill();
+  if (left === 0) {
+    working = true;
+    /* So the bar hears about it before the model call, not after. */
+    changed("focus");
+    try {
+      await refill();
+    } finally {
+      working = false;
+      changed("focus");
+    }
+  }
 
   const question = await get<Question>(
     `SELECT id, source, note, target, target_id, target_key, field, value
@@ -236,8 +268,13 @@ export async function settleQuestion(id: number, outcome: string): Promise<boole
  * The same two numbers nextQuestion carries, on their own, so the page can
  * show progress without asking for a question and taking one out.
  */
-export async function progress(): Promise<{ left: number; settled: number }> {
-  return await counts();
+export async function progress(): Promise<{
+  left: number;
+  settled: number;
+  /** True while the next questions are being worked out. See `refilling`. */
+  refilling: boolean;
+}> {
+  return { ...(await counts()), refilling: working };
 }
 
 /** Everything still waiting, for the person's own page rather than the agent. */

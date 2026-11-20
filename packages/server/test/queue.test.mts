@@ -17,6 +17,8 @@ import {
   enqueue,
   enqueueFromImport,
   nextQuestion,
+  progress,
+  refilling,
   settleQuestion,
   waitingQuestions,
 } from "../src/queue.js";
@@ -205,5 +207,25 @@ await run(`DELETE FROM fact_matches`);
 const nothing = await nextQuestion();
 assert.equal(nothing.left, nothing.question ? nothing.left : 0);
 ok("an empty queue answers with nothing rather than inventing something to ask");
+
+console.log("\n8. An empty queue says which kind of empty it is");
+
+/*
+  The bar hides at zero, which is right when the questions are finished and
+  wrong while the next ones are being worked out — the refill that reads the
+  whole profile is a model call, and the bar vanished for the length of it.
+  What matters here is that the flag is down once the call returns, however
+  it returned: one left up would keep the bar on the screen forever.
+*/
+
+assert.equal(refilling(), false);
+assert.equal((await progress()).refilling, false);
+ok("nothing is being worked out when nothing is being worked out");
+
+await clearQueue();
+await run(`UPDATE question_queue SET state = 'done'`);
+await nextQuestion();
+assert.equal(refilling(), false);
+ok("and a refill that has returned leaves it down, whatever it found");
 
 console.log(`\n${passed} passed, 0 failed`);
