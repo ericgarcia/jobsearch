@@ -739,8 +739,18 @@ button.tiny { padding: 1px 6px; font-size: 11px; }
   padding: 4px 0; font-size: 12.5px; color: var(--text-dim);
   border-bottom: 1px solid var(--line-soft);
 }
-.bullet span { flex: 1; cursor: text; }
-.bullet span:hover { color: var(--text); }
+/*
+  The line's own text fills the row, and nothing else in the row does.
+
+  This used to be every span in the line, which was true when the text was
+  the only one. The info mark is a span too, so it took an equal share: a
+  fourteen-pixel icon holding two hundred and sixty pixels, and every line
+  of every role wrapping at half the width it had. The rule now names the
+  text rather than the tag, and the mark takes the width of the mark.
+*/
+.bullet > span:not(.said) { flex: 1; cursor: text; }
+.bullet > span:not(.said):hover { color: var(--text); }
+.bullet > .said { flex: none; }
 .bullet.editing { flex-direction: column; }
 
 .bullet-actions { display: flex; gap: 6px; }
@@ -1141,7 +1151,12 @@ button.tiny { padding: 1px 6px; font-size: 11px; }
   say "there is context everywhere" when the useful signal is which parts of
   a history have been explained and which have only been stated.
 */
-.said { position: relative; display: inline-flex; align-items: center; }
+/*
+  flex: none because this sits inside flex rows — a line of a role, a
+  heading — and it is a mark, not a column. Left to grow it took an equal
+  share of the row from the text it belongs to.
+*/
+.said { position: relative; display: inline-flex; align-items: center; flex: none; }
 .said-mark {
   width: 15px; height: 15px; line-height: 13px; padding: 0;
   border: 1px solid var(--line); border-radius: 50%;
