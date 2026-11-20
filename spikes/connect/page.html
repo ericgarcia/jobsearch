@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Connect this computer</title>
+    <style>
+      :root { color-scheme: dark; --line: #2a2f3a; --dim: #9aa4b2; --accent: #6ea8fe; --bad: #f87171; --good: #4ade80; }
+      body { background: #11141a; color: #e6e9ef; font: 13px/1.55 ui-sans-serif, system-ui, sans-serif; margin: 0; padding: 28px; }
+      main { max-width: 620px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+      h1 { font-size: 16px; margin: 0; }
+      p { margin: 0; color: var(--dim); }
+      section { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+      .state { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+      .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }
+      .dot.on { background: var(--good); }
+      input, button { font: inherit; }
+      input { background: #0c0f14; color: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+      button { background: #1b2130; color: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 5px 12px; cursor: pointer; }
+      button.primary { background: var(--accent); color: #0b0e13; border-color: var(--accent); font-weight: 600; }
+      pre { margin: 0; padding: 8px 10px; background: #0c0f14; border: 1px solid var(--line); border-radius: 6px; font-size: 11.5px; white-space: pre-wrap; max-height: 200px; overflow: auto; }
+      code { background: #0c0f14; padding: 1px 5px; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Your computer</h1>
+      <p>
+        This page is the hosted app. The work happens in a service on your own machine, which
+        this page talks to directly — nothing you do here passes through the server.
+      </p>
+
+      <section>
+        <div class="state"><span class="dot" id="dot"></span><span id="state">Looking…</span></div>
+        <p id="detail"></p>
+        <div>
+          <button id="again">Check again</button>
+          <button id="revoke">Disconnect it</button>
+        </div>
+      </section>
+
+      <section>
+        <strong>Signed in as <span id="who">nobody</span></strong>
+        <p>Switch account, to prove a ticket is no use to the wrong person.</p>
+        <div>
+          <button data-who="eric">Sign in as eric</button>
+          <button data-who="sam">Sign in as sam</button>
+        </div>
+      </section>
+
+      <section>
+        <strong>Connect this computer</strong>
+        <p>Run <code>node spikes/connect/daemon.mjs</code>. It prints a code. Type it here.</p>
+        <div>
+          <input id="code" placeholder="ABC123" size="10" />
+          <button class="primary" id="approve">Approve</button>
+        </div>
+      </section>
+
+      <section>
+        <strong>Ask it to do something</strong>
+        <p>Streamed from your machine to this page, a piece at a time.</p>
+        <div><button class="primary" id="run">Run</button></div>
+        <pre id="out">—</pre>
+      </section>
+    </main>
+
+    <script type="module">
+      const DAEMON = "http://127.0.0.1:7202";
+      const out = document.getElementById("out");
+      const say = (line) => {
+        out.textContent = out.textContent === "—" ? line : `${out.textContent}\n${line}`;
+      };
+
+      async function who() {
+        const me = await fetch("/me").then((r) => r.json());
+        document.getElementById("who").textContent = me.who ?? "nobody";
+      }
+
+      /*
+        Is their machine there? This is the call that decides what the whole
+        app shows, so it has to fail fast and say something true when the
+        answer is no.
+      */
+      async function look() {
+        const dot = document.getElementById("dot");
+        const state = document.getElementById("state");
+        const detail = document.getElementById("detail");
+        try {
+          const found = await fetch(`${DAEMON}/ping`, { signal: AbortSignal.timeout(1500) }).then(
+            (r) => r.json(),
+          );
+          dot.classList.add("on");
+          state.textContent = found.paired ? "Connected" : "Running, not connected yet";
+          detail.textContent = found.paired
+            ? "The service on this computer is paired with your account."
+            : "The service is running. Approve the code it printed.";
+        } catch (error) {
+          dot.classList.remove("on");
+          state.textContent = "This computer is not connected";
+          detail.textContent = `Start the service and it will appear here. (${error.name})`;
+        }
+      }
+
+      document.getElementById("again").onclick = look;
+      document.getElementById("run").onclick = async () => {
+        out.textContent = "—";
+        const ticket = await fetch("/connect-ticket").then((r) => r.json());
+        if (ticket.error) return say(`hub: ${ticket.error}`);
+        say(`ticket for ${ticket.daemon_id.slice(0, 8)}…`);
+
+        const answer = await fetch(`${DAEMON}/work`, {
+          headers: { authorization: `Bearer ${ticket.ticket}` },
+        });
+        if (!answer.ok) return say(`daemon: ${answer.status} ${(await answer.json()).error}`);
+
+        const reader = answer.body.pipeThrough(new TextDecoderStream()).getReader();
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          for (const line of value.split("\n")) {
+            if (line.startsWith("data: ")) say(line.slice(6));
+          }
+        }
+      };
+
+      document.getElementById("approve").onclick = async () => {
+        const code = document.getElementById("code").value.trim();
+        const answer = await fetch("/device/approve", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ user_code: code }),
+        }).then((r) => r.json());
+        say(answer.error ? `hub: ${answer.error}` : "approved");
+        look();
+      };
+
+      document.getElementById("revoke").onclick = async () => {
+        await fetch("/device/revoke", { method: "POST" });
+        say("disconnected on the account; tickets stop at once");
+      };
+
+      for (const button of document.querySelectorAll("[data-who]")) {
+        button.onclick = () => (location.href = `/signin?who=${button.dataset.who}`);
+      }
+
+      who();
+      look();
+    </script>
+  </body>
+</html>
