@@ -384,7 +384,7 @@ await assert.rejects(
     value: "Something",
     why: "Not allowed.",
   }),
-  /Only a bullet can be added/,
+  /Only a bullet or a skill can be added/,
 );
 ok("only a bullet can be added this way, so the action cannot be misaimed");
 
@@ -469,5 +469,80 @@ assert.equal(
   false,
 );
 ok("choosing drop takes the line away, which no button on the card could do before");
+
+console.log("\nThe skills list, which is a section and not a row");
+
+/*
+  The question that had nowhere to land. Three things are worth pinning
+  down: that a set of names goes on one card, that keeping it adds rather
+  than replaces, and that a name already on the list is not written twice.
+*/
+
+await profile.addSkill("Python");
+
+await assert.rejects(
+  proposeEdit({
+    target: "skills",
+    field: "names",
+    value: "Claude Code",
+    why: "Their lines show it.",
+  }),
+  /action "add"/,
+);
+ok("a skills card only ever adds, so it cannot be made to replace the list");
+
+await assert.rejects(
+  proposeEdit({
+    target: "skills",
+    field: "names",
+    action: "add",
+    value: " , ,",
+    why: "Their lines show it.",
+  }),
+  /Name the skills/,
+);
+ok("and it has to name something");
+
+const offeredSkills = await proposeEdit({
+  target: "skills",
+  field: "names",
+  action: "add",
+  value: "Claude Code, Playwright, Python",
+  why: "Their lines use these and the list does not name them.",
+});
+assert.deepEqual(offeredSkills.pending.answers, ["use", "leave"]);
+assert.equal(offeredSkills.pending.target_id, null);
+ok("one card carries the whole set, with no row to hang on");
+
+assert.equal(
+  (await profile.listSkills()).some((one) => one.name === "Claude Code"),
+  false,
+);
+ok("and proposing them stores none of them");
+
+const added = await resolveEdit("use", "Claude Code, Playwright, Python");
+assert.deepEqual(added.added, ["Claude Code", "Playwright"]);
+ok("keeping it adds the new names and skips the one already there");
+
+const names = (await profile.listSkills()).map((one) => one.name);
+assert.equal(names.filter((one) => one === "Python").length, 1);
+assert.ok(names.includes("Claude Code") && names.includes("Playwright"));
+ok("so the list gains two and Python is not listed twice");
+
+await proposeEdit({
+  target: "skills",
+  field: "names",
+  action: "add",
+  value: "Docker",
+  why: "Their containers ran on something.",
+  recommend: "leave",
+});
+const left = await resolveEdit("leave");
+assert.equal(left.kept, false);
+assert.equal(
+  (await profile.listSkills()).some((one) => one.name === "Docker"),
+  false,
+);
+ok("and leaving it adds nothing, as on every other card");
 
 console.log(`\n${passed} passed, 0 failed`);

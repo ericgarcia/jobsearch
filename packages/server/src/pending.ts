@@ -52,7 +52,38 @@ const FIELDS: Record<string, readonly string[]> = {
   bullet: ["text"],
   fact: ["answer"],
   education: ["school", "degree", "field", "start_date", "end_date"],
+  skills: ["names"],
 };
+
+/*
+  The skills list, which is a section rather than a row.
+
+  Everything else here names one thing: this line, that degree, this field of
+  the profile. The skills list is one box of many short names, and the
+  question that keeps coming up about it is always the same — their lines
+  show them using something that is not in the list. Until this existed the
+  assistant had no row to put that on, so it asked in the conversation, named
+  three tools, and the person read about a section the page highlighted in no
+  way at all.
+
+  So a skills proposal carries names rather than a value: "Claude Code,
+  Playwright, UNet" in one card, offered in place among the pills already
+  there. One card for the set and not one per name, because four cards
+  answered one after another is the form this app exists to avoid.
+*/
+
+/** The names in a skills proposal, in the order they were written. */
+export function namesIn(value: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of value.split(/[,\n]/)) {
+    const name = part.trim();
+    if (!name || seen.has(name.toLowerCase())) continue;
+    seen.add(name.toLowerCase());
+    out.push(name);
+  }
+  return out;
+}
 
 /** Which targets are a row that can be removed outright. */
 const REMOVABLE = new Set(["role", "bullet", "fact", "education"]);
@@ -339,21 +370,38 @@ export async function proposeEdit(
         : proposal.action === "add"
           ? "add"
           : "set";
-  if (action === "add" && proposal.target !== "bullet") {
-    throw new Error(`Only a bullet can be added this way, not a ${proposal.target}.`);
+  if (action === "add" && proposal.target !== "bullet" && proposal.target !== "skills") {
+    throw new Error(`Only a bullet or a skill can be added this way, not a ${proposal.target}.`);
   }
-  if (action === "add" && proposal.target_id == null) {
+  if (action === "add" && proposal.target === "bullet" && proposal.target_id == null) {
     throw new Error("An added line needs target_id: the id of the role it goes under.");
   }
   if (action === "add" && !proposal.value.trim()) {
     throw new Error("Nothing to add. Say the line in `value`.");
+  }
+  /*
+    A skills card only ever offers names to add. Changing the list wholesale
+    would make one button replace everything in it, and removing a skill is
+    one click on the pill itself.
+  */
+  if (proposal.target === "skills") {
+    if (action !== "add") {
+      throw new Error('A skills proposal adds names: pass action "add".');
+    }
+    if (namesIn(proposal.value).length === 0) {
+      throw new Error("Name the skills to add in `value`, separated by commas.");
+    }
   }
   if (action === "delete" && !REMOVABLE.has(proposal.target)) {
     throw new Error(`A ${proposal.target} cannot be removed, only changed.`);
   }
   if (proposal.target === "fact") {
     if (!proposal.target_key) throw new Error("A fact is named by its topic; pass target_key.");
-  } else if (proposal.target !== "profile" && proposal.target_id == null) {
+  } else if (
+    proposal.target !== "profile" &&
+    proposal.target !== "skills" &&
+    proposal.target_id == null
+  ) {
     throw new Error(`A ${proposal.target} is named by its id; pass target_id.`);
   }
   /* An ask has nothing to suggest, so an empty value is the normal case. */
@@ -468,6 +516,8 @@ export interface Resolved {
   value?: string;
   /** True when they typed something other than what was proposed. */
   edited?: boolean;
+  /** For a skills card: the names that went in, which excludes any already there. */
+  added?: string[];
 }
 
 /**
@@ -530,6 +580,29 @@ export async function resolveEdit(answer: Answer, value?: string): Promise<Resol
   }
 
   const text = (value ?? waiting.value).trim();
+
+  /*
+    Skills are added, never replaced. The box holds names; the ones already
+    in the list are skipped rather than written again, so the answer can say
+    what actually went in.
+  */
+  if (waiting.target === "skills") {
+    const had = new Set((await profile.listSkills()).map((one) => one.name.toLowerCase()));
+    const added: string[] = [];
+    for (const name of namesIn(text)) {
+      if (had.has(name.toLowerCase())) continue;
+      await profile.addSkill(name);
+      added.push(name);
+    }
+    if (added.length > 0) changed("profile");
+    return {
+      field: waiting.field,
+      kept: added.length > 0,
+      value: text,
+      added,
+      ...(text !== waiting.value ? { edited: true } : {}),
+    };
+  }
 
   /*
     An add makes the row rather than changing one, and its target_id is the

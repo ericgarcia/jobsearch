@@ -466,12 +466,12 @@ const proposeEditTool = tool(
   "Put one change to their profile in front of them, on the thing it would change. The page brings the profile forward, scrolls to that row and paints the question over it; nothing is stored until they keep it, and what gets stored is whatever is in the box at that moment. Use this instead of listing what you would change — ask about one thing, propose it, and wait. There is one slot, so a proposal about something else while one is waiting returns the waiting one instead, which means finish that one first. A better version of the line already in the box is not something else: propose it the same way and it replaces what is there, keeping the same question. That is the right move when they ask you to improve what they are looking at. Write the value. If they ask you to improve a line, propose an improved line rather than a list of changes you would make; drafting is safe here because the proposal is not stored — they read it in the box, edit it there, and press Keep. What you may not add is substance: a figure, a date, an employer, a result or anything else that is in neither the profile nor what they just said, however much better it would read. Reword freely, invent nothing, and keep every figure exactly as stored. If the line needs a fact you do not have, propose your best version from what is on file and ask for the fact beside it. Say in `why`, in one line, what this is and where it came from; it is shown with the question.",
   {
     target: z
-      .enum(["profile", "role", "bullet", "fact", "education"])
-      .describe("profile for their contact details, role for a job, bullet for one line under a job, education for a degree, fact for a stored answer"),
+      .enum(["profile", "role", "bullet", "fact", "education", "skills"])
+      .describe("profile for their contact details, role for a job, bullet for one line under a job, education for a degree, fact for a stored answer, skills for their skills list"),
     field: z
       .string()
       .describe(
-        "profile: name, headline, email, phone, location, summary. role: company, title, location, start_date, end_date. bullet: text. education: school, degree, field, start_date, end_date. fact: answer.",
+        "profile: name, headline, email, phone, location, summary. role: company, title, location, start_date, end_date. bullet: text. education: school, degree, field, start_date, end_date. fact: answer. skills: names.",
       ),
     value: z
       .string()
@@ -497,7 +497,7 @@ const proposeEditTool = tool(
       .enum(["set", "delete", "ask", "add"])
       .optional()
       .describe(
-        "set is the default and suggests a value for something already stored. delete removes the role, bullet or fact — use it for a line that is not an achievement, a company's sales copy among their work. ask suggests nothing: it highlights the thing and puts your question over it with the stored text in the box, for a question you cannot answer for them, such as two roles whose dates overlap. add offers a line that is NOT on their profile — the ones an import left out — as a new bullet under a role: pass target \"bullet\", field \"text\", the line in value, and target_id set to the ROLE it would go under. Every one of these puts the question on the thing it is about; asking in the conversation alone leaves them reading about a line they cannot see.",
+        "set is the default and suggests a value for something already stored. delete removes the role, bullet or fact — use it for a line that is not an achievement, a company's sales copy among their work. ask suggests nothing: it highlights the thing and puts your question over it with the stored text in the box, for a question you cannot answer for them, such as two roles whose dates overlap. add offers something that is NOT on their profile. For a line an import left out, pass target \"bullet\", field \"text\", the line in value, and target_id set to the ROLE it would go under. For skills their lines show them using but the list does not name, pass target \"skills\", field \"names\", and the names in value separated by commas — one card for the whole set, not one per skill, and it is the only action a skills card takes. Every one of these puts the question on the thing it is about; asking in the conversation alone leaves them reading about a line they cannot see.",
       ),
     recommend: z
       .enum(["use", "leave", "drop"])

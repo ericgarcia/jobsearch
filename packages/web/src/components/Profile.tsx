@@ -51,11 +51,20 @@ export function Proposal({
   name,
   onDone,
   claims = true,
+  onDraft,
 }: {
   asked: Pending;
   /** What to call this in the sentence that goes back to the assistant. */
   name: string;
   onDone: () => void;
+  /**
+   * What is in the box, as it is typed.
+   *
+   * Only the skills card uses it. Its names are also shown as pills among
+   * the ones already stored, and pills that went on showing the proposal
+   * while the box said something else would be two answers to one question.
+   */
+  onDraft?: (text: string) => void;
   /**
    * Whether this card counts as the question being on the screen.
    *
@@ -74,6 +83,8 @@ export function Proposal({
   const seed = asked.action === "ask" ? (asked.current ?? "") : asked.value;
   const [draft, setDraft] = useState(seed);
   const box = useRef<HTMLDivElement>(null);
+
+  useEffect(() => onDraft?.(draft), [draft, onDraft]);
 
   useEffect(() => {
     setDraft(seed);
@@ -126,6 +137,19 @@ export function Proposal({
     onDone();
     if (chosen === "leave") {
       say(`I left that one — leave ${name} as it is.`);
+    } else if (answer.resolved.added) {
+      /*
+        Skills are added rather than replaced, so saying the list "is now"
+        the three names in the box would report the opposite of what
+        happened. The names that went in are the ones the server actually
+        wrote, which is not always the ones that were offered.
+      */
+      const added = answer.resolved.added;
+      say(
+        added.length > 0
+          ? `I added ${added.length === 1 ? "this skill" : "these skills"}: ${added.join(", ")}.`
+          : "I kept that, but those skills were already on the list, so nothing changed.",
+      );
     } else if (answer.resolved.removed) {
       say(`I removed ${name}.`);
     } else {
@@ -164,10 +188,13 @@ export function Proposal({
     there is no "original" in the first case and nothing to update in the
     second.
   */
+  const skills = asked.target === "skills";
+
   function label(answer: Answer): string {
     if (answer === "drop") return "Drop it";
     if (answer === "leave") return adding ? "Leave it out" : "Keep original";
     if (removing) return "Drop it";
+    if (skills) return "Add them";
     if (adding) return "Add it";
     return "Update";
   }
@@ -196,7 +223,10 @@ export function Proposal({
         <>
           {original && <div className="field-label">suggested — edit it here</div>}
           {asking && <div className="field-label">on your profile — correct it here</div>}
-          {adding && <div className="field-label">not on your profile — add it?</div>}
+          {adding && !skills && <div className="field-label">not on your profile — add it?</div>}
+          {skills && (
+            <div className="field-label">not in your skills — add them? one per comma</div>
+          )}
           <GrowText
             autoFocus
             rows={1}
@@ -238,6 +268,26 @@ export function Proposal({
       </div>
     </div>
   );
+}
+
+/*
+  The names in a skills proposal.
+
+  The same split as the server's, which is where the authority is: this one
+  only decides which pills to draw, and the server decides what is written.
+  Two short parsers rather than a shared package, since the two packages
+  share nothing else yet.
+*/
+function namesIn(value: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of value.split(/[,\n]/)) {
+    const name = part.trim();
+    if (!name || seen.has(name.toLowerCase())) continue;
+    seen.add(name.toLowerCase());
+    out.push(name);
+  }
+  return out;
 }
 
 /** One editable fact. The text is the claim a resume may later restate. */
@@ -735,6 +785,11 @@ export function Profile() {
   const [adding, setAdding] = useState(false);
   const [role, setRole] = useState({ company: "", title: "", start_date: "", end_date: "" });
   const [skill, setSkill] = useState("");
+  /*
+    What the skills card has in its box right now, so the offered pills can
+    show the same names the Add button would write.
+  */
+  const [skillDraft, setSkillDraft] = useState("");
   /* Lines an import kept back, which belong to the role they came from. */
   const [heldBack, setHeldBack] = useState<LeftOutGroup[]>([]);
   /* What they have said about parts of this, shown on the rows. See Said.tsx. */
@@ -774,6 +829,21 @@ export function Profile() {
     loadHeldBack();
     loadNotes();
   };
+
+  /*
+    The skills question, and the names it is offering.
+
+    The box is the authority once the card is up, so the pills read from the
+    draft and fall back to what was proposed for the frame before the card
+    has reported it. Names already on the list are left out: a pill shown
+    twice, once filled and once outlined, would offer to add something that
+    is already there.
+  */
+  const offeredSkills = asksAbout(pending, "skills");
+  const have = new Set(data.skills.map((one) => one.name.toLowerCase()));
+  const offering = !offeredSkills
+    ? []
+    : namesIn(skillDraft || offeredSkills.value).filter((name) => !have.has(name.toLowerCase()));
 
   return (
     <div className="profile">
@@ -884,8 +954,20 @@ export function Profile() {
 
       <ApplicationAnswers />
 
+      {/*
+        The skills list, with what is being offered shown in it.
+
+        Every other question lands on the row it is about. This one had
+        nowhere to land: the list is a section, not a row, so an assistant
+        that noticed three tools in somebody's lines and not in their skills
+        could only name them in the conversation, and the page highlighted
+        nothing. The offered names now sit among the pills, outlined rather
+        than filled, so the question is read where the answer goes — and
+        they follow the box as it is edited, since pills and box disagreeing
+        would be two answers to one question.
+      */}
       <h3>Skills</h3>
-      <div className="skills">
+      <div className={offeredSkills ? "skills skills-asked" : "skills"}>
         {data.skills.map((item) => (
           <span className="pill" key={item.id}>
             {item.name}
@@ -894,7 +976,22 @@ export function Profile() {
             </button>
           </span>
         ))}
+        {offering.map((name) => (
+          <span className="pill pill-offered" key={name} title="Offered, not yet added">
+            {name}
+          </span>
+        ))}
       </div>
+      {offeredSkills && (
+        <div className="skills-card">
+          <Proposal
+            asked={offeredSkills}
+            name="your skills list"
+            onDone={saved}
+            onDraft={setSkillDraft}
+          />
+        </div>
+      )}
       <form
         onSubmit={(event) => {
           event.preventDefault();

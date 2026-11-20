@@ -617,7 +617,15 @@ export const api = {
 
   resolveEdit: (answer: Answer, value?: string) =>
     json<{
-      resolved: { field: string; kept: boolean; removed?: boolean; value?: string; edited?: boolean };
+      resolved: {
+        field: string;
+        kept: boolean;
+        removed?: boolean;
+        value?: string;
+        edited?: boolean;
+        /** For a skills card: the names that went in, which excludes any already there. */
+        added?: string[];
+      };
     }>(
       "/api/pending-edit/resolve",
       { method: "POST", body: JSON.stringify({ answer, value }) },

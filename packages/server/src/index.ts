@@ -46,7 +46,14 @@ import {
   type Share,
 } from "./apply/facts.js";
 import { describe as describeForm } from "./apply/form.js";
-import { clearEdit, pendingEdit, proposeEdit, resolveEdit, type Answer } from "./pending.js";
+import {
+  clearEdit,
+  pendingEdit,
+  proposeEdit,
+  resolveEdit,
+  type Answer,
+  type EditAction,
+} from "./pending.js";
 import { wishedActions } from "./wishes.js";
 import { addLeftOut, leaveLeftOut, leftOutLines } from "./leftOut.js";
 import { bugReports, markFixed } from "./bugs.js";
@@ -431,7 +438,7 @@ app.post("/api/pending-edit", async (request, reply) => {
     why?: string;
     target_id?: number;
     target_key?: string;
-    action?: "set" | "delete";
+    action?: EditAction;
     question_id?: number;
     recommend?: Answer;
   };

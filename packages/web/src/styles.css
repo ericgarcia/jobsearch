@@ -686,6 +686,31 @@ button.tiny { padding: 1px 6px; font-size: 11px; }
 .skills { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
 .skills .pill { display: inline-flex; align-items: center; gap: 3px; }
 
+/*
+  The skills list while a question is on it.
+
+  The list is the row here, so it is the list that lights up: every other
+  question paints a card over the thing it asks about, and this one asks
+  about a section. The offered names are drawn in it, outlined rather than
+  filled, which says what a pill is before anybody reads the card — these
+  are not yours yet.
+*/
+.skills-asked {
+  outline: 2px solid var(--accent); outline-offset: 7px; border-radius: 8px;
+}
+.pill-offered {
+  border-style: dashed; border-color: var(--accent); color: var(--accent);
+}
+
+/*
+  The card sits under the list rather than over it, unlike everywhere else:
+  covering the list would hide the pills the question is about.
+*/
+.skills-card { position: relative; margin: 14px 0 10px; }
+.skills-card .field-card {
+  position: static; top: auto; left: auto; right: auto; box-shadow: none;
+}
+
 /* ------------------------------------------------------------------ drafts */
 
 .warnbox {
