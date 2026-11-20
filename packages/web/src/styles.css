@@ -460,6 +460,15 @@ a { color: var(--accent); }
   about to read.
 */
 .field-asked { position: relative; z-index: 5; }
+/*
+  A question about the work: the job and every line under it, rather than
+  one field of it. The card covers the heading and says what is being asked;
+  the ring says the lines below are part of the question, which is the whole
+  reason this shape exists.
+*/
+.role-whole {
+  outline: 2px solid var(--accent); outline-offset: 8px; border-radius: 8px;
+}
 
 /*
   One card around the whole question: the name, the box, the reason and the

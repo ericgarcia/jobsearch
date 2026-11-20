@@ -49,7 +49,7 @@ import { forgetFact, getFact, setFact } from "./apply/facts.js";
  */
 const FIELDS: Record<string, readonly string[]> = {
   profile: ["name", "headline", "email", "phone", "location", "summary"],
-  role: ["company", "title", "location", "start_date", "end_date"],
+  role: ["company", "title", "location", "start_date", "end_date", "work"],
   bullet: ["text"],
   fact: ["answer"],
   education: ["school", "degree", "field", "start_date", "end_date"],
@@ -87,6 +87,24 @@ export function namesIn(value: string): string[] {
 }
 
 /**
+ * A field that names the job itself rather than anything stored on it.
+ *
+ * "Was the detection work yours alone, or did you work with a team?" is a
+ * question about a role, and a role's fields are its company, its title,
+ * its place and its dates — none of which is the work. So the card went on
+ * the title, with the job title in the box to correct and a Drop it that
+ * would have taken the whole job off the profile. The person read a
+ * question about what they did beside the words "Senior Machine Learning
+ * Engineer".
+ *
+ * This is the shape that was missing: a card that points at the job and the
+ * lines under it, carries the question, and has nothing to edit, because
+ * the answer is a sentence in the conversation and what comes of it is a
+ * line proposed afterwards.
+ */
+export const WHOLE_JOB = "work";
+
+/**
  * What each target is, in the words the assistant is told.
  *
  * Beside FIELDS rather than anywhere else, and checked against it below, so
@@ -101,7 +119,7 @@ export function namesIn(value: string): string[] {
  */
 const WHAT: Record<string, string> = {
   profile: "their contact details and summary, which need no id",
-  role: "a job, with its id in target_id",
+  role: 'a job, with its id in target_id. The field "work" is the job itself rather than anything stored on it: with action "ask" it points at the job and its lines and carries your question, with nothing to edit, which is what a question about what they did there needs',
   bullet: "one line under a job, with its id in target_id",
   fact: "a stored answer, with its topic in target_key",
   education: "a degree, with its id in target_id",
@@ -177,6 +195,7 @@ export function answersFor(edit: {
   target: string;
   target_id: number | null;
   target_key: string | null;
+  field: string;
 }): Answer[] {
   /*
     The skills list answers for itself. A card that offers names to add is
@@ -189,6 +208,13 @@ export function answersFor(edit: {
   if (edit.target === "skills") {
     return edit.action === "ask" ? ["leave", "drop"] : ["use", "leave"];
   }
+  /*
+    A card that points at a job has one thing to do and one button: take it
+    off the screen. There is nothing to update, because it carries no value,
+    and nothing to drop, because a question about what somebody did at a job
+    is not a reason to delete the job.
+  */
+  if (edit.target === "role" && edit.field === WHOLE_JOB) return ["leave"];
   if (edit.action === "add") return ["use", "leave"];
   if (edit.action === "delete") return ["use", "leave"];
 
@@ -370,6 +396,8 @@ async function currently(row: {
     return text((kept as unknown as Record<string, unknown>)[row.field]);
   }
   if (row.target === "role" && row.target_id != null) {
+    /* The job itself is not a stored string, so there is nothing to show. */
+    if (row.field === WHOLE_JOB) return null;
     const kept = (await profile.listRoles()).find((one) => one.id === row.target_id);
     return kept ? text((kept as unknown as Record<string, unknown>)[row.field]) : null;
   }
@@ -614,6 +642,16 @@ export async function proposeEdit(
   ) {
     throw new Error(`A ${proposal.target} is named by its id; pass target_id.`);
   }
+  /*
+    The job itself points; it never writes. An update or a deletion aimed at
+    "work" would be a card whose button could not do what it said.
+  */
+  if (proposal.field === WHOLE_JOB && action !== "ask") {
+    throw new Error(
+      'The field "work" points at a job and carries a question; it stores nothing. Use action "ask", or name a field that is stored.',
+    );
+  }
+
   /* An ask has nothing to suggest, so an empty value is the normal case. */
   if (action === "set" && !proposal.value.trim()) {
     throw new Error("Nothing to set. To remove it, propose a deletion instead.");
@@ -709,6 +747,7 @@ export async function proposeEdit(
     target: proposal.target,
     target_id: proposal.target_id ?? null,
     target_key: proposal.target_key ?? null,
+    field: proposal.field,
   });
   const recommend: Answer = proposal.recommend ?? (action === "add" ? "leave" : "use");
   if (!ANSWERS.has(recommend)) {
@@ -739,6 +778,16 @@ export async function proposeEdit(
   */
   const waiting = await pendingEdit();
   if (waiting) {
+    /*
+      A pointer is not a question waiting for a button. It carries a
+      question that is answered in the conversation, so the next proposal —
+      usually the line that came out of that answer — takes the slot rather
+      than being turned away by it. Refusing here would have the assistant
+      withdraw its own pointer before every follow-up.
+    */
+    if (waiting.field === WHOLE_JOB) {
+      await clearEdit("assistant");
+    } else {
     const sameThing =
       waiting.target === proposal.target &&
       (waiting.target_id ?? null) === (proposal.target_id ?? null) &&
@@ -747,6 +796,7 @@ export async function proposeEdit(
     if (!sameThing) return { pending: waiting, waiting };
     await clearEdit("assistant");
     proposal = { ...proposal, question_id: proposal.question_id ?? waiting.question_id };
+    }
   }
 
   await run(

@@ -217,6 +217,12 @@ export function Proposal({
     stay. A box here would invite an edit that no button could carry out.
   */
   const skillsAsked = skills && asked.action === "ask";
+  /*
+    A card that points at a job rather than at anything stored on it. It
+    carries the question and highlights the work; the answer is a sentence
+    in the conversation, so there is nothing here to type into.
+  */
+  const pointer = asked.target === "role" && asked.field === "work";
   /* A phrase to point at, and the stored text to point at it in. */
   const marked = Boolean(asked.quote && asked.current);
   /*
@@ -227,6 +233,7 @@ export function Proposal({
   const several = !removing && asked.fields.length > 1;
 
   function label(answer: Answer): string {
+    if (pointer) return "Leave it";
     if (skillsAsked) {
       const many = asked.value.includes(",");
       return answer === "drop" ? (many ? "Drop them" : "Drop it") : many ? "Keep them" : "Keep it";
@@ -252,6 +259,23 @@ export function Proposal({
     !removing && !asking && asked.current && asked.current !== asked.value
       ? asked.current
       : null;
+
+  if (pointer) {
+    return (
+      <div className="field-card" ref={box}>
+        <span className="field-name">{name}</span>
+        <div className="field-why">{asked.why}</div>
+        <div className="field-label">answer in the conversation</div>
+        <div className="field-answer">
+          {asked.answers.map((answer) => (
+            <button key={answer} onClick={() => void resolve(answer)}>
+              {label(answer)}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   if (skillsAsked) {
     return (
@@ -602,7 +626,16 @@ function RoleCard({
   const dates = [role.start_date, role.end_date ?? "present"].filter(Boolean).join(" – ");
 
   return (
-    <section className={asked ? "role field-asked" : "role"}>
+    <section
+      className={
+        asked
+          ? asked.field === "work"
+            ? /* The question is about the lines, so the whole job is marked. */
+              "role field-asked role-whole"
+            : "role field-asked"
+          : "role"
+      }
+    >
       {asked && (
         <Proposal
           asked={asked}
@@ -615,9 +648,11 @@ function RoleCard({
           name={
             asked.action === "delete"
               ? `${role.title} at ${role.company}`
-              : `the ${(asked.fields.length > 1 ? asked.fields.map((one) => one.field) : [asked.field])
-                  .map((one) => one.replace(/_/g, " "))
-                  .join(" and ")} of ${role.title} at ${role.company}`
+              : asked.field === "work"
+                ? `the work you did at ${role.company}`
+                : `the ${(asked.fields.length > 1 ? asked.fields.map((one) => one.field) : [asked.field])
+                    .map((one) => one.replace(/_/g, " "))
+                    .join(" and ")} of ${role.title} at ${role.company}`
           }
           onDone={onChanged}
         />

@@ -667,6 +667,72 @@ assert.equal(nothing.gone, true);
 assert.equal(nothing.kept, false);
 ok("and a row that goes between the question and the answer writes nothing, and says so");
 
+console.log("\nA question about the work, which is not a field");
+
+/*
+  "Was the detection work yours alone, or did you work with a team?" is
+  about a job, and a job's fields are its company, its title, its place and
+  its dates. None of those is the work, so the card went on the title: the
+  question appeared beside the words "Senior Machine Learning Engineer", in
+  a box offering to correct them, above a Drop it that would have taken the
+  whole job off the profile.
+*/
+
+const keeper = await profile.addRole({ company: "Keeper", title: "Senior ML Engineer" });
+
+const pointing = await proposeEdit({
+  target: "role",
+  target_id: keeper.id,
+  field: "work",
+  action: "ask",
+  value: "",
+  why: "Was the detection work yours alone, or did you work with a team?",
+  recommend: "leave",
+});
+assert.deepEqual(pointing.pending.answers, ["leave"]);
+assert.equal(pointing.pending.current, null);
+ok("a question about the work has one button and nothing to correct");
+
+await assert.rejects(
+  proposeEdit({
+    target: "role",
+    target_id: keeper.id,
+    field: "work",
+    value: "Something",
+    why: "Trying to write it.",
+  }),
+  /stores nothing/,
+);
+ok('and "work" cannot be used to write, since no button could carry it out');
+
+/*
+  The pointer gets out of the way by itself. Its question is answered in the
+  conversation, and what comes of that is a line proposed straight after —
+  which the one slot would otherwise turn away.
+*/
+await proposeEdit({
+  target: "role",
+  target_id: keeper.id,
+  field: "work",
+  action: "ask",
+  value: "",
+  why: "Who else was on the team?",
+  recommend: "leave",
+});
+const fromAnswer = await proposeEdit({
+  target: "bullet",
+  target_id: keeper.id,
+  field: "text",
+  action: "add",
+  value: "Led the detection work with two other engineers.",
+  why: "From what they just said.",
+  recommend: "use",
+});
+assert.equal(fromAnswer.waiting, undefined);
+assert.equal(fromAnswer.pending.action, "add");
+ok("and the line that comes out of the answer takes the slot rather than being refused");
+await clearEdit("assistant");
+
 console.log("\nWhat the assistant is told it can propose");
 
 /*
