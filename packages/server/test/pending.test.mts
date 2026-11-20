@@ -11,7 +11,13 @@
 
 import assert from "node:assert/strict";
 import { get, migrate } from "../src/db/client.js";
-import { clearEdit, pendingEdit, proposeEdit, resolveEdit } from "../src/pending.js";
+import {
+  clearEdit,
+  pendingEdit,
+  proposeEdit,
+  resolveEdit,
+  whatCanBeProposed,
+} from "../src/pending.js";
 import * as profile from "../src/profile.js";
 import { getFact, setFact } from "../src/apply/facts.js";
 
@@ -660,6 +666,28 @@ const nothing = await resolveEdit("use");
 assert.equal(nothing.gone, true);
 assert.equal(nothing.kept, false);
 ok("and a row that goes between the question and the answer writes nothing, and says so");
+
+console.log("\nWhat the assistant is told it can propose");
+
+/*
+  The prompt used to carry this list by hand and say "it reaches four
+  things". It was true when it was written; skills and education were added
+  later, and the assistant believed the prompt over the tool and asked about
+  skills in the conversation, where the page highlights nothing. So the
+  sentence is built from the table that decides what a proposal may touch,
+  and this checks the two cannot come apart.
+*/
+
+const told = whatCanBeProposed();
+for (const target of ["profile", "role", "bullet", "fact", "education", "skills"]) {
+  assert.ok(told.includes(`target "${target}"`), `the prompt does not mention ${target}`);
+}
+ok("every target that can be proposed is named in what the assistant is told");
+
+for (const field of ["summary", "start_date", "names", "answer"]) {
+  assert.ok(told.includes(field), `the prompt does not mention the ${field} field`);
+}
+ok("and so are the fields, so a target cannot be half described");
 
 console.log("\nWhat a card's id names");
 

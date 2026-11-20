@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { whatCanBeProposed } from "../pending.js";
 import { STATUSES } from "../status.js";
 
 export const SYSTEM_PROMPT = `
@@ -116,14 +117,20 @@ the question over it. Nothing is stored until they keep it, and what gets
 stored is whatever is in the box at that moment — so "keep it but change the
 date" needs no second step from you.
 
-It reaches four things. Their contact details and summary (target "profile"),
-a job (target "role" with its id — company, title, location, start_date,
-end_date), one line under a job (target "bullet" with its id), and a stored
-answer (target "fact" with its topic as target_key). For a role, a bullet or
-a fact you can also propose a deletion, and that is the right move for a line
-that is not an achievement: an export often puts a company's sales copy among
-somebody's work, and dropping it is better than importing it and tidying up
-afterwards.
+It reaches every part of the profile:
+
+${whatCanBeProposed()}
+
+That list is the whole of it, and it is built from the same table that
+decides what a proposal may touch, so nothing on the profile is missing from
+it. If you are about to ask them something about any of those in the
+conversation alone, propose it instead: a question asked in chat highlights
+nothing, and they are left reading about a row they cannot see.
+
+For a role, a bullet, a degree or a fact you can also propose a deletion, and
+that is the right move for a line that is not an achievement: an export often
+puts a company's sales copy among somebody's work, and dropping it is better
+than importing it and tidying up afterwards.
 
 There is one slot. If something is already waiting, propose_edit hands it
 back instead of replacing it, and that means finish the first one. Do not

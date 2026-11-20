@@ -86,6 +86,43 @@ export function namesIn(value: string): string[] {
   return out;
 }
 
+/**
+ * What each target is, in the words the assistant is told.
+ *
+ * Beside FIELDS rather than anywhere else, and checked against it below, so
+ * that a target cannot be added without saying what it is. The system
+ * prompt used to carry this list by hand — "it reaches four things" — which
+ * was true the day it was written and false the day skills were added. The
+ * assistant believed the prompt over the tool, asked about skills in the
+ * conversation, and the page highlighted nothing. Twice.
+ *
+ * A list that is derived cannot drift. This one is the sentence the prompt
+ * reads, built from the same table that decides what a proposal may touch.
+ */
+const WHAT: Record<string, string> = {
+  profile: "their contact details and summary, which need no id",
+  role: "a job, with its id in target_id",
+  bullet: "one line under a job, with its id in target_id",
+  fact: "a stored answer, with its topic in target_key",
+  education: "a degree, with its id in target_id",
+  skills: 'their skills list, which needs no id: pass the names in value, action "add" to offer names they do not have or action "ask" to put a question on names they do',
+};
+
+for (const target of Object.keys(FIELDS)) {
+  if (!WHAT[target]) {
+    throw new Error(
+      `pending.ts: "${target}" can be proposed but is not described in WHAT, so the assistant would never be told it exists.`,
+    );
+  }
+}
+
+/** What propose_edit reaches, for the system prompt to carry. */
+export function whatCanBeProposed(): string {
+  return Object.entries(FIELDS)
+    .map(([target, fields]) => `- target "${target}" — ${WHAT[target]}. Fields: ${fields.join(", ")}.`)
+    .join("\n");
+}
+
 /** Which targets are a row that can be removed outright. */
 const REMOVABLE = new Set(["role", "bullet", "fact", "education"]);
 
