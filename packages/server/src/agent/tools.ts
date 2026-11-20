@@ -499,6 +499,12 @@ const proposeEditTool = tool(
       .describe(
         "set is the default and suggests a value for something already stored. delete removes the role, bullet or fact — use it for a line that is not an achievement, a company's sales copy among their work. ask suggests nothing: it highlights the thing and puts your question over it with the stored text in the box, for a question you cannot answer for them, such as two roles whose dates overlap. add offers something that is NOT on their profile. For a line an import left out, pass target \"bullet\", field \"text\", the line in value, and target_id set to the ROLE it would go under. For skills their lines show them using but the list does not name, pass target \"skills\", field \"names\", and the names in value separated by commas — one card for the whole set, not one per skill, and it is the only action a skills card takes. Every one of these puts the question on the thing it is about; asking in the conversation alone leaves them reading about a line they cannot see.",
       ),
+    quote: z
+      .string()
+      .optional()
+      .describe(
+        "The phrase inside the stored text that this question is about, word for word. The page marks that phrase and leaves the rest of the field unmarked, which is what a question about four words of a four-paragraph summary needs. Copy it exactly as stored — it is checked, and a quote that is not there, or that is there twice, is refused. Leave it out when the question is about the whole field.",
+      ),
     recommend: z
       .enum(["use", "leave", "drop"])
       .describe(
@@ -515,6 +521,7 @@ const proposeEditTool = tool(
         recommend: args.recommend,
         ...(args.target_id !== undefined ? { target_id: args.target_id } : {}),
         ...(args.target_key !== undefined ? { target_key: args.target_key } : {}),
+        ...(args.quote !== undefined ? { quote: args.quote } : {}),
         ...(args.action !== undefined ? { action: args.action } : {}),
         ...(args.question_id !== undefined ? { question_id: args.question_id } : {}),
       });

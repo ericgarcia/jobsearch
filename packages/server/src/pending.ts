@@ -184,6 +184,20 @@ export interface PendingEdit {
   answers: Answer[];
   /** The one it recommends, which is the highlighted button. */
   recommend: Answer;
+  /**
+   * The phrase inside the stored text that the question is about.
+   *
+   * A card highlights a whole field, which is right for a line of a resume
+   * and wrong for a four-paragraph summary: the question "where did you
+   * build low-latency serving?" is about four words of it, and showing the
+   * person all four paragraphs leaves them to find the part in question.
+   *
+   * It is a span of the stored text and not free text, checked against it
+   * when the card is made: a quote that is not there, or that is there
+   * twice, is refused rather than shown unmarked. So the mark on the page
+   * is always the assistant's own words pointing at the person's.
+   */
+  quote: string | null;
   at: string;
 }
 
@@ -197,6 +211,7 @@ interface Row {
   value: string;
   why: string;
   recommend: string;
+  quote: string | null;
   at: string;
 }
 
@@ -271,7 +286,7 @@ async function currently(row: {
 
 export async function pendingEdit(): Promise<PendingEdit | null> {
   const row = await get<Row>(
-    `SELECT target, target_id, target_key, question_id, field, action, value, why, recommend, at
+    `SELECT target, target_id, target_key, question_id, field, action, value, why, recommend, quote, at
        FROM pending_edit WHERE id = 1`,
   );
   if (!row) return null;
@@ -368,6 +383,13 @@ export interface Proposal {
   action?: EditAction;
   /** The queued question this is an answer to, from next_question. */
   question_id?: number | null;
+  /**
+   * The phrase in the stored text this question is about, word for word.
+   *
+   * Checked against what is stored: it has to appear there exactly once.
+   * See the note on `quote` in PendingEdit.
+   */
+  quote?: string | null;
   /**
    * Which answer the assistant recommends, which the card highlights.
    *
@@ -466,6 +488,43 @@ export async function proposeEdit(
   }
 
   /*
+    The quote has to be a span of what is stored.
+
+    Unchecked, it would be the one thing on the card that the assistant
+    writes and the person reads as their own text — a mark on words they
+    never wrote, or a mark on nothing at all. So it is matched against the
+    stored value: exactly once, or the call is refused and says why. Twice
+    is refused as well, because a mark on the first of two identical phrases
+    points at the wrong one half the time.
+  */
+  const quote = proposal.quote?.trim() || null;
+  if (quote) {
+    const stored = await currently({
+      target: proposal.target,
+      target_id: proposal.target_id ?? null,
+      target_key: proposal.target_key ?? null,
+      field: proposal.field,
+      action,
+    });
+    if (!stored) {
+      throw new Error(
+        "There is nothing stored for that field, so there is no phrase in it to point at. Leave quote out.",
+      );
+    }
+    const hits = stored.split(quote).length - 1;
+    if (hits === 0) {
+      throw new Error(
+        `That quote is not in the stored text, word for word. Copy the phrase exactly as it is stored, or leave quote out. Stored: “${stored.slice(0, 200)}${stored.length > 200 ? "…" : ""}”`,
+      );
+    }
+    if (hits > 1) {
+      throw new Error(
+        `That phrase appears ${hits} times in the stored text, so a mark on it would point at the wrong one. Quote a longer span that occurs once, or leave quote out.`,
+      );
+    }
+  }
+
+  /*
     Every card recommends one of its own answers.
 
     The card used to work the highlight out from the action, which meant it
@@ -521,8 +580,8 @@ export async function proposeEdit(
 
   await run(
     `INSERT INTO pending_edit
-            (id, target, target_id, target_key, question_id, field, action, value, why, recommend, at)
-          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+            (id, target, target_id, target_key, question_id, field, action, value, why, recommend, quote, at)
+          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
     proposal.target,
     proposal.target_id ?? null,
     proposal.target_key ?? null,
@@ -532,6 +591,7 @@ export async function proposeEdit(
     proposal.value.trim(),
     proposal.why.trim(),
     recommend,
+    quote,
   );
 
   /* So the progress bar can lead back to wherever this was asked. */

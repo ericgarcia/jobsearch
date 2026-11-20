@@ -441,6 +441,7 @@ app.post("/api/pending-edit", async (request, reply) => {
     action?: EditAction;
     question_id?: number;
     recommend?: Answer;
+    quote?: string;
   };
   try {
     return await proposeEdit({
@@ -451,6 +452,7 @@ app.post("/api/pending-edit", async (request, reply) => {
       why: body.why ?? "",
       ...(body.target_id !== undefined ? { target_id: body.target_id } : {}),
       ...(body.target_key !== undefined ? { target_key: body.target_key } : {}),
+      ...(body.quote !== undefined ? { quote: body.quote } : {}),
       ...(body.action !== undefined ? { action: body.action } : {}),
       ...(body.question_id !== undefined ? { question_id: body.question_id } : {}),
     });

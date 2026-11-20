@@ -204,6 +204,8 @@ export function Proposal({
     second.
   */
   const skills = asked.target === "skills";
+  /* A phrase to point at, and the stored text to point at it in. */
+  const marked = Boolean(asked.quote && asked.current);
 
   function label(answer: Answer): string {
     if (answer === "drop") return "Drop it";
@@ -250,8 +252,20 @@ export function Proposal({
         <div className="field-removing">{asked.current ?? asked.value}</div>
       ) : (
         <>
+          {marked && (
+            <>
+              <div className="field-label">the part in question</div>
+              <div className="field-quoted">
+                <Quoted text={asked.current ?? ""} quote={asked.quote!} />
+              </div>
+            </>
+          )}
           {original && <div className="field-label">suggested — edit it here</div>}
-          {asking && <div className="field-label">on your profile — correct it here</div>}
+          {asking && (
+            <div className="field-label">
+              {marked ? "all of it — correct it here" : "on your profile — correct it here"}
+            </div>
+          )}
           {adding && !skills && <div className="field-label">not on your profile — add it?</div>}
           {skills && (
             <div className="field-label">not in your skills — add them? one per comma</div>
@@ -296,6 +310,27 @@ export function Proposal({
         ))}
       </div>
     </div>
+  );
+}
+
+/**
+ * The stored text with the phrase in question marked.
+ *
+ * The card used to show a field whole — right for a line of a resume, wrong
+ * for a four-paragraph summary, where the question is about four words of it
+ * and the person is handed the lot to search. The quote is checked against
+ * the stored text when the card is made, so it is there exactly once and
+ * this split always comes back in three parts.
+ */
+function Quoted({ text, quote }: { text: string; quote: string }) {
+  const at = text.indexOf(quote);
+  if (at < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, at)}
+      <mark className="field-mark">{quote}</mark>
+      {text.slice(at + quote.length)}
+    </>
   );
 }
 

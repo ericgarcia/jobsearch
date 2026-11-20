@@ -617,6 +617,8 @@ export const api = {
         answers: Answer[];
         /** The one the assistant recommends, which is the highlighted button. */
         recommend: Answer;
+        /** The phrase inside the stored text this question is about, marked on the card. */
+        quote: string | null;
         at: string;
       } | null;
     }>("/api/pending-edit"),

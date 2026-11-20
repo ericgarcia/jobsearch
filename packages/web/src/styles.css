@@ -538,6 +538,29 @@ a { color: var(--accent); }
   background: color-mix(in srgb, var(--bg-input) 55%, transparent);
   white-space: pre-wrap;
 }
+/*
+  The stored text with the phrase in question marked.
+
+  Shown above the box rather than instead of it: the question is about the
+  phrase, and the answer is usually a change to the whole field, so both
+  have to be on the card. Read-only, in the box's own type, so the eye runs
+  from the marked phrase down to the text it is editing.
+*/
+.field-quoted {
+  font: inherit; line-height: 1.5;
+  max-height: 128px; overflow-y: auto;
+  color: var(--text-dim);
+  padding: 5px 8px; border-radius: var(--radius);
+  border: 1px dashed var(--line);
+  background: color-mix(in srgb, var(--bg-input) 55%, transparent);
+  white-space: pre-wrap;
+}
+.field-mark {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--text);
+  border-radius: 3px; padding: 0 2px;
+}
+
 .field-answer { display: flex; gap: 6px; margin-top: 2px; }
 .field-answer button { font-size: 11.5px; padding: 3px 10px; }
 .field-card textarea { min-height: 30px; font: inherit; }

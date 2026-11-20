@@ -600,4 +600,71 @@ assert.equal(nothing.gone, true);
 assert.equal(nothing.kept, false);
 ok("and a row that goes between the question and the answer writes nothing, and says so");
 
+console.log("\nPointing at a phrase");
+
+/*
+  A card highlights a whole field, which is right for a line of a resume and
+  wrong for a four-paragraph summary: the question is about four words of it
+  and the person is handed the lot to search. The quote is the assistant's
+  own words marking the person's, so the thing to pin down is that it can
+  only ever mark text that is really there, exactly once.
+*/
+
+await profile.updateProfile({
+  summary: "I build systems. The work was pipelines, low-latency serving, and the monitoring. I build systems.",
+});
+
+const pointed = await proposeEdit({
+  target: "profile",
+  field: "summary",
+  action: "ask",
+  value: "",
+  quote: "low-latency serving",
+  why: "Which system was low-latency?",
+  recommend: "leave",
+});
+assert.equal(pointed.pending.quote, "low-latency serving");
+ok("a phrase that is in the stored text, once, is carried on the card");
+await clearEdit("assistant");
+
+await assert.rejects(
+  proposeEdit({
+    target: "profile",
+    field: "summary",
+    action: "ask",
+    value: "",
+    quote: "kubernetes at scale",
+    why: "Where was this?",
+    recommend: "leave",
+  }),
+  /not in the stored text/,
+);
+ok("one that is not there is refused, so a card cannot mark words they never wrote");
+
+await assert.rejects(
+  proposeEdit({
+    target: "profile",
+    field: "summary",
+    action: "ask",
+    value: "",
+    quote: "I build systems.",
+    why: "Which systems?",
+    recommend: "leave",
+  }),
+  /appears 2 times/,
+);
+ok("and one that is there twice is refused, since a mark would point at the wrong one");
+
+const whole = await proposeEdit({
+  target: "profile",
+  field: "summary",
+  action: "ask",
+  value: "",
+  why: "Is this still right?",
+  recommend: "leave",
+});
+assert.equal(whole.pending.quote, null);
+ok("a question about the whole field carries no quote, as before");
+await clearEdit("assistant");
+
 console.log(`\n${passed} passed, 0 failed`);

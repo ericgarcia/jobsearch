@@ -570,6 +570,12 @@ CREATE TABLE IF NOT EXISTS pending_edit (
   -- card highlights that one, so a card never argues for an answer nobody
   -- chose. See pending.ts.
   recommend  TEXT    NOT NULL DEFAULT 'use',
+  -- The phrase inside the stored text that the question is about, word for
+  -- word. A card highlights a whole field, and a question about four words
+  -- in a four-paragraph summary shows the person everything and leaves them
+  -- to find the part in question. Null when the question is about the whole
+  -- of it. See pending.ts.
+  quote      TEXT,
   at         TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
