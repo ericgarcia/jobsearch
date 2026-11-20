@@ -505,6 +505,12 @@ const proposeEditTool = tool(
       .describe(
         "The phrase inside the stored text that this question is about, word for word. The page marks that phrase and leaves the rest of the field unmarked, which is what a question about four words of a four-paragraph summary needs. Copy it exactly as stored — it is checked, and a quote that is not there, or that is there twice, is refused. Leave it out when the question is about the whole field.",
       ),
+    fields: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "The other fields of this row the question is about, by name, when it is about more than one. A card takes one field, so a question about a role's two dates had to be put on its title, which says nothing about dates. Pass [\"start_date\", \"end_date\"] and the card shows both with what is stored in each, and says which one the box writes. Use the field itself for the one you want changed.",
+      ),
     recommend: z
       .enum(["use", "leave", "drop"])
       .describe(
@@ -522,6 +528,7 @@ const proposeEditTool = tool(
         ...(args.target_id !== undefined ? { target_id: args.target_id } : {}),
         ...(args.target_key !== undefined ? { target_key: args.target_key } : {}),
         ...(args.quote !== undefined ? { quote: args.quote } : {}),
+        ...(args.fields !== undefined ? { fields: args.fields } : {}),
         ...(args.action !== undefined ? { action: args.action } : {}),
         ...(args.question_id !== undefined ? { question_id: args.question_id } : {}),
       });

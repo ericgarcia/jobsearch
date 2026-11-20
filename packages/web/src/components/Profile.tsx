@@ -206,6 +206,12 @@ export function Proposal({
   const skills = asked.target === "skills";
   /* A phrase to point at, and the stored text to point at it in. */
   const marked = Boolean(asked.quote && asked.current);
+  /*
+    More than one field of the row in question. Shown as a short list of
+    what is stored, with the one the box writes marked, so a question about
+    two dates is not asked beside a box containing a job title.
+  */
+  const several = !removing && asked.fields.length > 1;
 
   function label(answer: Answer): string {
     if (answer === "drop") return "Drop it";
@@ -252,6 +258,19 @@ export function Proposal({
         <div className="field-removing">{asked.current ?? asked.value}</div>
       ) : (
         <>
+          {several && (
+            <>
+              <div className="field-label">what this is about</div>
+              <dl className="field-fields">
+                {asked.fields.map((one) => (
+                  <div key={one.field} className={one.edits ? "field-pair field-pair-edits" : "field-pair"}>
+                    <dt>{one.field.replace(/_/g, " ")}</dt>
+                    <dd>{one.value || <span className="field-empty">empty</span>}</dd>
+                  </div>
+                ))}
+              </dl>
+            </>
+          )}
           {marked && (
             <>
               <div className="field-label">the part in question</div>
@@ -263,7 +282,11 @@ export function Proposal({
           {original && <div className="field-label">suggested — edit it here</div>}
           {asking && (
             <div className="field-label">
-              {marked ? "all of it — correct it here" : "on your profile — correct it here"}
+              {several
+                ? `the ${asked.field.replace(/_/g, " ")} — correct it here`
+                : marked
+                  ? "all of it — correct it here"
+                  : "on your profile — correct it here"}
             </div>
           )}
           {adding && !skills && <div className="field-label">not on your profile — add it?</div>}
@@ -545,7 +568,19 @@ function RoleCard({
       {asked && (
         <Proposal
           asked={asked}
-          name={asked.action === "delete" ? `${role.title} at ${role.company}` : `the ${asked.field.replace(/_/g, " ")} of ${role.title} at ${role.company}`}
+          /*
+            Named for every field in question, not only the one the box
+            writes: a card about a role's two dates used to be headed "the
+            title of CTO at NuMundo", because the title was the only field
+            it could be put on.
+          */
+          name={
+            asked.action === "delete"
+              ? `${role.title} at ${role.company}`
+              : `the ${(asked.fields.length > 1 ? asked.fields.map((one) => one.field) : [asked.field])
+                  .map((one) => one.replace(/_/g, " "))
+                  .join(" and ")} of ${role.title} at ${role.company}`
+          }
           onDone={onChanged}
         />
       )}

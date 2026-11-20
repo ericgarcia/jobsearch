@@ -619,6 +619,8 @@ export const api = {
         recommend: Answer;
         /** The phrase inside the stored text this question is about, marked on the card. */
         quote: string | null;
+        /** Every field of this row the question is about, with what is stored in each. */
+        fields: { field: string; value: string | null; edits: boolean }[];
         at: string;
       } | null;
     }>("/api/pending-edit"),

@@ -198,6 +198,21 @@ export interface PendingEdit {
    * is always the assistant's own words pointing at the person's.
    */
   quote: string | null;
+  /**
+   * The fields of this row the question is about, with what is stored in
+   * each, when it is about more than the one the box writes.
+   *
+   * A card takes one field. The question "were you doing NuMundo alongside
+   * Preact?" is about a role's two dates, and with one field to point at,
+   * the assistant put the card on the job title — which says nothing about
+   * dates, and left the person reading a question about an overlap beside a
+   * box containing the word "CTO". Now the card can show both dates, and
+   * say which of them the box writes.
+   *
+   * Resolved here rather than on the page, since the stored values are the
+   * server's to read. Empty when the question is about one field alone.
+   */
+  fields: { field: string; value: string | null; edits: boolean }[];
   at: string;
 }
 
@@ -212,6 +227,7 @@ interface Row {
   why: string;
   recommend: string;
   quote: string | null;
+  fields: string | null;
   at: string;
 }
 
@@ -286,7 +302,7 @@ async function currently(row: {
 
 export async function pendingEdit(): Promise<PendingEdit | null> {
   const row = await get<Row>(
-    `SELECT target, target_id, target_key, question_id, field, action, value, why, recommend, quote, at
+    `SELECT target, target_id, target_key, question_id, field, action, value, why, recommend, quote, fields, at
        FROM pending_edit WHERE id = 1`,
   );
   if (!row) return null;
@@ -306,10 +322,32 @@ export async function pendingEdit(): Promise<PendingEdit | null> {
     reading: it is the one the question is chiefly about.
   */
   const wanted = row.recommend as Answer;
+
+  /*
+    The named fields with what is stored in each. Read here because the
+    stored values are the server's to read, and because a page that fetched
+    them itself would show a different moment than the card was made in.
+  */
+  let named: string[] = [];
+  try {
+    const parsed: unknown = row.fields ? JSON.parse(row.fields) : [];
+    if (Array.isArray(parsed)) named = parsed.filter((one): one is string => typeof one === "string");
+  } catch {
+    named = [];
+  }
+  const fields = await Promise.all(
+    named.map(async (field) => ({
+      field,
+      value: await currently({ ...row, field }),
+      edits: field === row.field,
+    })),
+  );
+
   return {
     ...row,
     action,
     answers,
+    fields,
     recommend: answers.includes(wanted) ? wanted : (answers[0] ?? "use"),
     current: await currently(row),
   };
@@ -390,6 +428,13 @@ export interface Proposal {
    * See the note on `quote` in PendingEdit.
    */
   quote?: string | null;
+  /**
+   * The other fields of this row the question is about, by name.
+   *
+   * Each has to be a field that can be proposed on this target. See the note
+   * on `fields` in PendingEdit.
+   */
+  fields?: string[] | null;
   /**
    * Which answer the assistant recommends, which the card highlights.
    *
@@ -497,6 +542,26 @@ export async function proposeEdit(
     is refused as well, because a mark on the first of two identical phrases
     points at the wrong one half the time.
   */
+  /*
+    Every named field has to be one this target can be asked about, for the
+    same reason the single field does: a card that showed "notes" or
+    "manager" beside a role would be showing something the profile does not
+    have. The one the box writes is included whether or not it was named, so
+    the card always says which of them the answer changes.
+  */
+  const named = (proposal.fields ?? []).map((one) => one.trim()).filter(Boolean);
+  for (const field of named) {
+    if (!allowed.includes(field)) {
+      throw new Error(
+        `"${field}" is not one of the fields of a ${proposal.target}: ${allowed.join(", ")}.`,
+      );
+    }
+  }
+  const fields =
+    named.length === 0
+      ? null
+      : JSON.stringify([proposal.field, ...named.filter((one) => one !== proposal.field)]);
+
   const quote = proposal.quote?.trim() || null;
   if (quote) {
     const stored = await currently({
@@ -580,8 +645,8 @@ export async function proposeEdit(
 
   await run(
     `INSERT INTO pending_edit
-            (id, target, target_id, target_key, question_id, field, action, value, why, recommend, quote, at)
-          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+            (id, target, target_id, target_key, question_id, field, action, value, why, recommend, quote, fields, at)
+          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
     proposal.target,
     proposal.target_id ?? null,
     proposal.target_key ?? null,
@@ -592,6 +657,7 @@ export async function proposeEdit(
     proposal.why.trim(),
     recommend,
     quote,
+    fields,
   );
 
   /* So the progress bar can lead back to wherever this was asked. */

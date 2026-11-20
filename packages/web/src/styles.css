@@ -561,6 +561,28 @@ a { color: var(--accent); }
   border-radius: 3px; padding: 0 2px;
 }
 
+/*
+  Several fields of one row, when the question is about more than the box
+  writes — a role's two dates, say. The one the answer changes is marked, so
+  the card never leaves it unsaid which of them is being edited.
+*/
+.field-fields {
+  margin: 0; display: flex; flex-direction: column; gap: 2px;
+  padding: 5px 8px; border-radius: var(--radius);
+  border: 1px dashed var(--line);
+  background: color-mix(in srgb, var(--bg-input) 55%, transparent);
+}
+.field-pair { display: flex; gap: 8px; font-size: 12px; line-height: 1.5; }
+.field-pair dt {
+  flex: none; min-width: 74px; color: var(--text-faint);
+  font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase;
+  padding-top: 2px;
+}
+.field-pair dd { margin: 0; color: var(--text-dim); }
+.field-pair-edits dd { color: var(--text); font-weight: 600; }
+.field-pair-edits dt { color: var(--accent); }
+.field-empty { color: var(--text-faint); font-style: italic; }
+
 .field-answer { display: flex; gap: 6px; margin-top: 2px; }
 .field-answer button { font-size: 11.5px; padding: 3px 10px; }
 .field-card textarea { min-height: 30px; font: inherit; }

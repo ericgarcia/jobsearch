@@ -667,4 +667,70 @@ assert.equal(whole.pending.quote, null);
 ok("a question about the whole field carries no quote, as before");
 await clearEdit("assistant");
 
+console.log("\nA question about more than one field");
+
+/*
+  A card takes one field, so the question "were you doing NuMundo alongside
+  Preact?" — which is about two dates — was put on the job title, and the
+  person read a question about an overlap beside a box containing "CTO".
+  What matters is that the card carries every field in question with what is
+  stored in each, and says which one the answer changes.
+*/
+
+const overlap = await profile.addRole({
+  company: "NuMundo",
+  title: "Chief Technology Officer",
+  start_date: "2015-03",
+  end_date: "2015-12",
+});
+
+const both = await proposeEdit({
+  target: "role",
+  target_id: overlap.id,
+  field: "end_date",
+  action: "ask",
+  value: "",
+  fields: ["start_date", "end_date"],
+  why: "These dates fall inside your time at Preact.",
+  recommend: "leave",
+});
+assert.deepEqual(
+  both.pending.fields.map((one) => [one.field, one.value, one.edits]),
+  [
+    ["end_date", "2015-12", true],
+    ["start_date", "2015-03", false],
+  ],
+);
+ok("both dates travel with the card, with what is stored in each");
+
+assert.equal(both.pending.fields.filter((one) => one.edits).length, 1);
+ok("and exactly one of them is marked as the one the answer changes");
+await clearEdit("assistant");
+
+await assert.rejects(
+  proposeEdit({
+    target: "role",
+    target_id: overlap.id,
+    field: "end_date",
+    action: "ask",
+    value: "",
+    fields: ["manager"],
+    why: "Who did you report to?",
+    recommend: "leave",
+  }),
+  /not one of the fields of a role/,
+);
+ok("a field a role does not have is refused, as the single field already was");
+
+const alone = await proposeEdit({
+  target: "role",
+  target_id: overlap.id,
+  field: "title",
+  value: "CTO",
+  why: "Shorter.",
+});
+assert.deepEqual(alone.pending.fields, []);
+ok("and a question about one field carries no list, as before");
+await resolveEdit("leave");
+
 console.log(`\n${passed} passed, 0 failed`);

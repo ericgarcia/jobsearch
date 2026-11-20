@@ -576,6 +576,12 @@ CREATE TABLE IF NOT EXISTS pending_edit (
   -- to find the part in question. Null when the question is about the whole
   -- of it. See pending.ts.
   quote      TEXT,
+  -- The fields of the row this question is about, as a JSON array of names,
+  -- when it is about more than the one the box writes. A card takes one
+  -- field, so a question about a role's two dates had to be put on its
+  -- title, which says nothing about dates. Null when the question is about
+  -- the one field alone. See pending.ts.
+  fields     TEXT,
   at         TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
