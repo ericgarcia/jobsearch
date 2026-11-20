@@ -16,8 +16,12 @@ import { useEffect, useState } from "react";
  * shape, every card says it is on the screen, and anything that notices a
  * waiting question nobody claimed can show it plainly instead.
  *
- * A proposal is identified by `at`, the moment it was made, since there is
- * only ever one waiting and the time it arrived is already unique.
+ * A proposal is identified by its token, which the server gives it and
+ * nothing else will ever have. It used to be `at`, the moment it was made,
+ * on the reasoning that only one is ever waiting and the time it arrived is
+ * already unique — but `at` is seconds, and a card replaced within a second
+ * of arriving is a card the page cannot tell from the one before it. That
+ * is not a rare case: it is what happens when somebody answers.
  */
 
 let claimedAt: string | null = null;

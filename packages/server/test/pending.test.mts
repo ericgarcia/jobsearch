@@ -661,6 +661,61 @@ assert.equal(nothing.gone, true);
 assert.equal(nothing.kept, false);
 ok("and a row that goes between the question and the answer writes nothing, and says so");
 
+console.log("\nWhat a card's id names");
+
+/*
+  A bullet and a role may both be numbered 7; they are different tables and
+  that is not a collision. What went wrong was a lookup in the wrong one:
+  for an offered line, target_id is the ROLE it would join, and the check
+  when the card was answered read it as a bullet id. Bullet 7 had been
+  deleted, role 7 had not, and the card closed itself saying the line was no
+  longer on the profile — a line that had never been on it, because offering
+  it is the whole point.
+*/
+
+const host2 = await profile.addRole({ company: "Preact", title: "Founding ML Engineer" });
+const sameNumber = await profile.addBullet(host2.id, "A line whose id will match a role's.");
+/* Make a bullet and a role that share a number, then delete the bullet. */
+await profile.deleteBullet(sameNumber.id);
+
+const offeredLine = await proposeEdit({
+  target: "bullet",
+  target_id: host2.id,
+  field: "text",
+  action: "add",
+  value: "Used Redis to group user actions into sessions.",
+  why: "They described it just now.",
+  recommend: "use",
+});
+assert.equal(offeredLine.pending.action, "add");
+
+const put = await resolveEdit("use");
+assert.equal(put.gone, undefined);
+assert.equal(put.kept, true);
+assert.equal(
+  (await profile.listBullets()).some((one) => one.text.includes("group user actions")),
+  true,
+);
+ok("an offered line is added under its role, whatever became of the bullet of that number");
+
+console.log("\nTelling one card from the next");
+
+const cardOne = await proposeEdit({
+  target: "profile",
+  field: "headline",
+  value: "One",
+  why: "First.",
+});
+const cardTwo = await proposeEdit({
+  target: "profile",
+  field: "headline",
+  value: "Two",
+  why: "Second, in the same second.",
+});
+assert.notEqual(cardOne.pending.token, cardTwo.pending.token);
+ok("two cards made in the same second are told apart, which `at` could not do");
+await clearEdit("assistant");
+
 console.log("\nPointing at a phrase");
 
 /*

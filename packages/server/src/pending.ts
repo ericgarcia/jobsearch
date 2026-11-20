@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { get, run } from "./db/client.js";
 import { changed } from "./notify.js";
 import { noteAsking } from "./asking.js";
@@ -224,6 +225,18 @@ export interface PendingEdit {
    * server's to read. Empty when the question is about one field alone.
    */
   fields: { field: string; value: string | null; edits: boolean }[];
+  /**
+   * What this card is, for anything that has to say "this one and not that".
+   *
+   * It was `at` until a card arrived in the same second as the one it
+   * replaced, at which point the two were the same card as far as the page
+   * could tell: the box did not re-seed, because the effect watching for a
+   * new card saw no change, and the registry that records which card is on
+   * the screen could not tell a claim from a release. A second is a short
+   * time to a person and a long one to a replacement that happens on their
+   * click. So the card carries something nothing else will have.
+   */
+  token: string;
   at: string;
 }
 
@@ -239,6 +252,7 @@ interface Row {
   recommend: string;
   quote: string | null;
   fields: string | null;
+  token: string | null;
   at: string;
 }
 
@@ -277,6 +291,33 @@ async function stillThere(row: {
   return true;
 }
 
+/**
+ * What a card's `target_id` names, which is not always the card's target.
+ *
+ * For an add it is the role the line would join, because the line itself
+ * does not exist yet. Everywhere else it is the row the card is about.
+ *
+ * One function because the two callers got out of step the day they were
+ * written apart: the check when a card is made knew about the add, and the
+ * check when it is answered did not, so it looked for a *bullet* with the
+ * role's number. Bullet 7 had been deleted, role 7 had not, and an offered
+ * line under role 7 closed itself saying the line was no longer on the
+ * profile. The numbers were not colliding — a bullet and a role may both be
+ * 7 — the lookup was simply in the wrong table, and the one place to make
+ * sure that cannot differ is here.
+ */
+function whatItNames(edit: {
+  target: string;
+  target_id: number | null;
+  target_key: string | null;
+  action: EditAction;
+}): { target: string; target_id: number | null; target_key: string | null } {
+  if (edit.action === "add" && edit.target === "bullet") {
+    return { target: "role", target_id: edit.target_id, target_key: null };
+  }
+  return { target: edit.target, target_id: edit.target_id, target_key: edit.target_key };
+}
+
 /** What is stored for this thing right now, so the page can show a change. */
 async function currently(row: {
   target: string;
@@ -313,7 +354,7 @@ async function currently(row: {
 
 export async function pendingEdit(): Promise<PendingEdit | null> {
   const row = await get<Row>(
-    `SELECT target, target_id, target_key, question_id, field, action, value, why, recommend, quote, fields, at
+    `SELECT target, target_id, target_key, question_id, field, action, value, why, recommend, quote, fields, token, at
        FROM pending_edit WHERE id = 1`,
   );
   if (!row) return null;
@@ -359,6 +400,8 @@ export async function pendingEdit(): Promise<PendingEdit | null> {
     action,
     answers,
     fields,
+    /* A card written before this column existed keeps its old identity. */
+    token: row.token ?? row.at,
     recommend: answers.includes(wanted) ? wanted : (answers[0] ?? "use"),
     current: await currently(row),
   };
@@ -546,14 +589,12 @@ export async function proposeEdit(
     afterwards is the way this happens, and the queue is where it should be
     settled rather than on a card nobody can answer.
   */
-  const needs =
-    action === "add" && proposal.target === "bullet"
-      ? { target: "role", target_id: proposal.target_id ?? null, target_key: null }
-      : {
-          target: proposal.target,
-          target_id: proposal.target_id ?? null,
-          target_key: proposal.target_key ?? null,
-        };
+  const needs = whatItNames({
+    target: proposal.target,
+    target_id: proposal.target_id ?? null,
+    target_key: proposal.target_key ?? null,
+    action,
+  });
   if (!(await stillThere(needs))) {
     throw new Error(
       `That ${needs.target} is not on their profile — it has been removed, or the id is wrong. Check the profile for what is there now, and settle the question with settle_question if it is about something that no longer exists.`,
@@ -673,8 +714,8 @@ export async function proposeEdit(
 
   await run(
     `INSERT INTO pending_edit
-            (id, target, target_id, target_key, question_id, field, action, value, why, recommend, quote, fields, at)
-          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+            (id, target, target_id, target_key, question_id, field, action, value, why, recommend, quote, fields, token, at)
+          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
     proposal.target,
     proposal.target_id ?? null,
     proposal.target_key ?? null,
@@ -686,6 +727,7 @@ export async function proposeEdit(
     recommend,
     quote,
     fields,
+    randomUUID(),
   );
 
   /* So the progress bar can lead back to wherever this was asked. */
@@ -777,7 +819,7 @@ export async function resolveEdit(answer: Answer, value?: string): Promise<Resol
     the answers are told apart, because the row is equally gone whichever
     button was pressed.
   */
-  if (!(await stillThere(waiting))) {
+  if (!(await stillThere(whatItNames(waiting)))) {
     return { field: waiting.field, kept: false, gone: true };
   }
 

@@ -582,6 +582,11 @@ CREATE TABLE IF NOT EXISTS pending_edit (
   -- title, which says nothing about dates. Null when the question is about
   -- the one field alone. See pending.ts.
   fields     TEXT,
+  -- What this card is, for the page: a value nothing else will ever have.
+  -- The card used to be identified by `at`, which is seconds, and two cards
+  -- made in the same second were the same card as far as the page could
+  -- tell. See pending.ts.
+  token      TEXT,
   at         TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 

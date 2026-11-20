@@ -118,7 +118,7 @@ export function Proposal({
       cancelAnimationFrame(frame);
       clearTimeout(again);
     };
-  }, [asked.at, seed]);
+  }, [asked.token, seed]);
 
   /*
     And again whenever somebody asks where the question went — from the top
@@ -133,9 +133,9 @@ export function Proposal({
   /* On the screen, so nothing has to show it plainly instead. See claimed.ts. */
   useEffect(() => {
     if (!claims) return;
-    claim(asked.at);
-    return () => release(asked.at);
-  }, [asked.at, claims]);
+    claim(asked.token);
+    return () => release(asked.token);
+  }, [asked.token, claims]);
 
   const removing = asked.action === "delete" && !gone;
   const asking = asked.action === "ask" && !gone;
@@ -870,7 +870,7 @@ function strandedName(pending: Pending): string {
 }
 
 function Stranded({ pending, onDone }: { pending: Pending | null; onDone: () => void }) {
-  const claimed = useClaimed(pending?.at ?? null);
+  const claimed = useClaimed(pending?.token ?? null);
   const [settled, setSettled] = useState(false);
 
   useEffect(() => {
@@ -878,7 +878,7 @@ function Stranded({ pending, onDone }: { pending: Pending | null; onDone: () => 
     if (!pending) return;
     const wait = setTimeout(() => setSettled(true), 400);
     return () => clearTimeout(wait);
-  }, [pending?.at]);
+  }, [pending?.token]);
 
   if (!pending || claimed || !settled) return null;
 

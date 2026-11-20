@@ -640,6 +640,8 @@ export const api = {
         quote: string | null;
         /** Every field of this row the question is about, with what is stored in each. */
         fields: { field: string; value: string | null; edits: boolean }[];
+        /** What this card is. Unique per card, unlike `at`, which is seconds. */
+        token: string;
         at: string;
       } | null;
     }>("/api/pending-edit"),
